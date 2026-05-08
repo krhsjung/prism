@@ -1,0 +1,33 @@
+{
+  "color": {
+    "background": { "$value": "#1A2436", "$type": "color" },
+    "foreground": { "$value": "#E5ECF7", "$type": "color" },
+    "muted": { "$value": "#30425E", "$type": "color" },
+    "muted-foreground": { "$value": "#AAB8CC", "$type": "color" },
+    "card": { "$value": "#243044", "$type": "color" },
+    "card-foreground": { "$value": "#E5ECF7", "$type": "color" },
+    "border": { "$value": "#30425E", "$type": "color" },
+    "input": { "$value": "#30425E", "$type": "color" },
+    "primary": { "$value": "#1D3557", "$type": "color" },
+    "primary-foreground": { "$value": "#FFFFFF", "$type": "color" },
+    "secondary": { "$value": "#30425E", "$type": "color" },
+    "secondary-foreground": { "$value": "#E5ECF7", "$type": "color" },
+    "accent": { "$value": "#4A78B8", "$type": "color" },
+    "accent-foreground": { "$value": "#FFFFFF", "$type": "color" },
+    "destructive": { "$value": "#C75B5B", "$type": "color" },
+    "destructive-foreground": { "$value": "#FFFFFF", "$type": "color" },
+    "success": { "$value": "#4A9D6E", "$type": "color" },
+    "success-foreground": { "$value": "#FFFFFF", "$type": "color" },
+    "success-bg": { "$value": "#E9F6EF", "$type": "color" },
+    "warning": { "$value": "#D4A844", "$type": "color" },
+    "warning-foreground": { "$value": "#FFFFFF", "$type": "color" },
+    "warning-bg": { "$value": "#FFF6E8", "$type": "color" },
+    "error": { "$value": "#C75B5B", "$type": "color" },
+    "error-foreground": { "$value": "#FFFFFF", "$type": "color" },
+    "error-bg": { "$value": "#FDEEEE", "$type": "color" },
+    "info": { "$value": "#5B8FC7", "$type": "color" },
+    "info-foreground": { "$value": "#FFFFFF", "$type": "color" },
+    "info-bg": { "$value": "#E8F0FA", "$type": "color" },
+    "navy": { "$value": "#0F1726", "$type": "color" }
+  }
+}

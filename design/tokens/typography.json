@@ -1,0 +1,7 @@
+{
+  "font": {
+    "primary": { "$value": "Manrope", "$type": "fontFamily" },
+    "secondary": { "$value": "Manrope", "$type": "fontFamily" },
+    "mono": { "$value": "JetBrains Mono", "$type": "fontFamily" }
+  }
+}
