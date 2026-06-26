@@ -1,0 +1,52 @@
+networks:
+  default:
+    name: postgres
+    external: false
+
+services:
+  postgres-primary:
+    image: postgres:${POSTGRES_VERSION}
+    container_name: postgres-primary
+    restart: unless-stopped
+    ports:
+      - ${POSTGRES_PRIMARY_PORT}:5432
+    environment:
+      POSTGRES_USER: ${POSTGRES_PRIMARY_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PRIMARY_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_REPLICATION_USER: ${POSTGRES_REPLICATION_USER}
+      POSTGRES_REPLICATION_PASSWORD: ${POSTGRES_REPLICATION_PASSWORD}
+      POSTGRES_REPLICATION_SLOT: ${POSTGRES_REPLICATION_SLOT}
+    volumes:
+      - ./primary/init:/docker-entrypoint-initdb.d:ro
+      - ./primary/config/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+      - ./primary/config/pg_hba.conf:/etc/postgresql/pg_hba.conf:ro
+      - ${DOCKER_VOLUME_PATH}/postgresql/primary:${POSTGRES_DATABASE_DIRECTORY}
+    command: >
+      -c config_file=/etc/postgresql/postgresql.conf
+      -c log_line_prefix="${POSTGRES_LOG_LINE_PREFIX}"
+
+  postgres-standby:
+    image: postgres:${POSTGRES_VERSION}
+    container_name: postgres-standby
+    restart: unless-stopped
+    ports:
+      - ${POSTGRES_STANDBY_PORT}:5432
+    depends_on:
+      - postgres-primary
+    environment:
+      POSTGRES_USER: ${POSTGRES_STANDBY_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_STANDBY_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_REPLICATION_USER: ${POSTGRES_REPLICATION_USER}
+      POSTGRES_REPLICATION_PASSWORD: ${POSTGRES_REPLICATION_PASSWORD}
+      PGPASSWORD: "${POSTGRES_REPLICATION_PASSWORD}"
+      PRIMARY_HOST: postgres-primary
+      PRIMARY_PORT: ${POSTGRES_PRIMARY_PORT}
+      POSTGRES_LOG_LINE_PREFIX: "${POSTGRES_LOG_LINE_PREFIX}"
+    volumes:
+      - ./standby/init:/docker-entrypoint-initdb.d:ro
+      - ./standby/config/pg_hba.conf:/etc/postgresql/pg_hba.conf:ro
+      - ./standby/config/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+      - ${DOCKER_VOLUME_PATH}/postgresql/standby:${POSTGRES_DATABASE_DIRECTORY}
+    entrypoint: ["/docker-entrypoint-initdb.d/standby-entrypoint.sh"]

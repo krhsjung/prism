@@ -1,0 +1,22 @@
+version: "3.8"
+
+networks:
+  default:
+    name: reids
+    external: false
+
+services:
+  redis:
+    image: redis:${REDIS_VERSION}
+    container_name: redis
+    restart: unless-stopped
+    ports:
+      - ${REDIS_PORT}:6379
+    volumes:
+      - ${DOCKER_VOLUME_PATH}/redis:/data
+      - ./redis.conf:/etc/redis/redis.conf:ro
+      - ./init-acl.sh:/usr/local/bin/init-acl.sh:ro
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      AILOM_REDIS_PASSWORD: ${AILOM_REDIS_PASSWORD}
+    command: /usr/local/bin/init-acl.sh
