@@ -6,12 +6,25 @@
 
 ```text
 infra/
+├── architecture.drawio     # 인프라 구조도 (draw.io) — 단일 소스 오브 트루스
 ├── docker/                 # 로컬 개발용 컨테이너 환경
 │   ├── postgres/           # PostgreSQL primary/standby (스트리밍 복제) docker-compose
 │   ├── redis/              # Redis
 │   └── kind/               # 로컬 Kubernetes (kind) 클러스터
 └── postgres/               # DB 스키마 마이그레이션 (SQL 러너 + 파일)
 ```
+
+## 아키텍처
+
+전체 구조는 [architecture.drawio](architecture.drawio)에서 관리한다
+(draw.io / diagrams.net 또는 VS Code drawio 확장으로 열기).
+
+- 외부 도메인 **registry.example.com** → **nginx**(reverse proxy)가 경로별 라우팅
+  - `/` → **web** (정적 SPA 빌드)
+  - `/auth` → **auth** 서비스 (NestJS)
+  - `/api` → **api** 서비스 (NestJS)
+- `auth`·`api`는 **kind(Kubernetes)** 에서 구동, 데이터는 PostgreSQL·Redis(docker) 사용
+- nginx(host) → kind 전달은 **NodePort + kind `extraPortMappings`** 로 노출한 host 포트를 `proxy_pass`
 
 - 컨테이너 기동: 각 `docker/<svc>/`에서 `docker compose up -d`
 - DB 마이그레이션: 컨테이너 기동 후 [`postgres/`](postgres/README.md) 참고
