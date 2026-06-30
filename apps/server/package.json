@@ -7,17 +7,21 @@
   "license": "UNLICENSED",
   "scripts": {
     "build": "nest build api",
-    "format": "prettier --write \"{apps,libs}/**/*.ts\"",
+    "build:auth": "nest build auth",
+    "format": "prettier --write \"{services,libs}/**/*.ts\"",
     "start": "nest start api",
     "start:dev": "nest start api --watch",
     "start:debug": "nest start api --debug --watch",
-    "start:prod": "node dist/apps/api/main",
-    "lint": "eslint \"{apps,libs}/**/*.ts\" --fix",
+    "start:prod": "node dist/services/api/main",
+    "start:auth": "nest start auth",
+    "start:auth:dev": "nest start auth --watch",
+    "start:auth:prod": "node dist/services/auth/main",
+    "lint": "eslint \"{services,libs}/**/*.ts\" --fix",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
-    "test:e2e": "jest --config ./apps/api/test/jest-e2e.json"
+    "test:e2e": "jest --config ./services/api/test/jest-e2e.json"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",
@@ -68,7 +72,7 @@
       "^@app/common/(.*)$": "<rootDir>/libs/common/src/$1"
     },
     "collectCoverageFrom": [
-      "apps/**/*.(t|j)s",
+      "services/**/*.(t|j)s",
       "libs/**/*.(t|j)s"
     ],
     "coverageDirectory": "./coverage",

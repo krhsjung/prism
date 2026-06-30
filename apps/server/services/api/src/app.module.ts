@@ -1,10 +1,10 @@
 import { Module } from '@nestjs/common';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
-import { AuthModule } from './auth/auth.module';
 
+// auth는 별도 앱(services/auth)으로 분리되어 독립 실행된다.
 @Module({
-  imports: [AuthModule],
+  imports: [],
   controllers: [AppController],
   providers: [AppService],
 })
