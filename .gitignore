@@ -13,3 +13,6 @@ yarn-debug.log*
 
 # Node (안전망 — 각 앱에도 자체 .gitignore 존재)
 node_modules/
+
+# Helm: install.sh가 생성하는 env 치환 임시 values (시크릿 평문 포함 — 커밋 금지)
+infra/deploy/charts/*/values.generated.yaml

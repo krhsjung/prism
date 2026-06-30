@@ -5,7 +5,8 @@ import { AuthService } from './auth.service';
 import { JwtAuthGuard } from './jwt-auth.guard';
 
 // JWT 시크릿은 환경변수에서. 개발용 fallback은 운영에서 절대 사용 금지.
-const JWT_SECRET = process.env.AUTH_JWT_SECRET ?? 'dev-insecure-secret-change-me';
+// (refresh 토큰은 v1 미지원 — JWT_REFRESH_SECRET_KEY는 도입 시 사용)
+const JWT_SECRET = process.env.JWT_SECRET_KEY ?? 'dev-insecure-secret-change-me';
 
 @Module({
   imports: [

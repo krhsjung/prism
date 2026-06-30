@@ -1,0 +1,26 @@
+# 값은 install.sh가 환경변수로 치환한다(${VAR:-default}).
+replicaCount: 1
+
+image:
+  repository: ${PRISM_REGISTRY:?set PRISM_REGISTRY}/prism-api
+  tag: "${PRISM_IMAGE_TAG:-latest}"
+  pullPolicy: Always
+
+imagePullSecret: prism-registry
+
+service:
+  type: NodePort
+  port: 3000
+  targetPort: 3000
+  nodePort: ${PRISM_API_NODEPORT:-30001}
+
+env:
+  port: "3000"
+
+resources:
+  limits:
+    cpu: 300m
+    memory: 256Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi

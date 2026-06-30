@@ -38,3 +38,7 @@ prism/
 ## 시작하기
 
 자세한 실행 방법은 각 앱 폴더의 README를 참고하세요.
+
+## 배포
+
+web(정적) · auth · api 빌드/배포 방법은 [infra/deploy/README.md](infra/deploy/README.md)를 참고하세요.

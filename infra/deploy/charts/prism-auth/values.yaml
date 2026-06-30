@@ -1,0 +1,53 @@
+# 값은 install.sh가 환경변수로 치환한다(${VAR:-default}). 시크릿은 env에서만 주입.
+replicaCount: 1
+
+image:
+  repository: ${PRISM_REGISTRY:?set PRISM_REGISTRY}/prism-auth
+  tag: "${PRISM_IMAGE_TAG:-latest}"
+  pullPolicy: Always
+
+# 레지스트리 pull 시크릿 이름 (install.sh가 네임스페이스에 생성)
+imagePullSecret: prism-registry
+
+service:
+  type: NodePort
+  port: 3000
+  targetPort: 3000
+  nodePort: ${PRISM_AUTH_NODEPORT:-30000}
+
+env:
+  authPort: "3000"
+  corsOrigin: "https://${PRISM_SERVICE_DOMAIN}"
+  # 로그인 완료 후 브라우저를 되돌려보낼 웹 앱 주소.
+  webAppUrl: "https://${PRISM_SERVICE_DOMAIN}"
+  # 소셜 OAuth — 비시크릿 설정(미설정 시 빈 값 → 해당 provider 비활성).
+  # redirect URI는 nginx가 /auth를 auth 서비스로 보내므로 도메인 기준으로 구성한다.
+  googleClientId: "${PRISM_GOOGLE_CLIENT_ID:-}"
+  googleRedirectUri: "https://${PRISM_SERVICE_DOMAIN}/auth/google/callback"
+  appleTeamId: "${PRISM_APPLE_TEAM_ID:-}"
+  appleClientId: "${PRISM_APPLE_CLIENT_ID:-}"
+  appleKeyId: "${PRISM_APPLE_KEY_ID:-}"
+  appleBundleId: "${PRISM_APPLE_BUNDLE_ID:-}"
+  appleRedirectUri: "https://${PRISM_SERVICE_DOMAIN}/auth/apple/callback"
+
+# 시크릿: env → k8s Secret. JWT는 필수, OAuth/DB는 미설정 시 빈 값.
+jwt:
+  secretKey: "${PRISM_JWT_SECRET_KEY}"
+  refreshSecretKey: "${PRISM_JWT_REFRESH_SECRET_KEY}"
+
+oauth:
+  googleClientSecret: "${PRISM_GOOGLE_CLIENT_SECRET:-}"
+  # .p8 키 내용. 개행은 \n 이스케이프로 넣어도 앱이 복원한다.
+  applePrivateKey: "${PRISM_APPLE_PRIVATE_KEY:-}"
+
+# 사용자 upsert용 PostgreSQL 접속 문자열 (예: postgres://user:pw@host:5432/prism)
+database:
+  url: "${PRISM_DATABASE_URL:-}"
+
+resources:
+  limits:
+    cpu: 300m
+    memory: 256Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi

@@ -1,0 +1,79 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "prism-auth.fullname" . }}
+  labels:
+    {{- include "prism-auth.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "prism-auth.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "prism-auth.selectorLabels" . | nindent 8 }}
+    spec:
+      imagePullSecrets:
+        - name: {{ .Values.imagePullSecret }}
+      containers:
+        - name: {{ .Chart.Name }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.targetPort }}
+              protocol: TCP
+          env:
+            - name: AUTH_PORT
+              value: {{ .Values.env.authPort | quote }}
+            - name: CORS_ORIGIN
+              value: {{ .Values.env.corsOrigin | quote }}
+            - name: JWT_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "prism-auth.fullname" . }}-secret
+                  key: jwt-secret-key
+            - name: JWT_REFRESH_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "prism-auth.fullname" . }}-secret
+                  key: jwt-refresh-secret-key
+            - name: WEB_APP_URL
+              value: {{ .Values.env.webAppUrl | quote }}
+            - name: GOOGLE_CLIENT_ID
+              value: {{ .Values.env.googleClientId | quote }}
+            - name: GOOGLE_REDIRECT_URI
+              value: {{ .Values.env.googleRedirectUri | quote }}
+            - name: APPLE_TEAM_ID
+              value: {{ .Values.env.appleTeamId | quote }}
+            - name: APPLE_CLIENT_ID
+              value: {{ .Values.env.appleClientId | quote }}
+            - name: APPLE_KEY_ID
+              value: {{ .Values.env.appleKeyId | quote }}
+            - name: APPLE_BUNDLE_ID
+              value: {{ .Values.env.appleBundleId | quote }}
+            - name: APPLE_REDIRECT_URI
+              value: {{ .Values.env.appleRedirectUri | quote }}
+            - name: GOOGLE_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "prism-auth.fullname" . }}-secret
+                  key: google-client-secret
+            - name: APPLE_PRIVATE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "prism-auth.fullname" . }}-secret
+                  key: apple-private-key
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "prism-auth.fullname" . }}-secret
+                  key: database-url
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
