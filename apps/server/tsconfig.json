@@ -16,14 +16,18 @@
     "baseUrl": "./",
     "incremental": true,
     "skipLibCheck": true,
-    "strictNullChecks": true,
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
     "forceConsistentCasingInFileNames": true,
-    "noImplicitAny": true,
-    "strictBindCallApply": true,
     "noFallthroughCasesInSwitch": true,
+    "types": ["node", "jest"],
     "paths": {
-      "@app/common": ["libs/common/src/index.ts"],
-      "@app/common/*": ["libs/common/src/*"]
+      "@app/common": ["./libs/common/src/index.ts"],
+      "@app/common/*": ["./libs/common/src/*"],
+      "@app/database": ["./libs/database/src/index.ts"],
+      "@app/database/*": ["./libs/database/src/*"],
+      "@app/config": ["./libs/config/src/index.ts"],
+      "@app/config/*": ["./libs/config/src/*"]
     }
   }
 }

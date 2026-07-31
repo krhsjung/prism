@@ -4,29 +4,25 @@ import {
   HttpException,
   Injectable,
 } from '@nestjs/common';
-import { JwtService } from '@nestjs/jwt';
 import type { Request } from 'express';
-import { AuthService } from './auth.service';
-import type { JwtPayload } from '@app/common';
+import { AUTH_ERROR_CODES, type User } from '@app/common';
+import { AuthTokenService } from './session/auth-token.service';
 
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
-  constructor(
-    private readonly jwt: JwtService,
-    private readonly auth: AuthService,
-  ) {}
+  constructor(private readonly tokens: AuthTokenService) {}
 
   canActivate(ctx: ExecutionContext): boolean {
-    const req = ctx.switchToHttp().getRequest<Request & { user?: unknown }>();
+    const req = ctx.switchToHttp().getRequest<Request & { user?: User }>();
     const header = req.headers.authorization;
     const token = header?.startsWith('Bearer ') ? header.slice(7) : null;
-    if (!token) throw new HttpException({ error: 'UNAUTHORIZED' }, 401);
+    if (!token)
+      throw new HttpException({ error: AUTH_ERROR_CODES.UNAUTHORIZED }, 401);
     try {
-      const payload = this.jwt.verify<JwtPayload>(token);
-      req.user = this.auth.userFromPayload(payload);
+      req.user = this.tokens.verifySession(token);
       return true;
     } catch {
-      throw new HttpException({ error: 'UNAUTHORIZED' }, 401);
+      throw new HttpException({ error: AUTH_ERROR_CODES.UNAUTHORIZED }, 401);
     }
   }
 }

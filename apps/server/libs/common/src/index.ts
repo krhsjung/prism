@@ -1,4 +1,6 @@
-// @app/common — 앱 간 공유 코드 배럴.
-// 우선은 공유 도메인 타입만. 런타임 provider(서비스/모듈)를 추가할 때는
-// nest-cli의 webpack 빌더로 전환 필요(타입은 컴파일 시 소거되어 tsc로 충분).
+// @app/common — 서비스 간 공유물만 둔다: API 계약(contracts) · 세션 페이로드 · 공유 리포지토리.
+// (auth 전용 코드는 services/auth에, 인프라는 @app/config·@app/database에)
+export * from './types/contracts';
 export * from './types/user';
+export * from './repositories/users.repository';
+export * from './repositories/users.module';

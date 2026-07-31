@@ -1,12 +1,10 @@
 import { Controller, Get } from '@nestjs/common';
-import { AppService } from './app.service';
 
 @Controller()
 export class AppController {
-  constructor(private readonly appService: AppService) {}
-
-  @Get()
-  getHello(): string {
-    return this.appService.getHello();
+  // 실제 도메인이 들어오기 전까지의 유일한 엔드포인트 — 동작 확인용.
+  @Get('healthz')
+  health(): { status: string } {
+    return { status: 'ok' };
   }
 }
