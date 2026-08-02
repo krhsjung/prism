@@ -65,9 +65,12 @@ describe('AuthController', () => {
     return { fns, res: fns as object as Response };
   };
 
-  const reqWith = (cookieHeader?: string) =>
+  const reqWith = (cookieHeader?: string, acceptLanguage?: string) =>
     ({
-      headers: cookieHeader ? { cookie: cookieHeader } : {},
+      headers: {
+        ...(cookieHeader ? { cookie: cookieHeader } : {}),
+        ...(acceptLanguage ? { 'accept-language': acceptLanguage } : {}),
+      },
     }) as object as Request;
 
   // 로그아웃은 가드가 아니라 쿠키 안의 토큰에서 직접 세션을 읽는다 — 실제 서명된 토큰을 싣는다.
@@ -89,7 +92,7 @@ describe('AuthController', () => {
 
   it('socialStart: 흐름 전용 nonce 쿠키(prism_oauth_<nonce>)를 발급한다', () => {
     const { fns, res } = makeRes();
-    controller.socialStart('google', res);
+    controller.socialStart(reqWith(), 'google', res);
 
     const [cookieName] = fns.cookie.mock.calls[0] ?? [];
     const nonce = cookieName?.slice('prism_oauth_'.length);
@@ -100,7 +103,7 @@ describe('AuthController', () => {
 
   it('socialStart: flow=popup을 state에 실어 보낸다', () => {
     const { res } = makeRes();
-    controller.socialStart('google', res, 'popup');
+    controller.socialStart(reqWith(), 'google', res, 'popup');
     expect(getAuthUrl).toHaveBeenCalledWith(
       'google',
       expect.any(String),
@@ -110,7 +113,7 @@ describe('AuthController', () => {
 
   it('socialStart: 알 수 없는 flow는 redirect로 떨어진다', () => {
     const { res } = makeRes();
-    controller.socialStart('google', res, 'sideways');
+    controller.socialStart(reqWith(), 'google', res, 'sideways');
     expect(getAuthUrl).toHaveBeenCalledWith(
       'google',
       expect.any(String),
@@ -120,7 +123,7 @@ describe('AuthController', () => {
 
   it('socialStart: 미지의 provider는 쿠키 발급 없이 실패 redirect', () => {
     const { fns, res } = makeRes();
-    controller.socialStart('kakao', res);
+    controller.socialStart(reqWith(), 'kakao', res);
     expect(fns.cookie).not.toHaveBeenCalled();
     expect(fns.redirect).toHaveBeenCalledWith(
       'http://web/login?error=SIGNIN_FAILED',
@@ -167,7 +170,7 @@ describe('AuthController', () => {
   it('운영: 흐름 쿠키를 __Host- 이름으로 발급하고 같은 이름을 소진한다', async () => {
     const prod = new AuthController(authStub, tokens, makeConfig(true, true));
     const start = makeRes();
-    prod.socialStart('google', start.res);
+    prod.socialStart(reqWith(), 'google', start.res);
 
     const [issued] = start.fns.cookie.mock.calls[0] ?? [''];
     expect(issued.startsWith('__Host-prism_oauth_')).toBe(true);
@@ -309,6 +312,42 @@ describe('AuthController', () => {
     expect(html).toContain('"http://web"');
     // 토큰은 쿠키로만 전달된다 — 페이지 본문에 실리면 안 된다.
     expect(html).not.toContain('token-1');
+  });
+
+  // 서버가 직접 그리는 유일한 화면이라 언어도 서버가 정한다 — 웹의 선택(localStorage)은
+  // 출처가 달라 읽을 수 없고, 요청에 실려 오는 Accept-Language가 유일한 단서다.
+  it('popup 페이지는 요청 언어로 응답한다(문서 언어 + noscript 문구)', async () => {
+    loginWithSocial.mockResolvedValueOnce(session);
+    const state = tokens.buildState('google', 'n1', 'popup');
+    const { fns, res } = makeRes();
+    await controller.googleCallback(
+      reqWith('prism_oauth_n1=1', 'ko-KR,ko;q=0.9,en;q=0.8'),
+      res,
+      'code-1',
+      state,
+      undefined,
+    );
+
+    const html = htmlOf(fns);
+    expect(html).toContain('<html lang="ko" dir="ltr">');
+    expect(html).toContain('Prism으로 이동');
+  });
+
+  it('popup 페이지: 지원하지 않는 언어 요청은 기본 언어로 응답한다', async () => {
+    loginWithSocial.mockResolvedValueOnce(session);
+    const state = tokens.buildState('google', 'n1', 'popup');
+    const { fns, res } = makeRes();
+    await controller.googleCallback(
+      reqWith('prism_oauth_n1=1', 'fr-FR,de;q=0.9'),
+      res,
+      'code-1',
+      state,
+      undefined,
+    );
+
+    const html = htmlOf(fns);
+    expect(html).toContain('<html lang="en" dir="ltr">');
+    expect(html).toContain('Continue to Prism');
   });
 
   it('popup 실패: 오류 코드를 메시지로 전달한다', async () => {

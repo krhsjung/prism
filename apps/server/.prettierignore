@@ -1,0 +1,3 @@
+# 번역 산출물 — i18n 마스터에서 생성한다(i18n에서 `pnpm generate`).
+# prettier가 다시 쓰면 생성 결과와 어긋나 drift 검사(`pnpm check`)가 깨진다.
+libs/common/src/i18n/**/*.gen.ts

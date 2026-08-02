@@ -6,7 +6,10 @@ import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
   {
-    ignores: ['eslint.config.mjs'],
+    // 생성 파일은 포맷 검사 대상이 아니다 — 손으로 고치지 않으므로 지적할 사람이 없고,
+    // prettier가 다시 쓰면 마스터에서 생성한 내용과 어긋나 drift 검사가 깨진다.
+    // (재생성: i18n에서 `pnpm generate` — .prettierignore에도 같은 경로를 둔다)
+    ignores: ['eslint.config.mjs', 'libs/common/src/i18n/**/*.gen.ts'],
   },
   eslint.configs.recommended,
   ...tseslint.configs.recommendedTypeChecked,

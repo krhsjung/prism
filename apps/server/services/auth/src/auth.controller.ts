@@ -30,9 +30,12 @@ import {
 } from './oauth/apple-user';
 import {
   AUTH_ERROR_CODES,
+  LOCALE_META,
   OAUTH_MESSAGE_TYPE,
   SOCIAL_FLOWS,
   SOCIAL_PROVIDERS,
+  localeFrom,
+  translate,
   type AuthSession,
   type SessionListItem,
   type SessionUser,
@@ -65,6 +68,18 @@ function toScriptJson(value: JsonSafe): string {
 
 // 위 함수에 넣는 값의 형태 — 서버가 만든 리터럴만 허용한다.
 type JsonSafe = string | { type: string; ok: boolean; error?: string };
+
+// HTML 본문에 끼워 넣는 문자열의 이스케이프. 지금 실리는 값은 번역 문구와 서버 설정
+// URL뿐이지만, 삽입 지점의 안전은 값의 출처가 아니라 이 함수가 보장한다 —
+// 번역 문구는 코드가 아니라 마스터 CSV에서 오므로 코드 리뷰 밖에서 바뀔 수 있다.
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
 
 @Controller('auth')
 export class AuthController {
@@ -105,11 +120,11 @@ export class AuthController {
     if (error) {
       // 취소/오류로 끝난 흐름도 시작했던 nonce는 소진한다(state 잔존 방지).
       const cancelled = this.consumeState(req, res, state, 'google');
-      return this.finish(res, cancelled?.flow, this.cancelOrFail(error));
+      return this.finish(req, res, cancelled?.flow, this.cancelOrFail(error));
     }
     const consumed = this.consumeState(req, res, state, 'google');
     if (!consumed || !code) {
-      return this.finish(res, consumed?.flow, {
+      return this.finish(req, res, consumed?.flow, {
         ok: false,
         code: SIGNIN_FAILED,
       });
@@ -118,10 +133,10 @@ export class AuthController {
     try {
       const session = await this.auth.loginWithSocial('google', code);
       this.setSession(res, session);
-      this.finish(res, consumed.flow, { ok: true });
+      this.finish(req, res, consumed.flow, { ok: true });
     } catch (e) {
       this.logger.error(`[google] callback failed: ${this.reason(e)}`);
-      this.finish(res, consumed.flow, { ok: false, code: SIGNIN_FAILED });
+      this.finish(req, res, consumed.flow, { ok: false, code: SIGNIN_FAILED });
     }
   }
 
@@ -139,11 +154,11 @@ export class AuthController {
     if (error) {
       // 취소/오류로 끝난 흐름도 시작했던 nonce는 소진한다(state 잔존 방지).
       const cancelled = this.consumeState(req, res, state, 'apple');
-      return this.finish(res, cancelled?.flow, this.cancelOrFail(error));
+      return this.finish(req, res, cancelled?.flow, this.cancelOrFail(error));
     }
     const consumed = this.consumeState(req, res, state, 'apple');
     if (!consumed || !code) {
-      return this.finish(res, consumed?.flow, {
+      return this.finish(req, res, consumed?.flow, {
         ok: false,
         code: SIGNIN_FAILED,
       });
@@ -156,10 +171,10 @@ export class AuthController {
         this.appleNameOf(user),
       );
       this.setSession(res, session);
-      this.finish(res, consumed.flow, { ok: true });
+      this.finish(req, res, consumed.flow, { ok: true });
     } catch (e) {
       this.logger.error(`[apple] callback failed: ${this.reason(e)}`);
-      this.finish(res, consumed.flow, { ok: false, code: SIGNIN_FAILED });
+      this.finish(req, res, consumed.flow, { ok: false, code: SIGNIN_FAILED });
     }
   }
 
@@ -308,6 +323,7 @@ export class AuthController {
   @Get(':provider')
   @UseGuards(ThrottlerGuard)
   socialStart(
+    @Req() req: Request,
     @Param('provider') provider: string,
     @Res() res: Response,
     @Query('flow') flow?: string,
@@ -315,7 +331,7 @@ export class AuthController {
     const social = SOCIAL_PROVIDERS.find((p) => p === provider);
     const wanted = SOCIAL_FLOWS.find((f) => f === flow) ?? 'redirect';
     if (!social || !this.config.socialConfigured(social)) {
-      return this.finish(res, wanted, { ok: false, code: SIGNIN_FAILED });
+      return this.finish(req, res, wanted, { ok: false, code: SIGNIN_FAILED });
     }
     const nonce = randomUUID();
     // 이 흐름 전용 쿠키 — 다른 탭의 흐름과 이름부터 분리된다.
@@ -394,6 +410,7 @@ export class AuthController {
   // flow가 undefined면 state를 못 읽은 경우(만료·위조)라 신뢰할 정보가 없다.
   // 이때는 브라우저가 스스로 판단하게 둔다 — opener가 있으면 popup, 없으면 redirect.
   private finish(
+    req: Request,
     res: Response,
     flow: SocialFlow | undefined,
     out: Outcome,
@@ -401,7 +418,7 @@ export class AuthController {
     if (flow === 'redirect') {
       return res.redirect(this.landingUrl(out));
     }
-    this.postMessagePage(res, out);
+    this.postMessagePage(req, res, out);
   }
 
   // redirect 흐름의 착지 주소. 성공은 웹 콜백 라우트, 실패는 로그인 화면(+코드).
@@ -420,15 +437,20 @@ export class AuthController {
   // 서버 상수라 해도 브라우저 차원의 안전장치를 함께 둔다. 응답마다 nonce를 만들어
   // 그 스크립트 하나만 실행을 허용하고 나머지는 전부 차단한다 — 나중에 provider 오류
   // 문구 같은 외부 값을 끼워 넣게 되더라도 실행으로 이어지지 않는다.
-  private postMessagePage(res: Response, out: Outcome): void {
+  private postMessagePage(req: Request, res: Response, out: Outcome): void {
     const message = toScriptJson({
       type: OAUTH_MESSAGE_TYPE,
       ok: out.ok,
       ...(out.ok ? {} : out.code ? { error: out.code } : {}),
     });
     const target = toScriptJson(this.config.webAppUrl);
-    const landing = toScriptJson(this.landingUrl(out));
+    const landingUrl = this.landingUrl(out);
+    const landing = toScriptJson(landingUrl);
     const nonce = randomBytes(16).toString('base64');
+    // 이 페이지는 서버가 직접 그리므로 언어도 서버가 정해야 한다 — 웹의 선택은
+    // localStorage에 있어 다른 출처인 여기서는 읽을 수 없다. 브라우저가 요청에
+    // 실어 보내는 Accept-Language가 여기서 알 수 있는 유일한 선호도다.
+    const locale = localeFrom(req.headers['accept-language']);
 
     res.setHeader(
       'Content-Security-Policy',
@@ -437,8 +459,13 @@ export class AuthController {
     // 로그인 결과 페이지는 캐시·히스토리에 남을 이유가 없다. 남으면 뒤로 가기로
     // 재실행되어 이미 소진된 흐름의 결과를 다시 opener로 보낼 수 있다.
     res.setHeader('Cache-Control', 'no-store');
+    // noscript 경로: 스크립트가 막히면 창은 스스로 닫히지도, 이동하지도 못한다.
+    // 빈 화면에 갇히는 대신 무슨 일이 있었는지 알리고 직접 이어갈 링크를 남긴다.
     res.type('html').send(
-      `<!doctype html><meta charset="utf-8"><title>Prism</title><script nonce="${nonce}">
+      `<!doctype html><html lang="${locale}" dir="${LOCALE_META[locale].dir}"><meta charset="utf-8"><title>${escapeHtml(translate(locale, 'page.signin_title'))}</title>
+<noscript><p>${escapeHtml(translate(locale, 'page.noscript_notice'))}</p>
+<p><a href="${escapeHtml(landingUrl)}">${escapeHtml(translate(locale, 'page.noscript_continue'))}</a></p></noscript>
+<script nonce="${nonce}">
 (function () {
   var opener = window.opener;
   if (opener) {
