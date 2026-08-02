@@ -34,6 +34,10 @@ export class GoogleOAuthClient implements OAuthClient {
       response_type: 'code',
       // refresh token을 쓰지 않으므로 online 접근으로 둔다.
       access_type: 'online',
+      // 로그아웃은 우리 토큰만 폐기할 뿐 브라우저의 Google 세션은 남는다 —
+      // 지정하지 않으면 Google이 직전 계정을 조용히 재선택(prompt=none)해
+      // 다른 계정으로 로그인할 방법이 없어진다. 매번 계정 선택 화면을 띄운다.
+      prompt: 'select_account',
     });
   }
 

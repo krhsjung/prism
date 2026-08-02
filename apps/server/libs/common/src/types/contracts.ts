@@ -22,10 +22,102 @@ export interface User {
   createdAt: string;
 }
 
-// 로그인 응답(데모 POST /auth/demo · Apple native POST /auth/apple/native).
+// 네이티브(iOS/Android) 로그인 응답 — POST /auth/apple/native,
+// 그리고 자격증명을 body로 보낸 POST /auth/refresh.
+//
+// **쿠키 흐름에는 쓰지 않는다.** 쿠키로 인증되는 요청이 토큰까지 body로 돌려주면
+// HttpOnly가 무의미해지므로, 그런 경로는 SessionUser를 반환한다.
+// 네이티브는 쿠키 저장소가 부자연스러워 Bearer를 유지하고, 안전한 저장소
+// (Keychain/EncryptedSharedPreferences)에 보관한다. (plan/auth.md 세션 정책)
 export interface AuthSession {
   accessToken: string;
+  // 액세스 토큰이 만료됐을 때 세션을 이어가는 자격증명(1회용 — 쓰면 회전된다).
+  // 웹은 이 값을 만지지 않는다: 서버가 HttpOnly 쿠키로 심는다. 네이티브는 안전한
+  // 저장소(Keychain/EncryptedSharedPreferences)에 보관하고 POST /auth/refresh에 쓴다.
+  refreshToken: string;
   user: User;
+}
+
+// 내 세션 하나의 요약(GET /auth/sessions). 기기·위치를 알 수 있는 값은 담지 않는다 —
+// 목록을 보기 좋게 만들자고 User-Agent나 IP를 저장하면 개인정보 미저장 원칙이 깨진다.
+export interface SessionInfo {
+  id: string;
+  startedAt: string;
+  expiresAt: string;
+}
+
+// 서버가 "지금 이 요청의 세션"을 표시해 돌려준다 — 클라이언트가 자기 세션 id를
+// 알 방법이 없기 때문이다(세션 id는 HttpOnly 쿠키 안의 토큰에만 있다).
+export interface SessionListItem extends SessionInfo {
+  isCurrent: boolean;
+}
+
+export function decodeSessionListItem(
+  v: JsonValue | undefined,
+): SessionListItem {
+  const obj = decodeObject(v, 'SessionListItem');
+  if (typeof obj.isCurrent !== 'boolean') {
+    throw new Error('SessionListItem.isCurrent: expected boolean');
+  }
+  return {
+    id: decodeString(obj.id, 'SessionListItem.id'),
+    startedAt: decodeString(obj.startedAt, 'SessionListItem.startedAt'),
+    expiresAt: decodeString(obj.expiresAt, 'SessionListItem.expiresAt'),
+    isCurrent: obj.isCurrent,
+  };
+}
+
+export function decodeSessionList(v: JsonValue): SessionListItem[] {
+  if (!Array.isArray(v)) throw new Error('SessionList: expected array');
+  return v.map(decodeSessionListItem);
+}
+
+// 쿠키 흐름(웹)의 로그인·갱신 응답.
+//
+// **토큰을 담지 않는다.** 세션 쿠키를 HttpOnly로 만든 이유가 "브라우저 JS가 토큰을
+// 만질 수 없게" 하는 것인데, 같은 값을 body로도 돌려주면 XSS가 fetch 한 번으로
+// 7일짜리 자격증명을 가져갈 수 있어 방어가 무의미해진다.
+// (웹 클라이언트가 body를 안 읽는다는 것은 방어가 아니다 — 다른 스크립트가 읽는다)
+export interface SessionUser {
+  user: User;
+}
+
+export function decodeSessionUser(v: JsonValue): SessionUser {
+  return { user: decodeUser(decodeObject(v, 'SessionUser').user) };
+}
+
+// ── 소셜 로그인 흐름 ──
+
+// redirect: 전체 페이지 이동 후 웹 콜백 라우트로 복귀(모바일 브라우저 기본).
+// popup: 별도 창에서 진행하고 결과만 opener로 postMessage(데스크톱 기본 — 로그인 화면의
+// 입력/상태가 보존되고, 뒤로 가기 복원 문제 자체가 생기지 않는다).
+export const SOCIAL_FLOWS = ['redirect', 'popup'] as const;
+export type SocialFlow = (typeof SOCIAL_FLOWS)[number];
+
+// popup 흐름의 결과를 opener로 전달하는 메시지. 서버가 만든 콜백 페이지가 postMessage로
+// 보내고, 웹은 origin과 이 type을 함께 확인한 뒤에만 수용한다.
+export const OAUTH_MESSAGE_TYPE = 'prism:oauth';
+
+export interface OAuthPopupMessage {
+  type: typeof OAUTH_MESSAGE_TYPE;
+  ok: boolean;
+  // ok=false일 때만: AUTH_ERROR_CODES 값. 사용자가 취소한 경우엔 없다(조용히 복귀).
+  error?: string;
+}
+
+// postMessage로 들어온 임의의 값에서 우리 메시지만 골라낸다(형식이 다르면 null).
+// 같은 origin이라도 다른 스크립트가 메시지를 보낼 수 있어 형태 검증이 필요하다.
+export function decodeOAuthPopupMessage(
+  v: JsonValue | undefined,
+): OAuthPopupMessage | null {
+  if (v === undefined || v === null || typeof v !== 'object') return null;
+  if (Array.isArray(v)) return null;
+  if (v.type !== OAUTH_MESSAGE_TYPE || typeof v.ok !== 'boolean') return null;
+  return {
+    type: OAUTH_MESSAGE_TYPE,
+    ok: v.ok,
+    error: typeof v.error === 'string' && v.error ? v.error : undefined,
+  };
 }
 
 // ── 오류 코드 (전부 여기서 관리 — 값 원천은 아래 상수 두 개뿐) ──
@@ -36,6 +128,9 @@ export const AUTH_ERROR_CODES = {
   DEMO_DISABLED: 'DEMO_DISABLED',
   UNAUTHORIZED: 'UNAUTHORIZED',
   INVALID_TOKEN: 'INVALID_TOKEN',
+  // 쿠키가 실릴 수 있는 상태 변경 요청이 허용되지 않은 출처에서 왔다(CSRF 차단).
+  // 정상 클라이언트는 볼 일이 없다 — 뜨면 CORS 허용 목록 설정을 의심할 것.
+  FORBIDDEN_ORIGIN: 'FORBIDDEN_ORIGIN',
 } as const;
 
 export type AuthErrorCode =
@@ -115,6 +210,7 @@ export function decodeAuthSession(v: JsonValue): AuthSession {
   const obj = decodeObject(v, 'AuthSession');
   return {
     accessToken: decodeString(obj.accessToken, 'AuthSession.accessToken'),
+    refreshToken: decodeString(obj.refreshToken, 'AuthSession.refreshToken'),
     user: decodeUser(obj.user),
   };
 }

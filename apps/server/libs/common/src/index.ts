@@ -3,4 +3,5 @@
 export * from './types/contracts';
 export * from './types/user';
 export * from './repositories/users.repository';
+export * from './repositories/sessions.repository';
 export * from './repositories/users.module';

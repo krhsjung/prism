@@ -45,9 +45,11 @@ export class AppleOAuthClient implements OAuthClient {
   // 네이티브 SDK(iOS/Android)의 identityToken 검증 — audience는 bundleId만.
   // 클라이언트가 raw nonce를 보내면 id_token의 nonce(SHA-256 hex)와 대조해
   // 토큰 재사용/치환을 막는다(모바일 클라이언트 구현 시 필수화 예정).
+  // nonce는 필수다. 없으면 캡처된(아직 만료 전) identityToken을 그대로 재생할 수 있다 —
+  // 토큰 자체는 유효하므로 서명 검증만으로는 재사용을 구분하지 못한다.
   async verifyIdentityToken(
     identityToken: string,
-    nonce?: string,
+    nonce: string,
   ): Promise<{ sub: string }> {
     const audience = this.options.bundleId;
     if (!audience) {
