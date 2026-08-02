@@ -9,7 +9,7 @@ infra/postgres/
 ├── migrate.sh                # 마이그레이션 실행 스크립트
 └── migrations/               # 번호순 .sql 파일
     ├── 000_create_app_user.sql   # 앱 유저(role) + CONNECT 권한
-    ├── 001_create_schemas.sql    # core/app 스키마 + 권한
+    ├── 001_create_schemas.sql    # core/prism 스키마 + 권한
     └── 002_create_users.sql      # users 테이블 + updated_at 트리거 + 데모 계정 시드
 ```
 
@@ -22,12 +22,22 @@ infra/postgres/
 
 ## 동작 방식
 
-1. `schema_migrations(version text PRIMARY KEY, applied_at timestamptz)` 테이블
-   자동 생성 (최초 실행 시).
+1. `prism` 스키마와 `prism.schema_migrations(version text PRIMARY KEY, applied_at
+   timestamptz)` 테이블 자동 생성 (최초 실행 시).
 2. `migrations/*.sql` 파일을 파일명 오름차순으로 순회.
-3. 각 파일명을 version으로 사용 — `schema_migrations`에 이미 있으면 건너뜀.
+3. 각 파일명을 version으로 사용 — `prism.schema_migrations`에 이미 있으면 건너뜀.
 4. 적용되지 않은 마이그레이션은 단일 트랜잭션으로 실행 + 이력 INSERT까지 한 번에 커밋.
 5. 실패 시 트랜잭션 전체 롤백 (`ON_ERROR_STOP=1`).
+6. 마지막에 앱 유저의 이력 표 권한을 회수.
+
+> **이력 표가 `prism` 스키마에 있는데 001도 같은 스키마를 만드는 이유** — 러너는
+> "무엇이 적용됐는지" 읽어야 001을 돌릴지 정할 수 있으므로, 이력 표는 어떤 마이그
+> 레이션보다도 먼저 존재해야 한다. 양쪽 다 `IF NOT EXISTS`라 충돌하지 않는다.
+>
+> **권한 회수가 필요한 이유** — 001의 `GRANT ... ON ALL TABLES IN SCHEMA prism`이
+> 이력 표까지 함께 잡아간다. 앱이 이력을 고칠 수 있으면 적용된 마이그레이션을 지워
+> 재실행시키거나, 없는 이력을 넣어 건너뛰게 만들 수 있다. 이력은 러너(슈퍼유저)만
+> 쓰면 되므로 실행 끝에 매번 되돌린다.
 
 ## 사용법
 
@@ -97,7 +107,7 @@ GRANT CONNECT ON DATABASE ${DB} TO ${APP_USER};
 ```bash
 docker exec -i postgres-primary \
   psql -U "$POSTGRES_PRIMARY_USER" -d "$PRISM_POSTGRES_DB" \
-  -c "SELECT * FROM schema_migrations ORDER BY applied_at;"
+  -c "SELECT * FROM prism.schema_migrations ORDER BY applied_at;"
 ```
 
 ## 한계 / 미지원
