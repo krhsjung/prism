@@ -1,12 +1,17 @@
-/* Design tokens — sourced from the Prism design system (Figma palette).
-   Light is the source of truth; dark is an approximate override for now. */
+/* Design tokens — sourced from the Prism design system (design/tokens).
+   라이트가 기본이고, 다크는 <html data-theme="dark">일 때 같은 이름만 덮어쓴다.
+   무엇을 칠할지는 이 속성 하나로 갈린다 — 첫 페인트는 index.html의 부트 스크립트가,
+   그 뒤는 ThemeProvider가 붙인다(prefers-color-scheme은 부트 스크립트에서만 읽는다.
+   미디어 쿼리를 여기서도 보면 "라이트를 골랐는데 기기가 다크"인 경우가 갈린다). */
 :root {
   --color-surface: #f5f8fc;
   --color-card: #ffffff;
   --color-border: #d4deec;
   --color-primary: #1d3557;
+  --color-primary-fg: #ffffff;
   --color-primary-press: #162338;
   --color-secondary-bg: #edf3fb;
+  --color-secondary-fg: #1d3557;
   --color-heading: #162338;
   --color-text: #3b4e68;
   --color-muted: #5f6f85;
@@ -22,27 +27,30 @@
 
   --font-sans: 'Manrope', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
 
-  color-scheme: light dark;
+  /* 스크롤바·기본 폼 컨트롤처럼 브라우저가 직접 그리는 것들도 같은 테마를 따르게 한다. */
+  color-scheme: light;
   font-family: var(--font-sans);
   color: var(--color-text);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --color-surface: #0f1726;
-    --color-card: #1a2436;
-    --color-border: #30425e;
-    --color-primary: #4a78b8;
-    --color-primary-press: #3a5f93;
-    --color-secondary-bg: #243044;
-    --color-heading: #ffffff;
-    --color-text: #e5ecf7;
-    --color-muted: #aab8cc;
-    --color-error: #e08a8a;
-    --color-error-bg: #3a2630;
-    --shadow-md: 0 4px 8px rgba(0, 0, 0, 0.35);
-    --shadow-lg: 0 8px 16px rgba(0, 0, 0, 0.35);
-  }
+:root[data-theme='dark'] {
+  --color-surface: #1a2436;
+  --color-card: #243044;
+  --color-border: #30425e;
+  --color-primary: #4a78b8;
+  --color-primary-press: #3a5f93;
+  --color-secondary-bg: #30425e;
+  --color-secondary-fg: #e5ecf7;
+  --color-heading: #ffffff;
+  --color-text: #e5ecf7;
+  --color-muted: #aab8cc;
+  --color-accent: #7fa9de;
+  --color-error: #e08a8a;
+  --color-error-bg: #3a2630;
+  --shadow-md: 0 4px 8px rgba(0, 0, 0, 0.35);
+  --shadow-lg: 0 8px 16px rgba(0, 0, 0, 0.35);
+
+  color-scheme: dark;
 }
 
 * {
@@ -76,6 +84,13 @@ body {
   font-weight: 800;
   font-size: 28px;
   color: var(--color-heading);
+}
+
+/* 로그인 화면의 환경 설정 줄 — 테마·언어 선택이 나란히 앉는다. */
+.auth__prefs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .card {
@@ -129,7 +144,7 @@ body {
   color: var(--color-error);
 }
 
-/* ---- Locale switcher ---- */
+/* ---- Select menu (언어 · 테마 선택) ---- */
 /* 화면에서는 안 보이지만 스크린 리더에는 읽히는 텍스트. */
 .sr-only {
   position: absolute;
@@ -142,12 +157,12 @@ body {
   white-space: nowrap;
 }
 
-.locale {
+.select {
   position: relative;
   display: flex;
 }
 
-.locale__trigger {
+.select__trigger {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -164,18 +179,18 @@ body {
   cursor: pointer;
 }
 
-.locale__trigger:hover {
+.select__trigger:hover {
   background: var(--color-secondary-bg);
   color: var(--color-text);
 }
 
-.locale__trigger[aria-expanded='true'] {
+.select__trigger[aria-expanded='true'] {
   background: var(--color-secondary-bg);
   border-color: var(--color-border);
   color: var(--color-text);
 }
 
-.locale__menu {
+.select__menu {
   position: absolute;
   top: calc(100% + 8px);
   z-index: 10;
@@ -190,17 +205,17 @@ body {
   box-shadow: var(--shadow-md);
 }
 
-.locale__menu--center {
+.select__menu--center {
   left: 50%;
   transform: translateX(-50%);
 }
 
 /* 화면 가장자리에 붙는 자리에서는 오른쪽 끝을 맞춘다(가운데 정렬이면 밖으로 밀린다). */
-.locale__menu--end {
+.select__menu--end {
   right: 0;
 }
 
-.locale__option {
+.select__option {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -215,23 +230,23 @@ body {
   cursor: pointer;
 }
 
-.locale__option:hover,
-.locale__option:focus-visible {
+.select__option:hover,
+.select__option:focus-visible {
   background: var(--color-secondary-bg);
   color: var(--color-text);
 }
 
-/* 선택된 언어는 체크로 구분한다 — 배경까지 쓰면 hover와 겹쳐 읽힌다. */
-.locale__option[aria-checked='true'] {
+/* 선택된 항목은 체크로 구분한다 — 배경까지 쓰면 hover와 겹쳐 읽힌다. */
+.select__option[aria-checked='true'] {
   font-weight: 600;
   color: var(--color-text);
 }
 
-.locale__option-label {
+.select__option-label {
   flex: 1;
 }
 
-.locale__icon {
+.icon {
   flex: none;
   width: 16px;
   height: 16px;
@@ -242,11 +257,11 @@ body {
   stroke-linejoin: round;
 }
 
-.locale__icon--bold {
+.icon--bold {
   stroke-width: 2.5;
 }
 
-.locale__check {
+.icon--check {
   color: var(--color-accent);
 }
 
@@ -275,7 +290,7 @@ body {
 
 .btn--primary {
   background: var(--color-primary);
-  color: #fff;
+  color: var(--color-primary-fg);
 }
 .btn--primary:not(:disabled):hover {
   background: var(--color-primary-press);
@@ -290,12 +305,18 @@ body {
   background: var(--color-surface);
 }
 
+/* 다크에서는 배경(secondary-bg)이 어두워 primary 파랑이 묻힌다 — 글자색도 테마별로
+   갈라 둔다(design/tokens의 secondary-foreground). */
 .btn--secondary {
   background: var(--color-secondary-bg);
-  color: var(--color-primary);
+  color: var(--color-secondary-fg);
 }
 .btn--secondary:not(:disabled):hover {
   filter: brightness(0.97);
+}
+/* 어두운 배경에서 brightness(0.97)은 거의 티가 나지 않는다 — 밝히는 쪽으로 뒤집는다. */
+:root[data-theme='dark'] .btn--secondary:not(:disabled):hover {
+  filter: brightness(1.15);
 }
 
 /* ---- Dashboard ---- */

@@ -5,6 +5,8 @@ import { DashboardPage } from './DashboardPage';
 import { AuthContext, type AuthContextValue } from '../lib/auth-context';
 import { I18nContext } from '../lib/i18n/i18n-context';
 import { englishI18n } from '../lib/i18n/test-i18n';
+import { ThemeContext } from '../lib/theme/theme-context';
+import { lightTheme } from '../lib/theme/test-theme';
 import type { User } from '../lib/contracts.gen';
 
 const user: User = {
@@ -24,9 +26,11 @@ function renderDashboard(signOut: () => Promise<boolean>) {
   return render(
     <MemoryRouter initialEntries={['/dashboard']}>
       <I18nContext.Provider value={englishI18n()}>
-        <AuthContext.Provider value={auth}>
-          <DashboardPage />
-        </AuthContext.Provider>
+        <ThemeContext.Provider value={lightTheme()}>
+          <AuthContext.Provider value={auth}>
+            <DashboardPage />
+          </AuthContext.Provider>
+        </ThemeContext.Provider>
       </I18nContext.Provider>
     </MemoryRouter>,
   );

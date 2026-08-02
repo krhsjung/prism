@@ -26,11 +26,14 @@
   웹·서버는 타입이 붙은 TS로, iOS·Android는 xcstrings·strings.xml로 펼친다.
   키는 생성된 유니온이라 오타·누락이 컴파일에서 걸리고, 웹은 기본 언어만 번들에
   싣고 나머지는 분리 로드. 서버는 `Accept-Language`로 응답 언어를 정한다(en·ko·ja).
+- **테마**: 라이트 · 다크 선택. 고르기 전에는 기기 설정을 따르고, 고른 값은 저장되어
+  기기 설정과 무관하게 유지된다. 색은 `<html data-theme>` 하나로 갈리고 첫 페인트
+  전에 정해져 깜빡임이 없다. 다크는 라이트의 반전이 아니라 별도 팔레트([design/](design/)).
 - **계약**: 서버가 소유한 단일 계약([contracts.ts](apps/server/libs/common/src/types/contracts.ts))을
   웹으로 생성 배포(`pnpm sync:contracts`), drift는 테스트가 차단.
 - **운영**: `/healthz`(liveness) · `/readyz`(DB 인지 readiness), Docker + Helm 배포.
 - **품질**: TypeScript `unknown`/`any` 키워드 금지(lint 강제) · strict +
-  `noUncheckedIndexedAccess` · 서버 167 / 웹 51 자동 테스트.
+  `noUncheckedIndexedAccess` · 서버 167 / 웹 74 자동 테스트.
 
 ## 구조
 

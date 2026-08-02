@@ -36,6 +36,28 @@ const { t } = useI18n();
 - 화면 문구를 새로 넣을 때는 리터럴 대신 마스터에 키를 추가하세요. 예외는 로고
   워드마크("Prism")뿐입니다.
 
+## 테마
+
+라이트 · 다크를 고를 수 있고, 고르기 전에는 기기 설정(`prefers-color-scheme`)을
+따릅니다. 한 번 고르면 그 값이 `localStorage`에 남아 다음 방문에도 유지됩니다
+(`src/lib/theme/theme.ts`).
+
+- 실제로 칠할 테마는 `<html data-theme="light|dark">` **하나로만** 알립니다. CSS
+  토큰이 이 속성에서 갈리므로 색을 바꾸는 경로가 하나뿐입니다.
+- 첫 페인트는 `index.html`의 부트 스크립트가 칠합니다 — React가 붙기를 기다리면
+  다크를 고른 사용자가 매번 흰 화면을 한 번 보게 됩니다. 그래서 저장 키·속성 이름을
+  손으로 한 번 더 적으며, 어긋나면 `theme.test.ts`가 `index.html`을 읽어 잡아냅니다.
+- `system`은 "고르지 않음"이 아니라 기기를 따르겠다는 선택입니다. 그동안에는
+  `matchMedia`를 구독해 OS 야간 모드 전환을 새로고침 없이 따라갑니다.
+- 트리거에는 **고른 값**을 보여줍니다(칠해진 색이 아니라) — `system`일 때 "Light"라고
+  적으면 무엇을 골랐는지 알 수 없습니다.
+- 디자인은 Figma의 `Molecule/ThemeSelector` · `Molecule/ThemeMenu` ·
+  `Atom/ThemeOption` · `Atom/Icon`을 따릅니다.
+
+언어·테마 선택은 팝오버 메뉴 하나를 공유합니다(`src/components/SelectMenu.tsx`) —
+생김새뿐 아니라 키보드·초점 규칙까지 같아야 하기 때문입니다. 각자 구현하면 한쪽만
+고쳐지고 다른 쪽이 뒤처집니다.
+
 ## 관련 문서
 
 - 번역 마스터 / 생성기: [../../i18n/README.md](../../i18n/README.md)

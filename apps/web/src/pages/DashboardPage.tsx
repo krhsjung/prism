@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '../components/Button';
 import { LocaleSwitcher } from '../components/LocaleSwitcher';
+import { ThemeSwitcher } from '../components/ThemeSwitcher';
 import { useAuth } from '../lib/auth-context';
 import { useI18n } from '../lib/i18n/i18n-context';
 
@@ -42,6 +43,7 @@ export function DashboardPage() {
           </p>
         </div>
         <div className="dash__actions">
+          <ThemeSwitcher align="end" />
           <LocaleSwitcher align="end" />
           <Button variant="outline" disabled={leaving} onClick={handleLogout}>
             {leaving ? t('dashboard.logging_out') : t('dashboard.log_out')}

@@ -11,6 +11,28 @@
       href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&display=swap"
       rel="stylesheet"
     />
+    <script>
+      // 첫 페인트 전에 테마를 정한다 — React가 붙기를 기다리면 저장된 선택과 다른
+      // 화면이 한 번 번쩍인다(다크를 고른 사용자가 매번 흰 화면을 본다).
+      // 저장 키·속성 이름·질의는 src/lib/theme/theme.ts와 같아야 하며, 어긋나면
+      // theme.test.ts가 이 파일을 읽어 대조하다 실패한다.
+      (function () {
+        var stored = null;
+        try {
+          stored = localStorage.getItem('prism.theme');
+        } catch (e) {
+          // 저장소를 못 읽는 환경(프라이빗 모드 등) — 기기 설정으로 떨어진다.
+        }
+        var dark =
+          stored === 'dark' ||
+          (stored !== 'light' &&
+            window.matchMedia('(prefers-color-scheme: dark)').matches);
+        document.documentElement.setAttribute(
+          'data-theme',
+          dark ? 'dark' : 'light',
+        );
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

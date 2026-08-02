@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Button } from '../components/Button';
 import { LocaleSwitcher } from '../components/LocaleSwitcher';
+import { ThemeSwitcher } from '../components/ThemeSwitcher';
 import { API_ORIGIN, ApiError, api } from '../lib/api';
 import { useAuth } from '../lib/auth-context';
 import { useI18n } from '../lib/i18n/i18n-context';
@@ -155,7 +156,10 @@ export function LoginPage() {
         <p className="card__note">{t('auth.no_personal_data')}</p>
       </section>
 
-      <LocaleSwitcher />
+      <div className="auth__prefs">
+        <ThemeSwitcher />
+        <LocaleSwitcher />
+      </div>
     </main>
   );
 }
