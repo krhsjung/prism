@@ -18,5 +18,17 @@ export default defineConfig([
     languageOptions: {
       globals: globals.browser,
     },
+    rules: {
+      // 프로젝트 방침: unknown/any 타입 키워드 금지 — 구체 union·제네릭으로 대체한다.
+      '@typescript-eslint/no-explicit-any': 'error',
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: 'TSUnknownKeyword',
+          message:
+            'unknown 금지 — JsonValue/구체 union/제네릭으로 표현한다 (프로젝트 방침)',
+        },
+      ],
+    },
   },
 ])
