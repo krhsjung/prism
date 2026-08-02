@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/auth-context';
+import { useI18n } from '../lib/i18n/i18n-context';
 import { AUTH_ERROR_CODES } from '../lib/contracts.gen';
 
 // 소셜 로그인 redirect 흐름의 착지점. 서버가 세션을 HttpOnly 쿠키로 심어두고
@@ -9,6 +10,7 @@ import { AUTH_ERROR_CODES } from '../lib/contracts.gen';
 export function AuthCallbackPage() {
   const navigate = useNavigate();
   const { refresh } = useAuth();
+  const { t } = useI18n();
   // StrictMode 이중 실행에서 확인 요청이 두 번 나가지 않게 한 번만 처리한다.
   const handled = useRef(false);
 
@@ -25,7 +27,7 @@ export function AuthCallbackPage() {
 
   return (
     <main className="auth">
-      <p className="card__note">Signing you in…</p>
+      <p className="card__note">{t('auth.signing_you_in')}</p>
     </main>
   );
 }

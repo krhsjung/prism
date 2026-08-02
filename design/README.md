@@ -37,6 +37,15 @@ pnpm install
 pnpm build
 ```
 
+## 컴포넌트
+
+Figma 파일 구성: `Foundations` · `Atoms` · `Molecules` · `Organisms` · `Screens`.
+
+언어 선택은 `Atom/LanguageOption`(메뉴 한 줄) → `Molecule/LanguageMenu`(팝오버) →
+`Molecule/LanguageSelector`(트리거)로 조합하고, `Screens`의 로그인 프레임이 배치를
+보여줍니다. 웹 구현은 [../apps/web/src/components/LocaleSwitcher.tsx](../apps/web/src/components/LocaleSwitcher.tsx),
+문구는 [../i18n/](../i18n/)에서 옵니다.
+
 ## 스타일
 
 Manrope (Regular / SemiBold / Bold) 기반. 컬러는 Navy / Primary / Accent Blue 중심의

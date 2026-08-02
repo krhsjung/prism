@@ -22,11 +22,15 @@
   개인정보 미저장(provider + provider_id만 보관, 표시 이름은 세션 한정).
 - **데이터**: PostgreSQL — 12-factor `PRISM_DATABASE_URL`(+replica URL 목록으로 읽기 분산).
   replica 헬스 추적·half-open 복귀·연결/쿼리 타임아웃.
+- **다국어**: 한 벌의 마스터 CSV([i18n/](i18n/))에서 플랫폼별 번역 파일을 생성 —
+  웹·서버는 타입이 붙은 TS로, iOS·Android는 xcstrings·strings.xml로 펼친다.
+  키는 생성된 유니온이라 오타·누락이 컴파일에서 걸리고, 웹은 기본 언어만 번들에
+  싣고 나머지는 분리 로드. 서버는 `Accept-Language`로 응답 언어를 정한다(en·ko·ja).
 - **계약**: 서버가 소유한 단일 계약([contracts.ts](apps/server/libs/common/src/types/contracts.ts))을
   웹으로 생성 배포(`pnpm sync:contracts`), drift는 테스트가 차단.
 - **운영**: `/healthz`(liveness) · `/readyz`(DB 인지 readiness), Docker + Helm 배포.
 - **품질**: TypeScript `unknown`/`any` 키워드 금지(lint 강제) · strict +
-  `noUncheckedIndexedAccess` · 서버 46 / 웹 6 자동 테스트.
+  `noUncheckedIndexedAccess` · 서버 167 / 웹 51 자동 테스트.
 
 ## 구조
 
@@ -39,6 +43,7 @@ prism/
 │   └── android/  # Kotlin + Compose
 ├── infra/        # Docker, CI/CD, 배포 설정
 ├── design/       # 디자인 자산, 목업, 스크린샷
+├── i18n/         # 번역 마스터(CSV) + 플랫폼별 생성기
 └── plan/         # 기획/설계 문서, ADR, API 명세
 ```
 

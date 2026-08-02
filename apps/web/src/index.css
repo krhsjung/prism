@@ -14,8 +14,10 @@
   --color-error: #c75b5b;
   --color-error-bg: #fdeeee;
 
+  --radius-sm: 4px;
   --radius-md: 8px;
   --radius-lg: 16px;
+  --shadow-md: 0 4px 8px rgba(22, 35, 56, 0.1);
   --shadow-lg: 0 8px 16px rgba(22, 35, 56, 0.1);
 
   --font-sans: 'Manrope', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
@@ -38,6 +40,7 @@
     --color-muted: #aab8cc;
     --color-error: #e08a8a;
     --color-error-bg: #3a2630;
+    --shadow-md: 0 4px 8px rgba(0, 0, 0, 0.35);
     --shadow-lg: 0 8px 16px rgba(0, 0, 0, 0.35);
   }
 }
@@ -95,16 +98,17 @@ body {
   color: var(--color-heading);
 }
 
-.card__head p {
-  margin: 4px 0 0;
+/* 부제와 안내 문구는 카드 안의 같은 보조 텍스트다 — 한 규칙으로 묶어
+   둘의 크기가 갈라지지 않게 한다(13px은 타입 스케일에도 없던 값이었다). */
+.card__head p,
+.card__note {
+  margin: 0;
   font-size: 14px;
   color: var(--color-muted);
 }
 
-.card__note {
-  margin: 0;
-  font-size: 13px;
-  color: var(--color-muted);
+.card__head p {
+  margin-top: 4px;
 }
 
 .actions {
@@ -123,6 +127,127 @@ body {
 .alert--error {
   background: var(--color-error-bg);
   color: var(--color-error);
+}
+
+/* ---- Locale switcher ---- */
+/* 화면에서는 안 보이지만 스크린 리더에는 읽히는 텍스트. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.locale {
+  position: relative;
+  display: flex;
+}
+
+.locale__trigger {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 12px;
+  /* 기본 상태에도 테두리 자리를 잡아둔다 — 열릴 때 생기면 그만큼 버튼이 흔들린다. */
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: transparent;
+  font-family: var(--font-sans);
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--color-muted);
+  cursor: pointer;
+}
+
+.locale__trigger:hover {
+  background: var(--color-secondary-bg);
+  color: var(--color-text);
+}
+
+.locale__trigger[aria-expanded='true'] {
+  background: var(--color-secondary-bg);
+  border-color: var(--color-border);
+  color: var(--color-text);
+}
+
+.locale__menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  z-index: 10;
+  width: 184px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px;
+  background: var(--color-card);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+}
+
+.locale__menu--center {
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+/* 화면 가장자리에 붙는 자리에서는 오른쪽 끝을 맞춘다(가운데 정렬이면 밖으로 밀린다). */
+.locale__menu--end {
+  right: 0;
+}
+
+.locale__option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  font-family: var(--font-sans);
+  font-size: 14px;
+  color: var(--color-muted);
+  text-align: left;
+  cursor: pointer;
+}
+
+.locale__option:hover,
+.locale__option:focus-visible {
+  background: var(--color-secondary-bg);
+  color: var(--color-text);
+}
+
+/* 선택된 언어는 체크로 구분한다 — 배경까지 쓰면 hover와 겹쳐 읽힌다. */
+.locale__option[aria-checked='true'] {
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.locale__option-label {
+  flex: 1;
+}
+
+.locale__icon {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.locale__icon--bold {
+  stroke-width: 2.5;
+}
+
+.locale__check {
+  color: var(--color-accent);
 }
 
 /* ---- Button ---- */
@@ -199,6 +324,12 @@ body {
 .dash__head p {
   margin: 4px 0 0;
   color: var(--color-muted);
+}
+
+.dash__actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
 .dash__head .btn {

@@ -5,15 +5,17 @@ import { DashboardPage } from './pages/DashboardPage';
 import { LoginPage } from './pages/LoginPage';
 import { AuthProvider } from './lib/AuthProvider';
 import { useAuth } from './lib/auth-context';
+import { useI18n } from './lib/i18n/i18n-context';
 
 // 보호 라우트: 검증 완료 전엔 대기, 익명이면 로그인으로.
 // (실제 검증은 AuthProvider가 초기 1회 수행 — 페이지별 중복 검증 없음)
 function RequireAuth({ children }: { children: ReactNode }) {
   const { state } = useAuth();
+  const { t } = useI18n();
   if (state.status === 'loading') {
     return (
       <main className="auth">
-        <p className="card__note">Loading…</p>
+        <p className="card__note">{t('common.loading')}</p>
       </main>
     );
   }

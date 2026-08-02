@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Button } from '../components/Button';
+import { LocaleSwitcher } from '../components/LocaleSwitcher';
 import { API_ORIGIN, ApiError, api } from '../lib/api';
 import { useAuth } from '../lib/auth-context';
+import { useI18n } from '../lib/i18n/i18n-context';
+import type { MessageKey } from '../lib/i18n/messages.gen';
 import {
   openOAuthPopup,
   prefersPopup,
@@ -17,34 +20,35 @@ import {
 
 type Pending = AuthProvider | null;
 
-// 오류 코드 → 사용자 메시지 단일 매핑 — redirect 오류(?error=…)와 API 오류가 공유한다.
+// 오류 코드 → 메시지 키 단일 매핑 — redirect 오류(?error=…)와 API 오류가 공유한다.
 // 키는 계약 상수에서만 가져오고, 없는 코드는 일반 메시지로 폴백.
-const GENERIC_ERROR_MESSAGE =
-  'Something went wrong. Please try again in a moment.';
+// 문구 자체는 번역 마스터(i18n/client.csv)에만 있다.
+const GENERIC_ERROR_KEY: MessageKey = 'error.generic';
 
-const ERROR_MESSAGES: Record<string, string> = {
-  [AUTH_ERROR_CODES.SIGNIN_FAILED]:
-    'Couldn’t sign you in. Try again or use another method.',
-  [AUTH_ERROR_CODES.DEMO_DISABLED]: 'Demo login is disabled right now.',
-  [CLIENT_ERROR_CODES.NETWORK_ERROR]:
-    'Connection lost. Check your network and try again.',
+const ERROR_KEYS: Record<string, MessageKey> = {
+  [AUTH_ERROR_CODES.SIGNIN_FAILED]: 'error.signin_failed',
+  [AUTH_ERROR_CODES.DEMO_DISABLED]: 'error.demo_disabled',
+  [CLIENT_ERROR_CODES.NETWORK_ERROR]: 'error.network_error',
 };
 
-function messageFor(code: string | null): string | null {
+function keyFor(code: string | null): MessageKey | null {
   if (!code) return null;
-  return ERROR_MESSAGES[code] ?? GENERIC_ERROR_MESSAGE;
+  return ERROR_KEYS[code] ?? GENERIC_ERROR_KEY;
 }
 
 export function LoginPage() {
   const navigate = useNavigate();
   const { signIn, refresh } = useAuth();
+  const { t } = useI18n();
   const [searchParams] = useSearchParams();
   const [pending, setPending] = useState<Pending>(null);
   // 진행 중인 팝업 핸들 — 언마운트 시 정리해야 리스너·타이머가 남지 않는다.
   const popupRef = useRef<OAuthPopupHandle | null>(null);
+  // 오류는 문구가 아니라 키로 들고 있다가 그릴 때 번역한다 — 언어를 바꾸면 화면에 떠
+  // 있는 오류도 함께 바뀐다(문구를 담아두면 그 오류만 이전 언어로 남는다).
   // 소셜 redirect 흐름이 실패 시 ?error=…로 돌아온다 (plan/auth.md 에러 경로).
-  const [error, setError] = useState<string | null>(() =>
-    messageFor(searchParams.get('error')),
+  const [errorKey, setErrorKey] = useState<MessageKey | null>(() =>
+    keyFor(searchParams.get('error')),
   );
   const busy = pending !== null;
 
@@ -69,7 +73,7 @@ export function LoginPage() {
   }
 
   async function handleSocial(provider: SocialProvider) {
-    setError(null);
+    setErrorKey(null);
     setPending(provider);
 
     // 데스크톱은 팝업 — 로그인 화면이 살아있으니 뒤로 가기 복원 문제 자체가 없고,
@@ -93,16 +97,16 @@ export function LoginPage() {
     if (!result.error) {
       if (await refresh()) return navigate('/dashboard');
       // 성공 메시지를 받았는데 세션이 없다면 진짜 실패다.
-      if (result.ok) setError(messageFor(AUTH_ERROR_CODES.SIGNIN_FAILED));
+      if (result.ok) setErrorKey(keyFor(AUTH_ERROR_CODES.SIGNIN_FAILED));
     } else {
-      setError(messageFor(result.error));
+      setErrorKey(keyFor(result.error));
     }
     // 취소(오류 코드 없음 + 세션 없음)는 조용히 원상 복귀한다.
     setPending(null);
   }
 
   async function handleDemo() {
-    setError(null);
+    setErrorKey(null);
     setPending('demo');
     try {
       // 세션 쿠키는 서버가 응답에 심는다 — 웹은 사용자 정보만 채택한다.
@@ -110,43 +114,48 @@ export function LoginPage() {
       signIn(user);
       navigate('/dashboard');
     } catch (e) {
-      setError(
-        e instanceof ApiError ? messageFor(e.code) : GENERIC_ERROR_MESSAGE,
-      );
+      setErrorKey(e instanceof ApiError ? keyFor(e.code) : GENERIC_ERROR_KEY);
       setPending(null);
     }
   }
 
   return (
     <main className="auth">
+      {/* 워드마크는 번역하지 않는다 — 로고 텍스트는 언어와 무관한 고유명사다. */}
       <div className="auth__brand">Prism</div>
 
       <section className="card">
         <header className="card__head">
-          <h1>Welcome back</h1>
-          <p>Sign in to continue</p>
+          <h1>{t('auth.welcome_back')}</h1>
+          <p>{t('auth.sign_in_to_continue')}</p>
         </header>
 
-        {error && (
+        {errorKey && (
           <div className="alert alert--error" role="alert">
-            {error}
+            {t(errorKey)}
           </div>
         )}
 
         <div className="actions">
           <Button variant="outline" disabled={busy} onClick={() => handleSocial('google')}>
-            {pending === 'google' ? 'Connecting…' : 'Continue with Google'}
+            {pending === 'google'
+              ? t('auth.connecting')
+              : t('auth.continue_with_google')}
           </Button>
           <Button variant="primary" disabled={busy} onClick={() => handleSocial('apple')}>
-            {pending === 'apple' ? 'Connecting…' : 'Continue with Apple'}
+            {pending === 'apple'
+              ? t('auth.connecting')
+              : t('auth.continue_with_apple')}
           </Button>
           <Button variant="secondary" disabled={busy} onClick={handleDemo}>
-            {pending === 'demo' ? 'Connecting…' : 'Try the demo'}
+            {pending === 'demo' ? t('auth.connecting') : t('auth.try_the_demo')}
           </Button>
         </div>
 
-        <p className="card__note">This portfolio stores no personal data.</p>
+        <p className="card__note">{t('auth.no_personal_data')}</p>
       </section>
+
+      <LocaleSwitcher />
     </main>
   );
 }

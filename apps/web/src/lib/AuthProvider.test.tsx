@@ -5,6 +5,8 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { AuthCallbackPage } from '../pages/AuthCallbackPage';
 import { AuthProvider } from './AuthProvider';
 import { useAuth } from './auth-context';
+import { I18nContext } from './i18n/i18n-context';
+import { englishI18n } from './i18n/test-i18n';
 import type { User } from './contracts.gen';
 
 // api를 mock해 /auth/me 응답 타이밍을 테스트가 제어한다.
@@ -157,13 +159,15 @@ describe('AuthProvider 경합 방어', () => {
     render(
       <StrictMode>
         <MemoryRouter initialEntries={['/auth/callback']}>
-          <AuthProvider>
-            <Routes>
-              <Route path="/auth/callback" element={<AuthCallbackPage />} />
-              <Route path="/dashboard" element={<output>dashboard</output>} />
-              <Route path="/login" element={<output>login</output>} />
-            </Routes>
-          </AuthProvider>
+          <I18nContext.Provider value={englishI18n()}>
+            <AuthProvider>
+              <Routes>
+                <Route path="/auth/callback" element={<AuthCallbackPage />} />
+                <Route path="/dashboard" element={<output>dashboard</output>} />
+                <Route path="/login" element={<output>login</output>} />
+              </Routes>
+            </AuthProvider>
+          </I18nContext.Provider>
         </MemoryRouter>
       </StrictMode>,
     );
@@ -178,13 +182,15 @@ describe('AuthProvider 경합 방어', () => {
 
     render(
       <MemoryRouter initialEntries={['/auth/callback']}>
-        <AuthProvider>
-          <Routes>
-            <Route path="/auth/callback" element={<AuthCallbackPage />} />
-            <Route path="/dashboard" element={<output>dashboard</output>} />
-            <Route path="/login" element={<output>login</output>} />
-          </Routes>
-        </AuthProvider>
+        <I18nContext.Provider value={englishI18n()}>
+          <AuthProvider>
+            <Routes>
+              <Route path="/auth/callback" element={<AuthCallbackPage />} />
+              <Route path="/dashboard" element={<output>dashboard</output>} />
+              <Route path="/login" element={<output>login</output>} />
+            </Routes>
+          </AuthProvider>
+        </I18nContext.Provider>
       </MemoryRouter>,
     );
 

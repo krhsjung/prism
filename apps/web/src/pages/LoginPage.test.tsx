@@ -3,6 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
 import { LoginPage } from './LoginPage';
 import { AuthContext, type AuthContextValue } from '../lib/auth-context';
+import { I18nContext } from '../lib/i18n/i18n-context';
+import { englishI18n } from '../lib/i18n/test-i18n';
 import { OAUTH_MESSAGE_TYPE } from '../lib/contracts.gen';
 
 // 소셜 시작은 브라우저 이동이라 api 모듈만 대체하고 실제 이동은 스텁으로 막는다.
@@ -56,9 +58,11 @@ function useDesktop(matches: boolean) {
 function renderLogin() {
   return render(
     <MemoryRouter initialEntries={['/login']}>
-      <AuthContext.Provider value={auth}>
-        <LoginPage />
-      </AuthContext.Provider>
+      <I18nContext.Provider value={englishI18n()}>
+        <AuthContext.Provider value={auth}>
+          <LoginPage />
+        </AuthContext.Provider>
+      </I18nContext.Provider>
     </MemoryRouter>,
   );
 }
