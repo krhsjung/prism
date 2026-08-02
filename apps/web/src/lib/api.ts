@@ -1,12 +1,18 @@
-import type { User } from './types';
+import {
+  CLIENT_ERROR_CODES,
+  decodeSessionUser,
+  decodeUser,
+  jsonBodyOf,
+  type JsonValue,
+  type SocialFlow,
+  type SocialProvider,
+} from './contracts.gen';
 
-const API_URL =
-  (import.meta.env.VITE_API_URL as string | undefined) ?? 'http://localhost:3000';
+const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 
-export interface AuthSession {
-  accessToken: string;
-  user: User;
-}
+// popup 흐름에서 들어오는 postMessage의 발신 출처를 대조할 값.
+// (API와 웹이 같은 도메인을 쓰는 운영에서도, 포트가 갈리는 로컬에서도 이 값이 기준)
+export const API_ORIGIN = new URL(API_URL, window.location.href).origin;
 
 export class ApiError extends Error {
   status: number;
@@ -19,37 +25,103 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  let res: Response;
+// 모든 요청에 데드라인을 둔다 — 서버 무응답 시 로그인/초기 검증 화면이 무한 대기하지 않게.
+const REQUEST_TIMEOUT_MS = 10_000;
+
+async function fetchOrThrow(path: string, init?: RequestInit): Promise<Response> {
   try {
-    res = await fetch(`${API_URL}${path}`, {
+    return await fetch(`${API_URL}${path}`, {
       headers: { 'Content-Type': 'application/json', ...(init?.headers ?? {}) },
       ...init,
+      // 세션은 HttpOnly 쿠키다 — JS가 토큰을 들고 다니지 않으므로 쿠키를 실어 보낸다.
+      // (로컬은 웹:5173 ↔ API:3000으로 교차 출처라 이 옵션이 없으면 쿠키가 빠진다)
+      credentials: 'include',
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
   } catch {
-    throw new ApiError(0, 'NETWORK_ERROR');
+    // 타임아웃(TimeoutError)도 네트워크 문제로 묶는다.
+    throw new ApiError(0, CLIENT_ERROR_CODES.NETWORK_ERROR);
   }
-  if (!res.ok) {
-    let code = 'REQUEST_FAILED';
+}
+
+// 액세스 토큰이 짧아 정상 사용 중에도 만료된다. 401을 만나면 세션을 한 번 갱신하고
+// 원래 요청을 다시 보낸다 — 사용자에겐 아무 일도 일어나지 않은 것처럼 보인다.
+//
+// 동시에 여러 요청이 401을 받아도 갱신은 한 번만 나간다(single-flight). 각자 갱신하면
+// 리프레시 자격증명이 1회용이라 하나만 성공하고 나머지는 세션을 잃는다.
+let refreshing: Promise<boolean> | null = null;
+
+function refreshSession(): Promise<boolean> {
+  refreshing ??= (async () => {
     try {
-      const body = (await res.json()) as { error?: string };
-      if (body.error) code = body.error;
+      const res = await fetchOrThrow('/auth/refresh', { method: 'POST' });
+      return res.ok;
     } catch {
-      /* non-JSON body */
+      return false;
+    } finally {
+      // 다음 만료 때 다시 시도할 수 있도록 비운다.
+      refreshing = null;
     }
-    throw new ApiError(res.status, code);
+  })();
+  return refreshing;
+}
+
+// 401이면 갱신 후 1회 재시도. 갱신 경로 자체는 재시도하지 않는다(무한 루프 방지).
+async function fetchWithRefresh(
+  path: string,
+  init?: RequestInit,
+): Promise<Response> {
+  const res = await fetchOrThrow(path, init);
+  if (res.status !== 401 || path === '/auth/refresh') return res;
+  if (!(await refreshSession())) return res;
+  return fetchOrThrow(path, init);
+}
+
+// 오류 응답 body에서 서버 오류 코드를 꺼낸다(형식이 다르면 기본 코드).
+async function errorCodeOf(res: Response): Promise<string> {
+  try {
+    const body = await jsonBodyOf(res);
+    if (body !== null && typeof body === 'object' && !Array.isArray(body)) {
+      const code = body.error;
+      if (typeof code === 'string' && code) return code;
+    }
+  } catch {
+    /* non-JSON body */
   }
-  if (res.status === 204) return undefined as T;
-  return (await res.json()) as T;
+  return CLIENT_ERROR_CODES.REQUEST_FAILED;
+}
+
+// 성공 body를 경계에서 디코딩한다 — as 단언 없이, 계약과 다르면 INVALID_RESPONSE.
+async function requestJson<T>(
+  path: string,
+  decode: (v: JsonValue) => T,
+  init?: RequestInit,
+): Promise<T> {
+  const res = await fetchWithRefresh(path, init);
+  if (!res.ok) throw new ApiError(res.status, await errorCodeOf(res));
+  try {
+    return decode(await jsonBodyOf(res));
+  } catch {
+    throw new ApiError(res.status, CLIENT_ERROR_CODES.INVALID_RESPONSE);
+  }
+}
+
+// body를 기대하지 않는 요청(204 등).
+async function requestEmpty(path: string, init?: RequestInit): Promise<void> {
+  const res = await fetchWithRefresh(path, init);
+  if (!res.ok) throw new ApiError(res.status, await errorCodeOf(res));
 }
 
 export const api = {
-  demoLogin: () => request<AuthSession>('/auth/demo', { method: 'POST' }),
-  me: (token: string) =>
-    request<User>('/auth/me', { headers: { Authorization: `Bearer ${token}` } }),
-  logout: (token: string) =>
-    request<void>('/auth/logout', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}` },
-    }),
+  // 응답에 토큰이 없다 — 세션은 서버가 심은 HttpOnly 쿠키에만 있다.
+  demoLogin: () =>
+    requestJson('/auth/demo', decodeSessionUser, { method: 'POST' }),
+  // 소셜 로그인은 fetch가 아니라 브라우저 이동(전체 페이지 또는 popup)으로 시작한다.
+  // flow는 서버가 서명된 state에 실어 콜백까지 가져가고, 결과 전달 방식을 결정한다.
+  socialLoginUrl: (provider: SocialProvider, flow: SocialFlow) =>
+    `${API_URL}/auth/${provider}?flow=${flow}`,
+  // 쿠키 세션의 유효성은 서버만 알 수 있다(JS가 HttpOnly 쿠키를 못 읽는다).
+  me: () => requestJson('/auth/me', decodeUser),
+  // 서버가 쿠키를 지워야 로그아웃이 성립한다.
+  logout: () => requestEmpty('/auth/logout', { method: 'POST' }),
 };
