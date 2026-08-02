@@ -11,12 +11,18 @@ services:
     container_name: redis
     restart: unless-stopped
     ports:
-      - ${REDIS_PORT}:6379
+      # 루프백에만 게시한다 — LAN의 다른 기기가 세션 저장소에 직접 붙지 못하게.
+      # kind 파드는 host.docker.internal 경유라 이 바인딩으로도 도달한다(검증 완료).
+      - 127.0.0.1:${REDIS_PORT}:6379
     volumes:
       - ${DOCKER_VOLUME_PATH}/redis:/data
       - ./redis.conf:/etc/redis/redis.conf:ro
       - ./init-acl.sh:/usr/local/bin/init-acl.sh:ro
     environment:
+      # default 사용자 비밀번호(서버 기동 인자)
       REDIS_PASSWORD: ${REDIS_PASSWORD}
-      AILOM_REDIS_PASSWORD: ${AILOM_REDIS_PASSWORD}
+      # 앱 전용 ACL 사용자 — init-acl.sh가 이 값으로 users.acl을 만든다.
+      # 이게 전달되지 않아 예전엔 이름·비밀번호가 빈 사용자가 생성됐다.
+      PRISM_REDIS_USER: ${PRISM_REDIS_USER}
+      PRISM_REDIS_PASSWORD: ${PRISM_REDIS_PASSWORD}
     command: /usr/local/bin/init-acl.sh
