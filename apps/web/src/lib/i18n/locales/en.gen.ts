@@ -9,6 +9,13 @@ export const messages: Messages = {
   // 화면 공통
   'common.loading': 'Loading…',
   'common.language': 'Language',
+  'common.theme': 'Theme',
+
+  // ── theme ──
+  // 테마 선택 — System은 "고르지 않음"이자 기기 설정을 따르겠다는 선택이다
+  'theme.system': 'System',
+  'theme.light': 'Light',
+  'theme.dark': 'Dark',
 
   // ── auth ──
   // 로그인 화면

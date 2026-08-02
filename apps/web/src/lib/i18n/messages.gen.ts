@@ -26,6 +26,10 @@ export const LOCALE_META: Record<Locale, LocaleMeta> = {
 export const MESSAGE_KEYS = [
   'common.loading',
   'common.language',
+  'common.theme',
+  'theme.system',
+  'theme.light',
+  'theme.dark',
   'auth.welcome_back',
   'auth.sign_in_to_continue',
   'auth.continue_with_google',

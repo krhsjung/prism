@@ -2,6 +2,11 @@ module,key,en,ko,ja
 common,# 화면 공통,,,
 common,loading,Loading…,불러오는 중…,読み込み中…
 common,language,Language,언어,言語
+common,theme,Theme,테마,テーマ
+theme,"# 테마 선택 — System은 ""고르지 않음""이자 기기 설정을 따르겠다는 선택이다",,,
+theme,system,System,시스템,システム
+theme,light,Light,라이트,ライト
+theme,dark,Dark,다크,ダーク
 auth,# 로그인 화면,,,
 auth,welcome_back,Welcome back,다시 오셨네요,おかえりなさい
 auth,sign_in_to_continue,Sign in to continue,계속하려면 로그인하세요,続けるにはサインインしてください
