@@ -1,0 +1,26 @@
+module,key,en,ko,ja
+common,# 화면 공통,,,
+common,loading,Loading…,불러오는 중…,読み込み中…
+common,language,Language,언어,言語
+auth,# 로그인 화면,,,
+auth,welcome_back,Welcome back,다시 오셨네요,おかえりなさい
+auth,sign_in_to_continue,Sign in to continue,계속하려면 로그인하세요,続けるにはサインインしてください
+auth,continue_with_google,Continue with Google,Google로 계속하기,Google で続ける
+auth,continue_with_apple,Continue with Apple,Apple로 계속하기,Apple で続ける
+auth,try_the_demo,Try the demo,데모 체험하기,デモを試す
+auth,connecting,Connecting…,연결하는 중…,接続しています…
+auth,no_personal_data,This portfolio stores no personal data.,이 포트폴리오는 개인정보를 저장하지 않습니다.,このポートフォリオは個人情報を保存しません。
+auth,# 소셜 로그인 redirect 착지 화면,,,
+auth,signing_you_in,Signing you in…,로그인하는 중…,サインインしています…
+dashboard,# 대시보드,,,
+dashboard,title,Dashboard,대시보드,ダッシュボード
+dashboard,signed_in_as,Signed in as {name},{name} 님으로 로그인했습니다,{name} としてサインイン中
+dashboard,log_out,Log out,로그아웃,ログアウト
+dashboard,logging_out,Logging out…,로그아웃하는 중…,ログアウトしています…
+dashboard,placeholder_body,You’re in. This is a placeholder dashboard for the authentication vertical slice — the demo login flow works end to end.,"로그인됐습니다. 인증 vertical slice를 위한 임시 대시보드로, 데모 로그인 흐름이 처음부터 끝까지 동작합니다.",ログインできました。認証の vertical slice 用の仮ダッシュボードで、デモログインの流れが最後まで動作します。
+error,# 오류 메시지 — 키는 계약의 오류 코드와 1:1로 대응한다 (contracts.ts),,,
+error,generic,Something went wrong. Please try again in a moment.,문제가 발생했습니다. 잠시 후 다시 시도해 주세요.,問題が発生しました。しばらくしてからもう一度お試しください。
+error,signin_failed,Couldn’t sign you in. Try again or use another method.,로그인하지 못했습니다. 다시 시도하거나 다른 방법을 이용해 주세요.,サインインできませんでした。もう一度お試しになるか別の方法をご利用ください。
+error,demo_disabled,Demo login is disabled right now.,지금은 데모 로그인을 사용할 수 없습니다.,現在デモログインはご利用いただけません。
+error,network_error,Connection lost. Check your network and try again.,연결이 끊겼습니다. 네트워크를 확인하고 다시 시도해 주세요.,接続が切れました。ネットワークを確認してもう一度お試しください。
+error,logout_failed,Couldn’t log you out. You’re still signed in — check your connection and try again.,로그아웃하지 못했습니다. 아직 로그인된 상태입니다 — 연결을 확인하고 다시 시도해 주세요.,ログアウトできませんでした。まだサインインしたままです — 接続を確認してもう一度お試しください。

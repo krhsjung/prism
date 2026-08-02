@@ -1,0 +1,11 @@
+{
+  "name": "prism-i18n",
+  "version": "0.0.1",
+  "private": true,
+  "description": "번역 마스터(CSV) → 플랫폼별 산출물 생성기",
+  "type": "module",
+  "scripts": {
+    "generate": "node scripts/generate.js",
+    "check": "node scripts/generate.js --check"
+  }
+}

@@ -1,0 +1,5 @@
+module,key,en,ko,ja
+page,# OAuth 콜백 종료 페이지 — popup을 닫거나 웹으로 돌려보내는 중간 화면,,,
+page,signin_title,Signing in — Prism,로그인 중 — Prism,サインイン中 — Prism
+page,noscript_notice,JavaScript is turned off so this page can’t continue on its own.,JavaScript가 꺼져 있어 이 페이지가 스스로 이어지지 않습니다.,JavaScript が無効なため、このページは自動で続行できません。
+page,noscript_continue,Continue to Prism,Prism으로 이동,Prism へ進む
