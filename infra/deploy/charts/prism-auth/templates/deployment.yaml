@@ -25,53 +25,69 @@ spec:
               containerPort: {{ .Values.service.targetPort }}
               protocol: TCP
           env:
-            - name: AUTH_PORT
+            - name: PRISM_AUTH_PORT
               value: {{ .Values.env.authPort | quote }}
-            - name: CORS_ORIGIN
+            - name: PRISM_CORS_ORIGIN
               value: {{ .Values.env.corsOrigin | quote }}
-            - name: JWT_SECRET_KEY
+            - name: PRISM_JWT_SECRET_KEY
               valueFrom:
                 secretKeyRef:
                   name: {{ include "prism-auth.fullname" . }}-secret
                   key: jwt-secret-key
-            - name: JWT_REFRESH_SECRET_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "prism-auth.fullname" . }}-secret
-                  key: jwt-refresh-secret-key
-            - name: WEB_APP_URL
+            - name: PRISM_WEB_APP_URL
               value: {{ .Values.env.webAppUrl | quote }}
-            - name: GOOGLE_CLIENT_ID
+            - name: PRISM_GOOGLE_CLIENT_ID
               value: {{ .Values.env.googleClientId | quote }}
-            - name: GOOGLE_REDIRECT_URI
+            - name: PRISM_GOOGLE_REDIRECT_URI
               value: {{ .Values.env.googleRedirectUri | quote }}
-            - name: APPLE_TEAM_ID
+            - name: PRISM_APPLE_TEAM_ID
               value: {{ .Values.env.appleTeamId | quote }}
-            - name: APPLE_CLIENT_ID
+            - name: PRISM_APPLE_CLIENT_ID
               value: {{ .Values.env.appleClientId | quote }}
-            - name: APPLE_KEY_ID
+            - name: PRISM_APPLE_KEY_ID
               value: {{ .Values.env.appleKeyId | quote }}
-            - name: APPLE_BUNDLE_ID
+            - name: PRISM_APPLE_BUNDLE_ID
               value: {{ .Values.env.appleBundleId | quote }}
-            - name: APPLE_REDIRECT_URI
+            - name: PRISM_APPLE_REDIRECT_URI
               value: {{ .Values.env.appleRedirectUri | quote }}
-            - name: GOOGLE_CLIENT_SECRET
+            - name: PRISM_GOOGLE_CLIENT_SECRET
               valueFrom:
                 secretKeyRef:
                   name: {{ include "prism-auth.fullname" . }}-secret
                   key: google-client-secret
-            - name: APPLE_PRIVATE_KEY
+            - name: PRISM_APPLE_PRIVATE_KEY
               valueFrom:
                 secretKeyRef:
                   name: {{ include "prism-auth.fullname" . }}-secret
                   key: apple-private-key
-            - name: DATABASE_URL
+            - name: PRISM_DB_REQUIRED
+              value: {{ .Values.env.dbRequired | quote }}
+            - name: PRISM_DATABASE_URL
               valueFrom:
                 secretKeyRef:
                   name: {{ include "prism-auth.fullname" . }}-secret
                   key: database-url
+            - name: PRISM_REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "prism-auth.fullname" . }}-secret
+                  key: redis-url
+            - name: PRISM_DATABASE_REPLICA_URLS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "prism-auth.fullname" . }}-secret
+                  key: database-replica-urls
+          # liveness는 /healthz(프로세스 응답 불능 시 재시작),
+          # readiness는 /readyz — DB 필수 배포에선 master 장애 시 트래픽에서 빠진다.
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 15
           readinessProbe:
-            tcpSocket:
+            httpGet:
+              path: /readyz
               port: http
             initialDelaySeconds: 3
             periodSeconds: 10

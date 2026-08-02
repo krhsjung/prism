@@ -29,20 +29,32 @@ env:
   appleKeyId: "${PRISM_APPLE_KEY_ID:-}"
   appleBundleId: "${PRISM_APPLE_BUNDLE_ID:-}"
   appleRedirectUri: "https://${PRISM_SERVICE_DOMAIN}/auth/apple/callback"
+  # 운영 기본 true: DB 장애 시 부팅 실패 + readyz로 트래픽 차단. 데모(DB 없는) 배포만 false.
+  dbRequired: "${PRISM_DB_REQUIRED:-true}"
 
 # 시크릿: env → k8s Secret. JWT는 필수, OAuth/DB는 미설정 시 빈 값.
 jwt:
   secretKey: "${PRISM_JWT_SECRET_KEY}"
-  refreshSecretKey: "${PRISM_JWT_REFRESH_SECRET_KEY}"
 
 oauth:
   googleClientSecret: "${PRISM_GOOGLE_CLIENT_SECRET:-}"
   # .p8 키 내용. 개행은 \n 이스케이프로 넣어도 앱이 복원한다.
   applePrivateKey: "${PRISM_APPLE_PRIVATE_KEY:-}"
 
-# 사용자 upsert용 PostgreSQL 접속 문자열 (예: postgres://user:pw@host:5432/prism)
+# DB(PostgreSQL) — 표준 접속 URL(12-factor DATABASE_URL). 비밀번호를 포함하므로 Secret으로 주입.
+# replica URL(콤마 목록)이 있으면 replica 토폴로지, 없으면 single.
+# 호스트는 kind 파드에서 닿는 주소여야 한다(예: host.docker.internal).
 database:
-  url: "${PRISM_DATABASE_URL:-}"
+  url: "${PRISM_DATABASE_URL:-postgres://prism@host.docker.internal:5432/prism}"
+  replicaUrls: "${PRISM_DATABASE_REPLICA_URLS:-}"
+
+# 세션 저장소(Redis). 접속 URL이 비밀번호를 포함하므로 통째로 Secret으로 주입한다.
+# 세션이 여기에만 있으므로 연결 실패는 부팅 실패로 다룬다(readyz도 이 상태를 본다).
+#
+# 기본값을 두지 않는다. 인증 없는 URL을 기본값으로 두면 Helm의 required 검사를
+# 통과해버려서, 렌더는 성공하는데 파드가 Redis 인증에 실패하는 배포가 만들어진다.
+redis:
+  url: "${PRISM_REDIS_URL:?PRISM_REDIS_URL must be set}"
 
 resources:
   limits:

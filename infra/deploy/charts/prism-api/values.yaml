@@ -15,7 +15,8 @@ service:
   nodePort: ${PRISM_API_NODEPORT:-30001}
 
 env:
-  port: "3000"
+  apiPort: "3000"
+  corsOrigin: "https://${PRISM_SERVICE_DOMAIN}"
 
 resources:
   limits:

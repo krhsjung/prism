@@ -6,7 +6,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/config.sh"
 echo "==> build web (prism mode)"
 pnpm -C "$WEB_DIR" build
 
-echo "==> deploy dist -> $PRISM_API_NODEPORT"
-mkdir -p "$PRISM_API_NODEPORT"
-rsync -a --delete "$WEB_DIR/dist/" "$PRISM_API_NODEPORT/"
+echo "==> deploy dist -> $PRISM_WEB_DEPLOYMENT_PATH"
+mkdir -p "$PRISM_WEB_DEPLOYMENT_PATH"
+rsync -a --delete "$WEB_DIR/dist/" "$PRISM_WEB_DEPLOYMENT_PATH/"
 echo "==> done"

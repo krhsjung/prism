@@ -25,10 +25,19 @@ spec:
               containerPort: {{ .Values.service.targetPort }}
               protocol: TCP
           env:
-            - name: PORT
-              value: {{ .Values.env.port | quote }}
+            - name: PRISM_API_PORT
+              value: {{ .Values.env.apiPort | quote }}
+            - name: PRISM_CORS_ORIGIN
+              value: {{ .Values.env.corsOrigin | quote }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 15
           readinessProbe:
-            tcpSocket:
+            httpGet:
+              path: /healthz
               port: http
             initialDelaySeconds: 3
             periodSeconds: 10
