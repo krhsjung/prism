@@ -1,8 +1,18 @@
 {
   "extends": "../../tsconfig.json",
   "compilerOptions": {
+    // nest build(tsconfig-paths-webpack-plugin)의 @app/* 해석에 필요.
+    // 루트 tsconfig에는 두지 않는다 — TS 6+에서 baseUrl 폐기라 IDE가 에러를 낸다.
+    "baseUrl": "../../",
     "outDir": "../../dist/services/auth"
   },
-  "include": ["src/**/*"],
-  "exclude": ["node_modules", "test", "dist", "**/*spec.ts"]
+  "include": [
+    "src/**/*"
+  ],
+  "exclude": [
+    "node_modules",
+    "test",
+    "dist",
+    "**/*spec.ts"
+  ]
 }
