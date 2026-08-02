@@ -29,7 +29,9 @@
     "@nestjs/core": "^11.0.1",
     "@nestjs/jwt": "^11.0.2",
     "@nestjs/platform-express": "^11.0.1",
+    "@nestjs/throttler": "^6.5.0",
     "google-auth-library": "^10.9.0",
+    "ioredis": "^5.11.1",
     "jose": "^6.2.5",
     "pg": "^8.22.0",
     "reflect-metadata": "^0.2.2",
@@ -78,7 +80,9 @@
       "^@app/database$": "<rootDir>/libs/database/src/index.ts",
       "^@app/database/(.*)$": "<rootDir>/libs/database/src/$1",
       "^@app/config$": "<rootDir>/libs/config/src/index.ts",
-      "^@app/config/(.*)$": "<rootDir>/libs/config/src/$1"
+      "^@app/config/(.*)$": "<rootDir>/libs/config/src/$1",
+      "^@app/redis$": "<rootDir>/libs/redis/src/index.ts",
+      "^@app/redis/(.*)$": "<rootDir>/libs/redis/src/$1"
     },
     "collectCoverageFrom": [
       "services/**/*.(t|j)s",

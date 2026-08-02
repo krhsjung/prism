@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import type { SocialProvider } from '@app/common';
 import type { PostgresConfig } from '@app/database';
+import type { RedisConfig } from '@app/redis';
 import { loadAppConfig, type AppConfig } from './app-config';
 import type { AppleOAuthOptions, GoogleOAuthOptions } from './oauth-options';
 
@@ -29,6 +30,15 @@ export class PrismConfigService {
     return this.app.http.corsOrigins;
   }
 
+  // 이 출처가 우리에게 요청을 보내도 되는가. CORS와 같은 허용 목록을 쓴다 —
+  // "누가 우리에게 말을 걸 수 있나"라는 같은 질문이라 원천이 갈리면 안 된다.
+  // 목록 미설정(로컬)은 전체 허용 — CORS의 origin:true와 동작을 맞춘다.
+  // (운영은 PRISM_CORS_ORIGIN이 필수라 여기서 항상 목록이 존재한다)
+  isAllowedOrigin(origin: string): boolean {
+    const allowed = this.app.http.corsOrigins;
+    return allowed === undefined || allowed.includes(origin);
+  }
+
   get webAppUrl(): string {
     return this.app.http.webAppUrl;
   }
@@ -45,6 +55,11 @@ export class PrismConfigService {
   // ── DB (PostgreSQL) ──
   get postgresConfig(): PostgresConfig {
     return this.app.postgres;
+  }
+
+  // ── 세션 저장소 (Redis) ──
+  get redisConfig(): RedisConfig {
+    return this.app.redis;
   }
 
   // ── 소셜 OAuth ──

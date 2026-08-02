@@ -1,4 +1,5 @@
 import type { PostgresConfig } from '@app/database';
+import type { RedisConfig } from '@app/redis';
 import type { AppleOAuthOptions, GoogleOAuthOptions } from './oauth-options';
 
 // env 파싱을 전부 순수 함수로 모은다 — 입력은 env 스냅샷, 출력은 불변 설정 객체.
@@ -27,6 +28,7 @@ export interface AppConfig {
   http: HttpConfig;
   auth: AuthConfig;
   postgres: PostgresConfig;
+  redis: RedisConfig;
   google: GoogleOAuthOptions;
   apple: AppleOAuthOptions;
 }
@@ -141,6 +143,45 @@ function pgUrl(source: string, raw: string): string {
   return raw;
 }
 
+// 세션 저장소. 표준 접속 URL(redis://user:password@host:port)로 지정한다.
+// 세션이 여기에만 있으므로 운영에서는 연결 실패를 부팅 실패로 올린다 —
+// 연결 없이 뜨면 모든 인증이 실패하는데 Pod는 살아 있는 상태가 된다.
+export function loadRedisConfig(env: Env): RedisConfig {
+  const raw = str(env, 'PRISM_REDIS_URL', 'redis://localhost:6379');
+  if (env.NODE_ENV === 'production' && !str(env, 'PRISM_REDIS_URL')) {
+    throw new Error('PRISM_REDIS_URL must be set in production');
+  }
+  return {
+    url: redisUrl(raw),
+    required: str(env, 'PRISM_REDIS_REQUIRED', 'true') !== 'false',
+    connectTimeoutMs:
+      Number(str(env, 'PRISM_REDIS_CONNECT_TIMEOUT_MS')) || 5_000,
+    commandTimeoutMs:
+      Number(str(env, 'PRISM_REDIS_COMMAND_TIMEOUT_MS')) || 3_000,
+  };
+}
+
+// redis(s):// URL 검증 — 형식 오류는 부팅 시 fail-fast.
+// 오류 메시지에 URL 원문을 넣지 않는다(비밀번호 노출 방지).
+function redisUrl(raw: string): string {
+  let parsed: URL | undefined;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    parsed = undefined;
+  }
+  const valid =
+    parsed &&
+    (parsed.protocol === 'redis:' || parsed.protocol === 'rediss:') &&
+    parsed.hostname;
+  if (!valid) {
+    throw new Error(
+      'Invalid PRISM_REDIS_URL: expected redis://[user:password@]host[:port]',
+    );
+  }
+  return raw;
+}
+
 export function loadGoogleOAuthConfig(env: Env): GoogleOAuthOptions {
   return {
     clientId: str(env, 'PRISM_GOOGLE_CLIENT_ID'),
@@ -174,6 +215,7 @@ export function loadAppConfig(env: Env): AppConfig {
     http: loadHttpConfig(env),
     auth: loadAuthConfig(env),
     postgres: loadPostgresConfig(env),
+    redis: loadRedisConfig(env),
     google: loadGoogleOAuthConfig(env),
     apple: loadAppleOAuthConfig(env),
   };
