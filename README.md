@@ -10,6 +10,24 @@
 아니라 **여러 플랫폼에 걸친 구현 품질과 일관성**입니다. 하나의 소스가 여러 결과물로 나뉜다는
 점에서 프리즘이라는 이름을 골랐습니다.
 
+## 기능
+
+현재 구현된 것은 **인증 vertical slice** — 로그인부터 세션·배포까지 한 기능을 끝까지 관통합니다.
+
+- **로그인**: 원클릭 데모 · Google OAuth · Apple Sign In(웹 `form_post` + 네이티브 SDK 경로).
+  provider는 공통 `OAuthClient` 인터페이스 + 레지스트리로 추가한다(`GET /auth/:provider`).
+- **세션**: stateless HS256 JWT. `GET /auth/me`로 복원, 로그아웃은 클라이언트 토큰 폐기.
+- **보안**: login-CSRF 방어(흐름별 nonce 쿠키 ↔ 서명된 state 바인딩, 콜백에서 일회 소진) ·
+  모든 외부 JSON 경계 런타임 디코딩 · 운영 fail-fast(JWT 시크릿 강도, CORS/웹 URL 필수) ·
+  개인정보 미저장(provider + provider_id만 보관, 표시 이름은 세션 한정).
+- **데이터**: PostgreSQL — 12-factor `PRISM_DATABASE_URL`(+replica URL 목록으로 읽기 분산).
+  replica 헬스 추적·half-open 복귀·연결/쿼리 타임아웃.
+- **계약**: 서버가 소유한 단일 계약([contracts.ts](apps/server/libs/common/src/types/contracts.ts))을
+  웹으로 생성 배포(`pnpm sync:contracts`), drift는 테스트가 차단.
+- **운영**: `/healthz`(liveness) · `/readyz`(DB 인지 readiness), Docker + Helm 배포.
+- **품질**: TypeScript `unknown`/`any` 키워드 금지(lint 강제) · strict +
+  `noUncheckedIndexedAccess` · 서버 46 / 웹 6 자동 테스트.
+
 ## 구조
 
 ```
