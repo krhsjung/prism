@@ -17,7 +17,6 @@ import { randomBytes, randomUUID } from 'crypto';
 import type { Request, Response } from 'express';
 import { PrismConfigService } from '@app/config';
 import { AuthService } from './auth.service';
-import { JwtAuthGuard } from './jwt-auth.guard';
 import { WebOriginGuard } from './web-origin.guard';
 import {
   AuthTokenService,
@@ -44,15 +43,19 @@ import {
   type User,
 } from '@app/common';
 import {
+  JwtAuthGuard,
+  SessionTokenService,
   cookieOf,
-  oauthNonceCookieName,
-  oauthNonceCookieOptions,
   refreshCookieName,
   refreshCookieOptions,
   sessionCookieName,
   sessionCookieOptions,
   sessionTokenOf,
-} from './session/session-cookie';
+} from '@app/session';
+import {
+  oauthNonceCookieName,
+  oauthNonceCookieOptions,
+} from './oauth/oauth-cookie';
 
 // OAuth 콜백에서 로그인 실패를 웹에 알리는 공통 코드. 웹 로그인 화면이 메시지로 매핑한다.
 const SIGNIN_FAILED = AUTH_ERROR_CODES.SIGNIN_FAILED;
@@ -87,7 +90,10 @@ export class AuthController {
 
   constructor(
     private readonly auth: AuthService,
+    // state(OAuth 흐름) 토큰과 세션 토큰은 소유자가 다르다 — 전자는 이 서비스 전용,
+    // 후자는 모든 서비스가 검증하는 공유 계층(@app/session)의 것이다.
     private readonly tokens: AuthTokenService,
+    private readonly sessionTokens: SessionTokenService,
     private readonly config: PrismConfigService,
   ) {}
 
@@ -226,8 +232,10 @@ export class AuthController {
     @Res({ passthrough: true }) res: Response,
   ): Promise<void> {
     // 세션 폐기는 최선 노력 — 서명이 유효한 토큰을 들고 왔을 때만, 그 세션만 지운다.
-    const token = sessionTokenOf(req, this.config.isProduction);
-    const sessionId = token ? this.tokens.readSessionIdForLogout(token) : null;
+    const token = sessionTokenOf(req, this.config.cookiePolicy);
+    const sessionId = token
+      ? this.sessionTokens.readSessionIdForLogout(token)
+      : null;
     if (sessionId) await this.auth.revokeSession(sessionId);
     // 쿠키 삭제는 조건 없이 한다 — 여기까지 왔으면 어떤 경우에도 정리되어야 한다.
     this.clearSessionCookies(res);
@@ -248,18 +256,29 @@ export class AuthController {
     // 쿠키 요청에 토큰을 돌려주면 XSS가 ambient 쿠키로 refresh를 호출해 자격증명을
     // 그대로 빼갈 수 있다 — HttpOnly가 막으려던 바로 그 경로다.
     const credential =
-      bodyToken ?? cookieOf(req, refreshCookieName(this.config.isProduction));
+      bodyToken ?? cookieOf(req, refreshCookieName(this.config.cookiePolicy));
     if (!credential) {
       throw new HttpException({ error: AUTH_ERROR_CODES.UNAUTHORIZED }, 401);
     }
 
-    const session = await this.auth.refreshSession(credential);
-    if (!session) {
+    const result = await this.auth.refreshSession(credential);
+
+    // 재사용 탐지 — 세션은 이미 폐기됐다. 여기서는 쿠키를 지우는 것이 맞다:
+    // 살아 있는 세션이 없으므로 "성공한 탭의 새 자격증명"이라는 보호 대상 자체가 없고,
+    // 남겨두면 죽은 쿠키로 매 요청 401을 반복하게 된다.
+    if (result.status === 'reuse-detected') {
+      this.clearSessionCookies(res);
+      throw new HttpException({ error: AUTH_ERROR_CODES.UNAUTHORIZED }, 401);
+    }
+
+    if (result.status === 'failed') {
       // ⚠️ 여기서 쿠키를 지우지 않는다. 실패의 흔한 원인은 "다른 탭이 먼저 회전했다"인데,
       // 쿠키는 탭 간 공유라 지워버리면 성공한 탭의 새 자격증명까지 날아가 세션을 잃는다.
       // 진짜로 죽은 자격증명은 다음 요청에서 다시 401이 되고 재로그인으로 이어진다.
       throw new HttpException({ error: AUTH_ERROR_CODES.UNAUTHORIZED }, 401);
     }
+
+    const session = result.session;
     this.setSession(res, session);
     return bodyToken ? session : { user: session.user };
   }
@@ -337,7 +356,7 @@ export class AuthController {
     // 이 흐름 전용 쿠키 — 다른 탭의 흐름과 이름부터 분리된다.
     const isProd = this.config.isProduction;
     res.cookie(
-      oauthNonceCookieName(nonce, isProd),
+      oauthNonceCookieName(nonce, this.config.cookiePolicy),
       '1',
       oauthNonceCookieOptions(isProd),
     );
@@ -358,7 +377,10 @@ export class AuthController {
     const parsed = this.tokens.readState(state, provider);
     if (parsed === null) return null;
     const isProd = this.config.isProduction;
-    const cookieName = oauthNonceCookieName(parsed.nonce, isProd);
+    const cookieName = oauthNonceCookieName(
+      parsed.nonce,
+      this.config.cookiePolicy,
+    );
     if (cookieOf(req, cookieName) === undefined) {
       return null; // 이 브라우저가 시작한 흐름이 아니거나 이미 소진됨
     }
@@ -370,22 +392,32 @@ export class AuthController {
   // 리프레시 자격증명도 같은 방식으로 심는다: 웹은 두 값 모두 만지지 않는다.
   private setSession(res: Response, session: AuthSession): void {
     const isProd = this.config.isProduction;
+    // 두 쿠키 모두 리프레시 수명(idle 만료)을 쓴다 — 액세스 토큰이 만료된 뒤에도
+    // 쿠키가 남아 있어야 서버가 세션을 알아보고 갱신을 안내할 수 있다.
+    const maxAge = this.config.refreshTokenTtlMs;
     res.cookie(
-      sessionCookieName(isProd),
+      sessionCookieName(this.config.cookiePolicy),
       session.accessToken,
-      sessionCookieOptions(isProd),
+      sessionCookieOptions(isProd, maxAge),
     );
     res.cookie(
-      refreshCookieName(isProd),
+      refreshCookieName(this.config.cookiePolicy),
       session.refreshToken,
-      refreshCookieOptions(isProd),
+      refreshCookieOptions(isProd, maxAge),
     );
   }
 
   private clearSessionCookies(res: Response): void {
     const isProd = this.config.isProduction;
-    res.clearCookie(sessionCookieName(isProd), sessionCookieOptions(isProd));
-    res.clearCookie(refreshCookieName(isProd), refreshCookieOptions(isProd));
+    const maxAge = this.config.refreshTokenTtlMs;
+    res.clearCookie(
+      sessionCookieName(this.config.cookiePolicy),
+      sessionCookieOptions(isProd, maxAge),
+    );
+    res.clearCookie(
+      refreshCookieName(this.config.cookiePolicy),
+      refreshCookieOptions(isProd, maxAge),
+    );
   }
 
   // form_post의 user 필드(JSON)에서 표시 이름 추출 — 전송 형식 처리라 컨트롤러 edge 소관.

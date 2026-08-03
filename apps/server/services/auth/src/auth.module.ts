@@ -1,15 +1,13 @@
 import { Module } from '@nestjs/common';
-import { JwtModule } from '@nestjs/jwt';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { PrismConfigModule, PrismConfigService } from '@app/config';
-import { ACCESS_TOKEN_TTL_MS } from './session/session-cookie';
+import { SessionModule } from '@app/session';
 import { DatabaseModule } from '@app/database';
 import { RedisModule } from '@app/redis';
 import { UsersModule } from '@app/common';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { HealthController } from './health.controller';
-import { JwtAuthGuard } from './jwt-auth.guard';
 import { WebOriginGuard } from './web-origin.guard';
 import { AppleOAuthClient } from './oauth/apple-oauth.client';
 import { GoogleOAuthClient } from './oauth/google-oauth.client';
@@ -21,8 +19,8 @@ import {
 import { AuthTokenService } from './session/auth-token.service';
 import type { SocialProvider } from '@app/common';
 
-// JWT 시크릿은 설정 서비스에서 주입(운영 필수).
-// 액세스 토큰은 짧게 — 탈취돼도 오래 못 쓴다. 세션 자체는 리프레시로 이어진다.
+// 로그인·세션 발급을 담당하는 서비스. 세션 **검증**은 @app/session이 소유하고
+// 여기서는 발급과 OAuth 흐름만 더한다 — 검증 규칙이 서비스마다 갈리지 않게.
 @Module({
   imports: [
     PrismConfigModule,
@@ -32,16 +30,9 @@ import type { SocialProvider } from '@app/common';
       { name: 'burst', ttl: 60_000, limit: 10 },
       { name: 'sustained', ttl: 3_600_000, limit: 100 },
     ]),
-    JwtModule.registerAsync({
-      inject: [PrismConfigService],
-      useFactory: (config: PrismConfigService) => ({
-        secret: config.jwtSecret,
-        signOptions: {
-          algorithm: 'HS256',
-          expiresIn: ACCESS_TOKEN_TTL_MS / 1000,
-        },
-      }),
-    }),
+    // 세션 토큰 배선(서명 키·수명·가드)은 공유 계층이 소유한다.
+    // JwtModule을 다시 내보내므로 OAuth state 서명도 같은 키를 쓴다.
+    SessionModule,
     // 독립 DB 라이브러리에 앱 설정을 주입(forRootAsync). 복제 토폴로지는 env가 결정.
     DatabaseModule.forRootAsync({
       inject: [PrismConfigService],
@@ -58,7 +49,6 @@ import type { SocialProvider } from '@app/common';
   providers: [
     AuthService,
     AuthTokenService,
-    JwtAuthGuard,
     WebOriginGuard,
     // provider별 OAuth 클라이언트 — 설정 서비스에서 옵션을 받아 구성한다.
     {

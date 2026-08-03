@@ -1,5 +1,8 @@
 import type { CompareAndRenew, RedisClient, ScoredMember } from '@app/redis';
-import { SessionsRepository } from './sessions.repository';
+import {
+  REFRESH_REUSE_GRACE_MS,
+  SessionsRepository,
+} from './sessions.repository';
 import type { User } from '../types/contracts';
 
 // 메모리 구현 — 명령 호출을 확인하는 mock이 아니라 실제 동작을 재현한다.
@@ -74,6 +77,10 @@ class FakeRedis implements RedisClient {
     );
   }
 
+  zScore(key: string, member: string): Promise<number | null> {
+    return Promise.resolve(this.zsets.get(key)?.get(member) ?? null);
+  }
+
   // 실제 구현은 단일 Lua라 전부 성공하거나 아무것도 안 한다 — 그 성질을 재현한다.
   compareAndRenew(input: CompareAndRenew): Promise<boolean> {
     const entry = this.values.get(input.key);
@@ -99,6 +106,22 @@ class FakeRedis implements RedisClient {
       const set = this.zsets.get(input.index.key) ?? new Map<string, number>();
       set.set(input.index.member, input.index.score);
       this.zsets.set(input.index.key, set);
+    }
+    // 소비 이력도 같은 원자 구간에서 남는다 — 교체와 기록이 갈리면 재사용을 탐지할 수 없다.
+    if (input.consumed) {
+      const { key, member, score, keep } = input.consumed;
+      const set = this.zsets.get(key) ?? new Map<string, number>();
+      set.set(member, score);
+      // ZREMRANGEBYRANK와 같이 오래된 쪽부터 잘라 최근 keep개만 남긴다.
+      const excess = set.size - keep;
+      if (keep > 0 && excess > 0) {
+        const oldest = [...set]
+          .sort((a, b) => a[1] - b[1])
+          .slice(0, excess)
+          .map(([m]) => m);
+        for (const m of oldest) set.delete(m);
+      }
+      this.zsets.set(key, set);
     }
     return Promise.resolve(true);
   }
@@ -145,6 +168,19 @@ describe('SessionsRepository (Redis)', () => {
     owner: User = user,
     absoluteMs = WEEK,
   ) => repo.create(id, owner, idleMs, absoluteMs);
+
+  // 회전 성공만 좁혀 꺼낸다 — 실패면 그 자리에서 테스트를 끊는다(뒤에서 옵셔널 체이닝으로
+  // 조용히 undefined가 흘러가는 것을 막는다).
+  const rotateOk = async (credential: string, idleMs = HOUR) => {
+    const result = await repo.rotate(credential, idleMs);
+    if (result.status !== 'rotated') {
+      throw new Error(`expected rotation to succeed, got ${result.status}`);
+    }
+    return result;
+  };
+
+  const rotateStatus = async (credential: string, idleMs = HOUR) =>
+    (await repo.rotate(credential, idleMs)).status;
 
   it('세션을 저장하고 사용자로 복원한다', async () => {
     await create('s-1');
@@ -247,9 +283,9 @@ describe('SessionsRepository (Redis)', () => {
 
     await repo.deleteOwned('u-1', 's-1');
     expect(order).toEqual(['del', 'zRem']);
-    await expect(
-      repo.rotate(issued.refreshCredential, HOUR),
-    ).resolves.toBeNull();
+    await expect(rotateStatus(issued.refreshCredential)).resolves.toBe(
+      'rejected',
+    );
   });
 
   // 회귀 방지: 세션 id만으로 지우면 남의 세션을 폐기할 수 있다.
@@ -276,29 +312,27 @@ describe('SessionsRepository (Redis)', () => {
 
   it('발급된 자격증명으로 회전하면 새 자격증명과 사용자를 돌려준다', async () => {
     const issued = await create('s-1');
-    const rotated = await repo.rotate(issued.refreshCredential, HOUR);
+    const rotated = await rotateOk(issued.refreshCredential);
 
-    expect(rotated?.user).toEqual(user);
-    expect(rotated?.refreshCredential).toBeDefined();
-    expect(rotated?.refreshCredential).not.toBe(issued.refreshCredential);
+    expect(rotated.user).toEqual(user);
+    expect(rotated.refreshCredential).not.toBe(issued.refreshCredential);
   });
 
   // 회전의 존재 이유: 같은 값을 두 번 쓰면 실패해야 탈취된 자격증명의 병행 사용이 드러난다.
+  // (직후의 재제시는 탭 경합이므로 raced — 세션은 살아 있다)
   it('한 번 쓴 자격증명은 다시 쓸 수 없다', async () => {
     const issued = await create('s-1');
-    await repo.rotate(issued.refreshCredential, HOUR);
+    await rotateOk(issued.refreshCredential);
 
-    await expect(
-      repo.rotate(issued.refreshCredential, HOUR),
-    ).resolves.toBeNull();
+    await expect(rotateStatus(issued.refreshCredential)).resolves.toBe('raced');
   });
 
   it('회전된 새 자격증명은 계속 쓸 수 있다', async () => {
     const issued = await create('s-1');
-    const first = await repo.rotate(issued.refreshCredential, HOUR);
-    const second = await repo.rotate(first?.refreshCredential ?? '', HOUR);
+    const first = await rotateOk(issued.refreshCredential);
+    const second = await rotateOk(first.refreshCredential);
 
-    expect(second?.user).toEqual(user);
+    expect(second.user).toEqual(user);
   });
 
   // 회귀 방지: 읽고-지우고-비교하는 방식이면 아무나 남의 세션을 갱신 불가로 만들 수 있다.
@@ -306,22 +340,22 @@ describe('SessionsRepository (Redis)', () => {
   it('틀린 자격증명은 거부되고, 원래 자격증명은 그대로 유효하다', async () => {
     const issued = await create('s-1');
 
-    await expect(repo.rotate('s-1.wrong-secret', HOUR)).resolves.toBeNull();
+    await expect(rotateStatus('s-1.wrong-secret')).resolves.toBe('rejected');
     // 공격 시도 후에도 정상 사용자는 갱신할 수 있어야 한다.
-    await expect(
-      repo.rotate(issued.refreshCredential, HOUR),
-    ).resolves.not.toBeNull();
+    await expect(rotateStatus(issued.refreshCredential)).resolves.toBe(
+      'rotated',
+    );
   });
 
   it('형식이 아닌 자격증명은 거부한다', async () => {
     await create('s-1');
-    await expect(repo.rotate('no-separator', HOUR)).resolves.toBeNull();
-    await expect(repo.rotate('.only-secret', HOUR)).resolves.toBeNull();
-    await expect(repo.rotate('s-1.', HOUR)).resolves.toBeNull();
+    await expect(rotateStatus('no-separator')).resolves.toBe('rejected');
+    await expect(rotateStatus('.only-secret')).resolves.toBe('rejected');
+    await expect(rotateStatus('s-1.')).resolves.toBe('rejected');
   });
 
   it('없는 세션의 자격증명은 거부한다', async () => {
-    await expect(repo.rotate('ghost.secret', HOUR)).resolves.toBeNull();
+    await expect(rotateStatus('ghost.secret')).resolves.toBe('rejected');
   });
 
   // idle은 회전할 때마다 다시 채워진다 — 활동이 있는 한 끊기지 않는다.
@@ -329,8 +363,7 @@ describe('SessionsRepository (Redis)', () => {
     const issued = await create('s-1', HOUR);
     jest.advanceTimersByTime(HOUR - 60_000); // 만료 1분 전
 
-    const rotated = await repo.rotate(issued.refreshCredential, HOUR);
-    expect(rotated).not.toBeNull();
+    await rotateOk(issued.refreshCredential);
 
     // 원래대로면 1분 뒤 죽지만, 연장됐으므로 살아 있어야 한다.
     jest.advanceTimersByTime(2 * 60_000);
@@ -340,12 +373,12 @@ describe('SessionsRepository (Redis)', () => {
   // absolute는 활동과 무관한 상한이다 — 이게 없으면 리프레시로 영원히 연장된다.
   it('absolute 상한을 넘으면 활동이 있어도 회전할 수 없다', async () => {
     const issued = await create('s-1', HOUR, user, 2 * HOUR);
-    const first = await repo.rotate(issued.refreshCredential, HOUR);
+    const first = await rotateOk(issued.refreshCredential);
     jest.advanceTimersByTime(2 * HOUR + 1);
 
-    await expect(
-      repo.rotate(first?.refreshCredential ?? '', HOUR),
-    ).resolves.toBeNull();
+    await expect(rotateStatus(first.refreshCredential)).resolves.toBe(
+      'rejected',
+    );
     // 상한을 넘은 세션은 정리된다.
     await expect(repo.findValid('s-1')).resolves.toBeNull();
   });
@@ -367,17 +400,82 @@ describe('SessionsRepository (Redis)', () => {
     // 본체만 지워 만료를 흉내낸다(자격증명 키는 그대로).
     await redis.del('prism:session:s-1');
 
-    await expect(
-      repo.rotate(issued.refreshCredential, HOUR),
-    ).resolves.toBeNull();
+    await expect(rotateStatus(issued.refreshCredential)).resolves.toBe(
+      'rejected',
+    );
   });
 
   it('로그아웃하면 리프레시 자격증명도 함께 죽는다', async () => {
     const issued = await create('s-1');
     await repo.delete('s-1');
-    await expect(
-      repo.rotate(issued.refreshCredential, HOUR),
-    ).resolves.toBeNull();
+    await expect(rotateStatus(issued.refreshCredential)).resolves.toBe(
+      'rejected',
+    );
+  });
+
+  // ──────────────── 재사용 탐지 (RFC 9700) ────────────────
+
+  // 회전만으로는 탈취가 드러나지 않는다. 이미 소비된 자격증명이 한참 뒤에 다시 오는 것은
+  // "그 값이 두 곳에 존재한다"는 뜻이므로, 어느 쪽이 공격자인지 모른 채 세션을 끊는다.
+  it('유예 창을 지난 재사용은 세션을 폐기한다', async () => {
+    const issued = await create('s-1');
+    const rotated = await rotateOk(issued.refreshCredential);
+
+    jest.advanceTimersByTime(REFRESH_REUSE_GRACE_MS + 1);
+    await expect(rotateStatus(issued.refreshCredential)).resolves.toBe(
+      'reused',
+    );
+
+    // 세션이 죽었으므로 공격자가 회전시킨 새 자격증명도 함께 무효가 된다 —
+    // 이게 탐지의 목적이다(옛 값을 거부하는 것만으로는 공격자가 계속 쓴다).
+    await expect(repo.findValid('s-1')).resolves.toBeNull();
+    await expect(rotateStatus(rotated.refreshCredential)).resolves.toBe(
+      'rejected',
+    );
+  });
+
+  // 오탐 방지: 회전이 끝나기 전에 출발한 요청이 직후에 도착하는 것은 정상이다.
+  it('유예 창 안의 재제시는 세션을 살려둔다', async () => {
+    const issued = await create('s-1');
+    const rotated = await rotateOk(issued.refreshCredential);
+
+    jest.advanceTimersByTime(REFRESH_REUSE_GRACE_MS - 1);
+    await expect(rotateStatus(issued.refreshCredential)).resolves.toBe('raced');
+
+    // 먼저 회전에 성공한 쪽의 자격증명은 그대로 살아 있어야 한다.
+    await expect(rotateStatus(rotated.refreshCredential)).resolves.toBe(
+      'rotated',
+    );
+  });
+
+  // ⚠️ 폐기 DoS 방지 — 세션 id는 자격증명의 앞부분이라 유출되기 쉽다.
+  // 발급된 적 없는 값까지 폐기 신호로 보면 아무 문자열이나 붙여 남의 세션을 끊을 수 있다.
+  it('발급된 적 없는 값은 오래 지나도 세션을 끊지 못한다', async () => {
+    const issued = await create('s-1');
+    await rotateOk(issued.refreshCredential);
+
+    jest.advanceTimersByTime(REFRESH_REUSE_GRACE_MS + 1);
+    await expect(rotateStatus('s-1.never-issued')).resolves.toBe('rejected');
+    await expect(repo.findValid('s-1')).resolves.toEqual(user);
+  });
+
+  // 폐기하면 이력도 함께 사라져야 한다 — 남으면 같은 id의 세션이 다시 생겼을 때
+  // 옛 이력이 새 세션의 판단에 끼어든다.
+  it('세션을 폐기하면 소비 이력도 함께 지운다', async () => {
+    const issued = await create('s-1');
+    await rotateOk(issued.refreshCredential);
+    expect(redis.indexSize('prism:refresh_used:s-1')).toBe(1);
+
+    await repo.delete('s-1');
+    expect(redis.indexSize('prism:refresh_used:s-1')).toBe(0);
+  });
+
+  it('전체 로그아웃도 소비 이력을 남기지 않는다', async () => {
+    const issued = await create('s-1');
+    await rotateOk(issued.refreshCredential);
+
+    await repo.deleteAllForUser('u-1');
+    expect(redis.indexSize('prism:refresh_used:s-1')).toBe(0);
   });
 
   // TTL은 초 단위 올림이라 저장소 수명만 믿으면 상한을 잠깐 넘겨 살아 있을 수 있다.

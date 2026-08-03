@@ -17,6 +17,26 @@ service:
 env:
   apiPort: "3000"
   corsOrigin: "https://${PRISM_SERVICE_DOMAIN}"
+  # 운영 기본 true: DB 장애 시 부팅 실패 + 프로브로 트래픽 차단.
+  dbRequired: "${PRISM_DB_REQUIRED:-true}"
+
+# 시크릿: env → k8s Secret.
+#
+# api는 세션을 발급하지 않고 **검증만** 하지만, 검증에는 auth와 **같은** 서명 키와
+# **같은** 세션 저장소가 필요하다. 값이 갈리면 auth에서는 로그인이 되는데 api는 전부
+# 401이 되고, 원인이 코드가 아니라 배포 설정이라 찾기 어렵다.
+jwt:
+  secretKey: "${PRISM_JWT_SECRET_KEY}"
+
+# 세션 저장소(Redis). 가드가 매 요청 세션 행을 확인하므로 필수다.
+# auth와 같은 이유로 기본값을 두지 않는다 — 인증 없는 URL이 기본값이면 렌더는 성공하고
+# 파드만 인증에 실패하는 배포가 만들어진다.
+redis:
+  url: "${PRISM_REDIS_URL:?PRISM_REDIS_URL must be set}"
+
+database:
+  url: "${PRISM_DATABASE_URL:-postgres://prism@host.docker.internal:5432/prism}"
+  replicaUrls: "${PRISM_DATABASE_REPLICA_URLS:-}"
 
 resources:
   limits:

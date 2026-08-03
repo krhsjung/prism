@@ -3,7 +3,11 @@ import type { CookieOptions, Request, Response } from 'express';
 import { PrismConfigService } from '@app/config';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
-import { AuthTokenService } from './session/auth-token.service';
+import { SessionTokenService } from '@app/session';
+import {
+  AuthTokenService,
+  OAUTH_STATE_TTL_MS,
+} from './session/auth-token.service';
 import type { AuthSession } from '@app/common';
 
 // jose는 ESM 전용이라 jest(CJS)가 파싱하지 못한다 — 이 스펙은 AppleOAuthClient를
@@ -13,9 +17,10 @@ jest.mock('jose', () => ({}));
 // 인증 HTTP 경계 계약: nonce 쿠키 발급/소진 · state 검증 차단 · 세션 쿠키 발급 ·
 // flow(redirect/popup)별 결과 전달. (AuthService는 stub — 내부 오케스트레이션은 그쪽 몫)
 describe('AuthController', () => {
-  const tokens = new AuthTokenService(
-    new JwtService({ secret: 'test-secret' }),
-  );
+  const jwt = new JwtService({ secret: 'test-secret' });
+  // state(OAuth 전용)와 세션 토큰은 소유자가 다르다 — 같은 키, 다른 typ.
+  const tokens = new AuthTokenService(jwt);
+  const sessionTokens = new SessionTokenService(jwt);
   const session: AuthSession = {
     accessToken: 'token-1',
     refreshToken: 'sess-1.secret-1',
@@ -43,10 +48,18 @@ describe('AuthController', () => {
       demoEnabled,
       webAppUrl: 'http://web',
       isProduction,
+      // 쿠키 이름 판단의 단일 원천 — 심는 쪽과 읽는 쪽이 같은 값을 본다.
+      cookiePolicy: { isProduction, namespace: '' },
+      refreshTokenTtlMs: 12 * 60 * 60 * 1000,
       socialConfigured: () => true,
     }) as object as PrismConfigService;
 
-  const controller = new AuthController(authStub, tokens, makeConfig());
+  const controller = new AuthController(
+    authStub,
+    tokens,
+    sessionTokens,
+    makeConfig(),
+  );
 
   const makeRes = () => {
     const send = jest.fn<undefined, [body: string]>();
@@ -76,7 +89,7 @@ describe('AuthController', () => {
   // 로그아웃은 가드가 아니라 쿠키 안의 토큰에서 직접 세션을 읽는다 — 실제 서명된 토큰을 싣는다.
   const reqWithSession = (sessionId: string, prefixed = false) =>
     reqWith(
-      `${prefixed ? '__Host-' : ''}prism_session=${tokens.signSession('u-1', sessionId)}`,
+      `${prefixed ? '__Host-' : ''}prism_session=${sessionTokens.signSession('u-1', sessionId)}`,
     );
 
   // popup 흐름이 내려보낸 HTML 본문.
@@ -148,7 +161,12 @@ describe('AuthController', () => {
   // 쿠키를 피해자 브라우저에 심어 "피해자가 시작한 흐름"인 척할 수 있었다.
   // 운영은 __Host- 이름만 조회하므로 심어진 쿠키가 검증을 통과하지 못해야 한다.
   it('운영: 형제 호스트가 심은 접두어 없는 흐름 쿠키는 콜백을 통과시키지 못한다', async () => {
-    const prod = new AuthController(authStub, tokens, makeConfig(true, true));
+    const prod = new AuthController(
+      authStub,
+      tokens,
+      sessionTokens,
+      makeConfig(true, true),
+    );
     const state = tokens.buildState('google', 'nA', 'redirect');
     const { fns, res } = makeRes();
 
@@ -168,7 +186,12 @@ describe('AuthController', () => {
   });
 
   it('운영: 흐름 쿠키를 __Host- 이름으로 발급하고 같은 이름을 소진한다', async () => {
-    const prod = new AuthController(authStub, tokens, makeConfig(true, true));
+    const prod = new AuthController(
+      authStub,
+      tokens,
+      sessionTokens,
+      makeConfig(true, true),
+    );
     const start = makeRes();
     prod.socialStart(reqWith(), 'google', start.res);
 
@@ -240,6 +263,52 @@ describe('AuthController', () => {
       undefined,
       undefined,
     );
+    expect(loginWithSocial).not.toHaveBeenCalled();
+    expect(sessionCookieOf(fns)).toBeUndefined();
+  });
+
+  // 흐름 쿠키가 남아 있어도 state가 만료됐으면 통과시키지 않는다 — 두 검증은 서로를
+  // 대체하지 않는다(쿠키는 "이 브라우저인가", state는 "지금 시작한 흐름인가"를 답한다).
+  it('콜백: 수명이 지난 state는 쿠키가 맞아도 code 교환에 도달하지 못한다', async () => {
+    jest.useFakeTimers();
+    try {
+      const state = tokens.buildState('google', 'nA', 'redirect');
+      jest.advanceTimersByTime(OAUTH_STATE_TTL_MS + 1_000);
+
+      const { fns, res } = makeRes();
+      await controller.googleCallback(
+        reqWith('prism_oauth_nA=1'),
+        res,
+        'code-1',
+        state,
+        undefined,
+      );
+
+      expect(loginWithSocial).not.toHaveBeenCalled();
+      expect(sessionCookieOf(fns)).toBeUndefined();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  // 공격자가 클레임 모양만 맞춰 자기 키로 서명한 state. 서명 검증이 빠지면
+  // nonce를 공격자가 고르게 되고, 자기 쿠키와 짝을 맞춰 login-CSRF가 되살아난다.
+  it('콜백: 다른 키로 서명한 state는 거부된다', async () => {
+    const forged = new JwtService({ secret: 'attacker-secret' }).sign({
+      typ: 'oauth_state',
+      provider: 'google',
+      nonce: 'nX',
+      flow: 'redirect',
+    });
+    const { fns, res } = makeRes();
+    await controller.googleCallback(
+      reqWith('prism_oauth_nX=1'), // 공격자가 짝이 맞는 쿠키까지 준비한 상황
+      res,
+      'code-1',
+      forged,
+      undefined,
+    );
+
     expect(loginWithSocial).not.toHaveBeenCalled();
     expect(sessionCookieOf(fns)).toBeUndefined();
   });
@@ -472,7 +541,12 @@ describe('AuthController', () => {
   });
 
   it('demo: 비활성화면 503 DEMO_DISABLED', async () => {
-    const disabled = new AuthController(authStub, tokens, makeConfig(false));
+    const disabled = new AuthController(
+      authStub,
+      tokens,
+      sessionTokens,
+      makeConfig(false),
+    );
     const { res } = makeRes();
     await expect(disabled.demo(res)).rejects.toThrow();
   });
@@ -493,7 +567,12 @@ describe('AuthController', () => {
   // 운영에서는 발급·삭제가 모두 __Host- 이름이어야 한다 — 한쪽만 바뀌면 로그아웃이
   // 엉뚱한 쿠키를 지우고 세션이 남는다.
   it('운영: 세션 쿠키를 __Host- 이름으로 발급하고 지운다', async () => {
-    const prod = new AuthController(authStub, tokens, makeConfig(true, true));
+    const prod = new AuthController(
+      authStub,
+      tokens,
+      sessionTokens,
+      makeConfig(true, true),
+    );
     const { fns, res } = makeRes();
 
     await prod.demo(res);

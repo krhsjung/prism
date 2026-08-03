@@ -89,6 +89,7 @@ describeIfRedis('IoredisService.compareAndRenew (실제 Redis)', () => {
   const casKey = `${ns}:cred`;
   const renewKey = `${ns}:body`;
   const indexKey = `${ns}:index`;
+  const usedKey = `${ns}:used`;
 
   beforeAll(async () => {
     redis = new IoredisService(config(url ?? ''));
@@ -97,13 +98,13 @@ describeIfRedis('IoredisService.compareAndRenew (실제 Redis)', () => {
   });
 
   afterAll(async () => {
-    await redis.del(casKey, renewKey, indexKey);
+    await redis.del(casKey, renewKey, indexKey, usedKey);
     await redis.onModuleDestroy();
     await probe.quit();
   });
 
   beforeEach(async () => {
-    await redis.del(casKey, renewKey, indexKey);
+    await redis.del(casKey, renewKey, indexKey, usedKey);
   });
 
   const ttlOf = (key: string): Promise<number> => probe.ttl(key);
@@ -262,5 +263,113 @@ describeIfRedis('IoredisService.compareAndRenew (실제 Redis)', () => {
 
     const results = await Promise.all([attempt('a'), attempt('b')]);
     expect(results.filter(Boolean)).toHaveLength(1);
+  });
+
+  // ──────────────── 소비 이력 (재사용 탐지의 근거) ────────────────
+  //
+  // 이력이 교체와 같은 원자 구간에서 남지 않으면, 교체된 값의 재사용을 영영 탐지할 수
+  // 없다. KEYS 슬롯 계산이 index 유무에 따라 달라지므로 두 조합 모두 실제로 확인한다.
+
+  it('교체에 성공하면 소비된 값을 이력에 남긴다', async () => {
+    await redis.setEx(casKey, 'old', 60);
+    await redis.setEx(renewKey, 'body', 60);
+    const consumedAt = Date.now();
+
+    const ok = await redis.compareAndRenew({
+      key: casKey,
+      expected: 'old',
+      next: 'new',
+      ttlSeconds: 600,
+      renewKeys: [renewKey],
+      index: { key: indexKey, member: 'm-1', score: Date.now() + 600_000 },
+      consumed: { key: usedKey, member: 'old', score: consumedAt, keep: 128 },
+    });
+
+    expect(ok).toBe(true);
+    await expect(redis.zScore(usedKey, 'old')).resolves.toBe(consumedAt);
+    // 이력은 세션보다 오래 살 이유가 없다.
+    await expectTtlNear(usedKey, 600);
+  });
+
+  // 인덱스가 없으면 KEYS 슬롯이 하나 당겨진다 — 여기서 어긋나면 이력이 엉뚱한 키에 쌓인다.
+  it('인덱스 없이 이력만 남기는 조합도 동작한다', async () => {
+    await redis.setEx(casKey, 'old', 60);
+
+    const ok = await redis.compareAndRenew({
+      key: casKey,
+      expected: 'old',
+      next: 'new',
+      ttlSeconds: 600,
+      renewKeys: [],
+      consumed: {
+        key: usedKey,
+        member: 'old',
+        score: 1_700_000_000_000,
+        keep: 128,
+      },
+    });
+
+    expect(ok).toBe(true);
+    await expect(redis.zScore(usedKey, 'old')).resolves.toBe(1_700_000_000_000);
+  });
+
+  it('교체에 실패하면 이력도 남지 않는다', async () => {
+    await redis.setEx(casKey, 'old', 60);
+
+    const ok = await redis.compareAndRenew({
+      key: casKey,
+      expected: 'wrong',
+      next: 'new',
+      ttlSeconds: 600,
+      renewKeys: [],
+      consumed: { key: usedKey, member: 'wrong', score: Date.now(), keep: 128 },
+    });
+
+    expect(ok).toBe(false);
+    await expect(redis.zScore(usedKey, 'wrong')).resolves.toBeNull();
+  });
+
+  // 이력은 갱신 횟수만큼 쌓인다 — 상한이 없으면 짧은 액세스 수명 + 긴 세션 조합에서
+  // 한 세션의 이력이 수만 건이 된다.
+  it('이력은 최근 keep개만 남는다(오래된 쪽부터 밀려난다)', async () => {
+    await redis.setEx(casKey, 'v0', 600);
+
+    for (let i = 0; i < 5; i++) {
+      await redis.compareAndRenew({
+        key: casKey,
+        expected: `v${i}`,
+        next: `v${i + 1}`,
+        ttlSeconds: 600,
+        renewKeys: [],
+        consumed: {
+          key: usedKey,
+          member: `v${i}`,
+          score: 1_700_000_000_000 + i,
+          keep: 3,
+        },
+      });
+    }
+
+    const history = await redis.zRangeWithScores(usedKey);
+    expect(history.map((h) => h.member)).toEqual(['v2', 'v3', 'v4']);
+  });
+
+  // 재사용 판정이 zScore의 null 여부에 달려 있다 — "이력에 없는 값"과 "score가 0인 값"이
+  // 뭉개지면 발급된 적 없는 값까지 폐기 대상이 된다(폐기 DoS).
+  // (zAdd는 score를 만료 시각으로 쓰므로 0을 넣으면 키가 즉시 사라진다 — 여기서는
+  //  평범한 ZADD를 쓰는 이력 경로로 score 0을 만든다)
+  it('zScore: 이력에 없는 값은 null (score 0과 구분된다)', async () => {
+    await redis.setEx(casKey, 'old', 60);
+    await redis.compareAndRenew({
+      key: casKey,
+      expected: 'old',
+      next: 'new',
+      ttlSeconds: 600,
+      renewKeys: [],
+      consumed: { key: usedKey, member: 'old', score: 0, keep: 128 },
+    });
+
+    await expect(redis.zScore(usedKey, 'old')).resolves.toBe(0);
+    await expect(redis.zScore(usedKey, 'absent')).resolves.toBeNull();
   });
 });

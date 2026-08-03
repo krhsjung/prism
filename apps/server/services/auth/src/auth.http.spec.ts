@@ -1,5 +1,5 @@
 import { INestApplication } from '@nestjs/common';
-import { JwtModule } from '@nestjs/jwt';
+import { JwtModule, JwtService } from '@nestjs/jwt';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
@@ -7,8 +7,8 @@ import { PrismConfigService } from '@app/config';
 import { SessionsRepository, type AuthSession, type User } from '@app/common';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
-import { JwtAuthGuard } from './jwt-auth.guard';
 import { WebOriginGuard } from './web-origin.guard';
+import { JwtAuthGuard, SessionTokenService } from '@app/session';
 import { AuthTokenService } from './session/auth-token.service';
 
 // jose는 ESM 전용이라 jest(CJS)가 파싱하지 못한다 — 이 스펙은 AppleOAuthClient를
@@ -42,7 +42,7 @@ describe('auth HTTP 경계', () => {
     revokeOwnedSession: jest.Mock;
     revokeAllSessions: jest.Mock;
   };
-  let tokens: AuthTokenService;
+  let tokens: SessionTokenService;
 
   beforeEach(async () => {
     sessions = { findValid: jest.fn(() => Promise.resolve(user)) };
@@ -66,9 +66,12 @@ describe('auth HTTP 경계', () => {
       revokeAllSessions: jest.fn(() => Promise.resolve(2)),
       refreshSession: jest.fn(() =>
         Promise.resolve({
-          accessToken: tokens.signSession(user.id, 'sess-2'),
-          refreshToken: 'sess-2.secret-2',
-          user,
+          status: 'rotated',
+          session: {
+            accessToken: tokens.signSession(user.id, 'sess-2'),
+            refreshToken: 'sess-2.secret-2',
+            user,
+          },
         }),
       ),
     };
@@ -85,6 +88,7 @@ describe('auth HTTP 경계', () => {
       controllers: [AuthController],
       providers: [
         AuthTokenService,
+        SessionTokenService,
         JwtAuthGuard,
         WebOriginGuard,
         { provide: AuthService, useValue: auth },
@@ -95,6 +99,10 @@ describe('auth HTTP 경계', () => {
             demoEnabled: true,
             webAppUrl: WEB,
             isProduction: false,
+            // 쿠키 이름 판단의 단일 원천 — 심는 쪽과 읽는 쪽이 같은 값을 본다.
+            cookiePolicy: { isProduction: false, namespace: '' },
+            accessTokenTtlMs: 15 * 60 * 1000,
+            refreshTokenTtlMs: 12 * 60 * 60 * 1000,
             socialConfigured: () => true,
             isAllowedOrigin: (origin: string) => origin === WEB,
           } as object as PrismConfigService,
@@ -103,7 +111,7 @@ describe('auth HTTP 경계', () => {
     }).compile();
 
     app = moduleRef.createNestApplication();
-    tokens = app.get(AuthTokenService);
+    tokens = app.get(SessionTokenService);
     await app.init();
   });
 
@@ -231,6 +239,35 @@ describe('auth HTTP 경계', () => {
       .expect(200, user);
   });
 
+  // ──────────────── 401의 종류 (클라이언트의 갱신 판단 근거) ────────────────
+  //
+  // 웹은 HttpOnly 쿠키를 읽을 수 없어 "갱신하면 살아나는 401인가"를 스스로 알 수 없다.
+  // 서버가 코드로 구분해주지 않으면 모든 401에 /auth/refresh를 붙이게 되고,
+  // 첫 방문처럼 반드시 실패하는 경우까지 왕복이 2회가 된다.
+
+  it('me: 액세스 토큰이 만료됐으면 SESSION_EXPIRED (갱신하면 살아난다)', async () => {
+    const expired = app
+      .get(JwtService)
+      .sign({ sub: user.id, jti: 'sess-1' }, { expiresIn: '-1s' });
+    await server()
+      .get('/auth/me')
+      .set('Cookie', `prism_session=${expired}`)
+      .expect(401, { error: 'SESSION_EXPIRED' });
+    // 만료 판정만으로 끝난다 — 세션 저장소까지 갈 것도 없다.
+    expect(sessions.findValid).not.toHaveBeenCalled();
+  });
+
+  it('me: 자격증명이 없으면 UNAUTHORIZED (갱신해도 소용없다)', async () => {
+    await server().get('/auth/me').expect(401, { error: 'UNAUTHORIZED' });
+  });
+
+  it('me: 서명이 깨진 토큰은 INVALID_TOKEN (갱신을 권하지 않는다)', async () => {
+    await server()
+      .get('/auth/me')
+      .set('Cookie', 'prism_session=not-a-jwt')
+      .expect(401, { error: 'INVALID_TOKEN' });
+  });
+
   // Apple form_post는 교차 사이트 POST가 프로토콜상 정상이라 출처 가드에서 면제돼야 한다.
   // 여기에 가드가 붙으면 Apple 로그인이 통째로 깨진다.
   it('apple/callback: 외부 출처라도 403이 아니다(가드 면제)', async () => {
@@ -290,7 +327,7 @@ describe('auth HTTP 경계', () => {
   // 회귀 방지 — 리뷰 3차. 실패의 흔한 원인은 "다른 탭이 먼저 회전했다"인데,
   // 쿠키는 탭 간 공유라 여기서 지우면 성공한 탭의 새 자격증명까지 날아간다.
   it('refresh: 실패해도 쿠키를 지우지 않는다(탭 간 경합 보호)', async () => {
-    auth.refreshSession.mockResolvedValueOnce(null);
+    auth.refreshSession.mockResolvedValueOnce({ status: 'failed' });
     const res = await server()
       .post('/auth/refresh')
       .set('Origin', WEB)
@@ -298,6 +335,23 @@ describe('auth HTTP 경계', () => {
       .expect(401);
 
     expect(res.get('Set-Cookie') ?? []).toHaveLength(0);
+  });
+
+  // 재사용이 탐지되면 세션은 이미 폐기된 뒤다 — 보호할 "성공한 탭"이 없으므로
+  // 쿠키를 남겨둘 이유가 없다(남기면 죽은 쿠키로 매 요청 401을 반복한다).
+  it('refresh: 재사용이 탐지되면 쿠키를 정리한다', async () => {
+    auth.refreshSession.mockResolvedValueOnce({ status: 'reuse-detected' });
+    const res = await server()
+      .post('/auth/refresh')
+      .set('Origin', WEB)
+      .set('Cookie', 'prism_refresh=sess-1.reused')
+      .expect(401, { error: 'UNAUTHORIZED' });
+
+    const expired = (res.get('Set-Cookie') ?? []).filter((c) =>
+      c.includes('Expires=Thu, 01 Jan 1970'),
+    );
+    expect(expired.some((c) => c.startsWith('prism_session='))).toBe(true);
+    expect(expired.some((c) => c.startsWith('prism_refresh='))).toBe(true);
   });
 
   // 회귀 방지 — 리뷰 3차. 쿠키로 인증되는 갱신이 토큰까지 body로 돌려주면

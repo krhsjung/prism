@@ -24,6 +24,14 @@ export interface CompareAndRenew {
   renewKeys: string[];
   // 함께 갱신할 정렬 집합 항목(선택).
   index?: { key: string; member: string; score: number };
+  // 교체에 성공했을 때 "방금 소비된 값"을 남길 정렬 집합(선택).
+  //
+  // score를 소비 시각(epoch ms)으로 두는 것이 핵심이다. 나중에 어떤 값이 제시됐을 때
+  // "한 번도 발급된 적 없는 값"과 "언제 소비된 값"을 구분할 수 있어야, 호출부가
+  // 찰나의 경합과 뒤늦은 재사용을 다르게 다룰 수 있다.
+  //
+  // keep은 남길 최근 항목 수 — 이력이 세션 수명 내내 무한정 쌓이지 않게 자른다.
+  consumed?: { key: string; member: string; score: number; keep: number };
 }
 
 export const REDIS = Symbol('REDIS');
@@ -51,6 +59,8 @@ export interface RedisClient {
   // score 구간을 잘라낸다 — 만료된 항목 정리에 쓴다.
   zRemRangeByScore(key: string, min: number, max: number): Promise<number>;
   zRangeWithScores(key: string): Promise<ScoredMember[]>;
+  // 항목 하나의 score. 없으면 null — "집합에 없다"와 "score가 0이다"를 구분한다.
+  zScore(key: string, member: string): Promise<number | null>;
 
   // 값이 expected와 같을 때만 교체하고, 그에 딸린 키들의 수명까지 **한 번에** 갱신한다.
   //

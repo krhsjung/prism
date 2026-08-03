@@ -8,10 +8,8 @@ import type {
   User,
 } from '@app/common';
 import { SessionsRepository, UsersRepository } from '@app/common';
-import {
-  SESSION_ABSOLUTE_TTL_MS,
-  SESSION_IDLE_TTL_MS,
-} from './session/session-cookie';
+import { PrismConfigService } from '@app/config';
+import { SESSION_ABSOLUTE_TTL_MS, SessionTokenService } from '@app/session';
 import { AppleOAuthClient } from './oauth/apple-oauth.client';
 import { joinPersonName, type AppleUserName } from './oauth/apple-user';
 import {
@@ -29,8 +27,17 @@ const DEMO_DISPLAY_NAME = 'Demo User';
 // Apple은 표시 이름을 최초 로그인에만 한 번 준다 — 이후 세션엔 없어 일반 라벨로 대체.
 const FALLBACK_DISPLAY_NAME = 'Member';
 
+// 갱신 결과 — 실패의 종류에 따라 컨트롤러의 대응이 다르다.
+//  - rotated:        새 세션 값. 쿠키를 갈아 끼운다
+//  - reuse-detected: 이미 쓴 자격증명이 다시 왔다. 세션은 폐기됐고 쿠키도 정리해야 한다
+//  - failed:         그 밖의 실패. **쿠키를 건드리지 않는다**(탭 경합 보호)
+export type RefreshResult =
+  | { status: 'rotated'; session: AuthSession }
+  | { status: 'reuse-detected' }
+  | { status: 'failed' };
+
 // 로그인 오케스트레이션 전담 — provider 검증 → 사용자 upsert → 세션 발급의 흐름만 담는다.
-// (토큰 서명/검증은 AuthTokenService, 설정 판단은 컨트롤러가 PrismConfigService로 직접)
+// (세션 토큰은 @app/session, OAuth state는 AuthTokenService, 설정 판단은 컨트롤러가 직접)
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
@@ -41,7 +48,11 @@ export class AuthService {
     @Inject(OAUTH_CLIENTS) private readonly clients: OAuthClientRegistry,
     // native 로그인(identityToken 직접 검증)은 Apple 고유 프로토콜이라 별도 주입.
     private readonly apple: AppleOAuthClient,
-    private readonly tokens: AuthTokenService,
+    private readonly tokens: SessionTokenService,
+    // OAuth state 서명은 이 서비스 전용 토큰이라 별도 주입(같은 키, 다른 typ).
+    private readonly state: AuthTokenService,
+    // 세션 수명은 배포 환경이 정한다(PRISM_JWT_*_EXPIRES_IN).
+    private readonly config: PrismConfigService,
   ) {}
 
   // ───────────────────────── 데모 ─────────────────────────
@@ -69,7 +80,7 @@ export class AuthService {
     flow: SocialFlow,
   ): string {
     return this.clientOf(provider).generateAuthUrl(
-      this.tokens.buildState(provider, nonce, flow),
+      this.state.buildState(provider, nonce, flow),
     );
   }
 
@@ -143,7 +154,7 @@ export class AuthService {
     const issued = await this.sessions.create(
       randomUUID(),
       user,
-      SESSION_IDLE_TTL_MS,
+      this.config.refreshTokenTtlMs,
       SESSION_ABSOLUTE_TTL_MS,
     );
     // PII 로그 금지: provider_id(sub)·표시 이름은 남기지 않고 내부 id만 기록.
@@ -156,15 +167,33 @@ export class AuthService {
   }
 
   // 리프레시 자격증명을 회전하고 새 액세스 토큰을 발급한다.
-  // 실패(없음·불일치·이미 회전됨·상한 초과)는 전부 null — 호출부는 재로그인을 요구한다.
-  async refreshSession(credential: string): Promise<AuthSession | null> {
-    const rotated = await this.sessions.rotate(credential, SESSION_IDLE_TTL_MS);
-    if (!rotated) return null;
+  //
+  // 재사용이 탐지되면 리포지토리가 이미 세션을 폐기한 뒤다. 여기서는 그 사실을
+  // **보안 이벤트로 남기고** 호출부에 알린다 — 자격증명이 두 곳에 존재했다는
+  // 신호라, 사후에 "언제 어느 세션이 그랬는가"를 되짚을 수 있어야 한다.
+  // (응답으로는 구분해 주지 않는다. 탐지됐다는 사실 자체가 공격자에게 줄 정보다)
+  async refreshSession(credential: string): Promise<RefreshResult> {
     const sessionId = credential.slice(0, credential.indexOf('.'));
+    const rotated = await this.sessions.rotate(
+      credential,
+      this.config.refreshTokenTtlMs,
+    );
+
+    if (rotated.status === 'reused') {
+      this.logger.warn(
+        `refresh credential reused — session revoked: ${sessionId}`,
+      );
+      return { status: 'reuse-detected' };
+    }
+    if (rotated.status !== 'rotated') return { status: 'failed' };
+
     return {
-      accessToken: this.tokens.signSession(rotated.user.id, sessionId),
-      refreshToken: rotated.refreshCredential,
-      user: rotated.user,
+      status: 'rotated',
+      session: {
+        accessToken: this.tokens.signSession(rotated.user.id, sessionId),
+        refreshToken: rotated.refreshCredential,
+        user: rotated.user,
+      },
     };
   }
 

@@ -1,101 +1,105 @@
 import type { CookieOptions, Request } from 'express';
-import { OAUTH_STATE_TTL_MS } from './auth-token.service';
+import type { CookiePolicy } from '@app/config';
 
-// auth 서비스가 브라우저에 심는 쿠키 전부와, 그 이름/속성 정책을 여기서 소유한다.
+export type { CookiePolicy };
+
+// 브라우저에 심는 쿠키의 이름/속성 정책을 여기서 소유한다.
 //
 // 정책의 핵심은 운영에서 모든 쿠키에 __Host- 접두어를 붙이는 것이다. 우리 도메인의
 // 등록 가능 도메인(asuscomm.com)이 Public Suffix List에 없어 다른 사람들의
 // *.asuscomm.com 호스트가 전부 우리와 same-site다 — 접두어가 없으면 그들이
 // Domain=asuscomm.com으로 같은 이름의 쿠키를 심어 우리 요청에 실어 보낼 수 있다.
+//
+// auth 서비스와 API 서비스가 **같은 세션 쿠키를 읽는다.** 그래서 이름 규칙이
+// 서비스별 코드가 아니라 공유 라이브러리에 있어야 한다 — 한쪽만 바뀌면 심는 이름과
+// 읽는 이름이 갈려 인증이 조용히 깨진다.
 
 // ──────────────── 수명 정책 ────────────────
 //
 // 세 값이 서로 다른 일을 한다:
 //  - 액세스 토큰(짧게): 탈취돼도 오래 못 쓴다. 만료되면 리프레시로 조용히 갱신된다
+//    → PRISM_JWT_ACCESS_TOKEN_EXPIRES_IN (PrismConfigService.accessTokenTtlMs)
 //  - idle: 활동이 없으면 끊는다. 리프레시할 때마다 다시 채워진다(sliding)
+//    → PRISM_JWT_REFRESH_TOKEN_EXPIRES_IN (PrismConfigService.refreshTokenTtlMs)
 //  - absolute: 아무리 활동해도 여기서는 끝난다. 리프레시 무한 연장을 막는 상한
-export const ACCESS_TOKEN_TTL_MS = 15 * 60 * 1000;
-export const SESSION_IDLE_TTL_MS = 12 * 60 * 60 * 1000;
+//
+// 앞의 둘만 env로 연다. absolute를 열면 "무한에 가까운 세션"을 설정 한 줄로 만들 수 있고,
+// 그건 배포 환경이 정할 문제가 아니라 이 서비스의 정책이다.
 export const SESSION_ABSOLUTE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+// ──────────────── 이름 규칙 ────────────────
+
+// 이름 규칙의 입력은 CookiePolicy(@app/config) 하나뿐이다 — isProduction과 namespace가
+// 따로 다니면 한쪽만 갱신된 호출부가 생기고, 그 순간 심는 이름과 읽는 이름이 갈린다.
+//
+// namespace는 같은 호스트에 앱이 둘 이상 올라갈 때 서로의 세션을 덮지 않게 이름을 가른다.
+// __Host-는 호스트 단위 격리까지만 해주기 때문이다(Domain 금지 + Path=/) —
+// 호스트가 갈리면 그것으로 충분하지만, 한 호스트에 여러 앱을 얹으면 이름이 겹친다.
+const COOKIE_PREFIX = 'prism';
+
+// `prism_session` · `prism_admin_session`(namespace='admin') ·
+// 운영에서는 각각 `__Host-` 접두어가 붙는다.
+//
+// 로컬(http)에서 접두어를 쓸 수 없는 이유는 __Host-가 Secure를 요구하는데
+// Secure 쿠키는 http에 저장되지 않기 때문이다.
+export function namespacedCookieName(
+  suffix: string,
+  policy: CookiePolicy,
+): string {
+  const parts = policy.namespace
+    ? [COOKIE_PREFIX, policy.namespace, suffix]
+    : [COOKIE_PREFIX, suffix];
+  const name = parts.join('_');
+  return policy.isProduction ? `__Host-${name}` : name;
+}
 
 // 웹 세션 쿠키 — 액세스 토큰을 HttpOnly로 담아 브라우저 JS가 만질 수 없게 한다.
 // (네이티브는 쿠키 저장소가 부자연스러워 Authorization: Bearer를 계속 쓴다)
-const SESSION_COOKIE_BASE = 'prism_session';
+export function sessionCookieName(policy: CookiePolicy): string {
+  return namespacedCookieName('session', policy);
+}
 
 // 리프레시 자격증명 쿠키. 액세스 토큰과 분리하는 이유는 역할이 다르기 때문이다 —
 // 액세스는 매 요청 실리고, 리프레시는 갱신할 때만 쓰인다.
-const REFRESH_COOKIE_BASE = 'prism_refresh';
-
-// __Host- 접두어는 "Secure + Path=/ + Domain 없음"을 브라우저가 강제하게 만든다.
-// 이름만 같고 Domain이 다른 쿠키를 형제 서브도메인이 심어 덮어쓰는 것(cookie tossing)이
-// 불가능해진다 — 접두어가 없으면 두 쿠키가 함께 실려 어느 쪽이 읽힐지 순서에 좌우된다.
-// 로컬(http)은 Secure 쿠키가 저장되지 않아 접두어를 쓸 수 없다.
-export function sessionCookieName(isProduction: boolean): string {
-  return isProduction ? `__Host-${SESSION_COOKIE_BASE}` : SESSION_COOKIE_BASE;
+export function refreshCookieName(policy: CookiePolicy): string {
+  return namespacedCookieName('refresh', policy);
 }
 
-export function refreshCookieName(isProduction: boolean): string {
-  return isProduction ? `__Host-${REFRESH_COOKIE_BASE}` : REFRESH_COOKIE_BASE;
-}
+// ──────────────── 속성 ────────────────
 
 // SameSite=Lax: 교차 사이트 POST(CSRF)에는 실리지 않고, 최상위 GET 이동에는 실린다.
 // OAuth 복귀는 최상위 GET이라 Lax로 충분하며, 별도 CSRF 토큰 없이 쿠키 전환이 가능하다.
 // (Apple form_post는 교차 사이트 POST지만 쿠키를 *심는* 것은 SameSite와 무관하고,
 //  이어지는 웹 복귀가 최상위 GET이라 그때 정상 전송된다)
-export function sessionCookieOptions(isProduction: boolean): CookieOptions {
+//
+// maxAgeMs는 **리프레시 수명**(idle 만료)을 받는다 — 액세스 토큰 수명이 아니다.
+// 쿠키는 액세스 토큰보다 오래 남겨둬야 한다. 만료된 토큰이라도 실려 와야 서버가
+// "누구의 세션인지" 알고 갱신을 안내할 수 있기 때문이다(쿠키가 먼저 사라지면
+// 갱신 가능한 세션인데도 첫 방문처럼 보인다).
+export function sessionCookieOptions(
+  isProduction: boolean,
+  maxAgeMs: number,
+): CookieOptions {
   return {
     httpOnly: true,
     path: '/',
     sameSite: 'lax',
     secure: isProduction, // 로컬 http에서는 Secure 쿠키가 저장되지 않는다
-    // 쿠키는 액세스 토큰보다 오래 남겨둔다 — 만료된 토큰이라도 실려 와야
-    // 서버가 "누구의 세션인지" 알고 리프레시를 안내할 수 있다.
-    maxAge: SESSION_IDLE_TTL_MS,
+    maxAge: maxAgeMs,
   };
 }
 
-// 리프레시 쿠키는 세션 쿠키와 같은 정책을 쓰되 수명이 idle 만료와 같다.
+// 리프레시 쿠키는 세션 쿠키와 같은 정책·같은 수명을 쓴다.
 // (Path를 /auth/refresh로 좁히고 싶지만 __Host-가 Path=/를 강제한다 —
 //  접두어가 주는 cookie tossing 방어가 경로 축소보다 가치 있다고 판단했다)
-export function refreshCookieOptions(isProduction: boolean): CookieOptions {
-  return sessionCookieOptions(isProduction);
-}
-
-// ──────────────── OAuth 흐름 nonce 쿠키 ────────────────
-
-// OAuth 시작 시 발급하는 브라우저 nonce 쿠키 — 서명된 state와 짝을 이뤄
-// "이 브라우저가 시작한 흐름인가"를 확인한다(login-CSRF 방어).
-// 흐름마다 독립 쿠키를 써서 병행 탭·동시 콜백이 서로를 간섭하지 않는다.
-const OAUTH_COOKIE_BASE = 'prism_oauth_';
-
-// 세션 쿠키와 같은 이유로 운영에서는 __Host- 접두어가 **필수**다.
-// 이게 없으면 형제 호스트가 자기가 시작한 흐름의 nonce로 쿠키를 심어
-// "피해자가 시작한 흐름"인 척할 수 있고, 그러면 세션 쿠키를 __Host-로 바꿔도
-// login-CSRF가 이 경로로 그대로 되살아난다.
-//
-// 값(현재 '1')을 state에 바인딩하는 것으로는 막을 수 없다 — 공격자는 자기가 시작한
-// 흐름의 정상적인 (state, 값) 쌍을 알고 있어 짝이 맞는 값을 심으면 그만이다.
-// 심는 것 자체를 불가능하게 만드는 접두어만이 유효한 방어다.
-export function oauthNonceCookieName(
-  nonce: string,
+export function refreshCookieOptions(
   isProduction: boolean,
-): string {
-  const name = `${OAUTH_COOKIE_BASE}${nonce}`;
-  return isProduction ? `__Host-${name}` : name;
+  maxAgeMs: number,
+): CookieOptions {
+  return sessionCookieOptions(isProduction, maxAgeMs);
 }
 
-// __Host- 요건이 Path=/를 강제하므로 운영에서는 Path=/auth를 쓸 수 없다.
-// Apple form_post 콜백은 교차 사이트 POST라 SameSite=None이 필요한데, None은 Secure를
-// 요구하고 __Host-도 Secure를 요구하므로 셋이 함께 성립한다.
-// 로컬(http)은 Secure 쿠키가 저장되지 않아 접두어 없이 Lax + Path=/auth를 유지한다.
-export function oauthNonceCookieOptions(isProduction: boolean): CookieOptions {
-  const base: CookieOptions = { httpOnly: true, maxAge: OAUTH_STATE_TTL_MS };
-  return isProduction
-    ? { ...base, path: '/', secure: true, sameSite: 'none' }
-    : { ...base, path: '/auth', sameSite: 'lax' };
-}
-
-// ──────────────── 공통 ────────────────
+// ──────────────── 읽기 ────────────────
 
 // 요청의 Cookie 헤더에서 값 하나를 꺼낸다(필요한 게 이것뿐이라 cookie-parser 미도입).
 //
@@ -128,9 +132,9 @@ export function cookieOf(req: Request, name: string): string | undefined {
 // 심은 쿠키가 그대로 통과해 접두어를 쓰는 의미가 사라진다.
 export function sessionTokenOf(
   req: Request,
-  isProduction: boolean,
+  policy: CookiePolicy,
 ): string | null {
   const header = req.headers.authorization;
   if (header?.startsWith('Bearer ')) return header.slice(7);
-  return cookieOf(req, sessionCookieName(isProduction)) ?? null;
+  return cookieOf(req, sessionCookieName(policy)) ?? null;
 }

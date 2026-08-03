@@ -33,11 +33,37 @@ const FALLBACK_DISPLAY_NAME = 'Member';
 const sessionKey = (id: string) => `prism:session:${id}`;
 const refreshKey = (id: string) => `prism:refresh:${id}`;
 const userIndexKey = (userId: string) => `prism:user_sessions:${userId}`;
+// 이미 소비된(회전된) 자격증명의 해시 이력. member=해시, score=소비 시각(epoch ms).
+const consumedKey = (id: string) => `prism:refresh_used:${id}`;
 
 // 자격증명은 `<sessionId>.<secret>` — 자체적으로 어느 세션인지 말하므로
 // 액세스 토큰이 이미 만료된 상태에서도 갱신을 시작할 수 있다.
 const CREDENTIAL_SEPARATOR = '.';
 const SECRET_BYTES = 32;
+
+// 회전 직후의 짧은 유예 창. 이 안에서 옛 자격증명이 다시 오는 것은 탈취가 아니라
+// **회전이 끝나기 전에 이미 출발한 요청**이다.
+//
+// 브라우저의 쿠키 항아리는 하나뿐이라 탭이 여러 개여도 각 탭이 stale 값을 들고 있을 수
+// 있는 시간은 "요청 하나의 왕복" 뿐이다. 그래서 창을 크게 잡을 이유가 없고, 크게 잡으면
+// 그만큼 탈취 탐지가 늦어진다.
+export const REFRESH_REUSE_GRACE_MS = 30_000;
+
+// 세션 하나가 남기는 소비 이력의 상한. 이력은 갱신 횟수만큼 쌓이므로
+// "짧은 액세스 수명 + 긴 세션" 조합에서는 상한이 없으면 수만 건이 된다.
+// 넘쳐서 밀려난 아주 오래된 자격증명은 탐지 대신 단순 거부로 처리된다(안전한 쪽으로 실패).
+const CONSUMED_HISTORY_LIMIT = 128;
+
+// 회전 실패는 원인마다 대응이 다르다 — 문자열 하나로 뭉치지 않고 판별 유니온으로 넘긴다.
+//  - rotated:  성공. 새 자격증명을 발급했다
+//  - raced:    유예 창 안의 재제시. 탭 경합이므로 **세션을 유지**한다
+//  - reused:   유예 창 밖의 재사용. 탈취 신호로 보고 **세션을 폐기했다**
+//  - rejected: 발급된 적 없는 값·세션 없음·상한 초과. 세션은 건드리지 않는다
+export type RotateOutcome =
+  | { status: 'rotated'; user: User; refreshCredential: string }
+  | { status: 'raced' }
+  | { status: 'reused' }
+  | { status: 'rejected' };
 
 const sha256 = (value: string) =>
   createHash('sha256').update(value).digest('hex');
@@ -105,40 +131,44 @@ export class SessionsRepository {
     };
   }
 
-  // 리프레시 자격증명을 회전한다. 성공하면 새 자격증명을, 실패하면 null.
+  // 리프레시 자격증명을 회전한다.
   //
-  // 실패는 셋 중 하나다: 세션이 없다 / 자격증명이 틀리거나 이미 회전됐다 /
-  // absolute 상한을 넘었다. 어느 쪽이든 호출부는 재로그인을 요구하면 된다.
-  async rotate(
-    credential: string,
-    idleTtlMs: number,
-  ): Promise<{ user: User; refreshCredential: string } | null> {
+  // 회전만으로는 탈취를 **탐지**하지 못한다. 옛 자격증명이 거부되기만 하면, 공격자가
+  // 먼저 회전시킨 뒤 피해자가 실패하는 상황과 단순한 오류가 구분되지 않기 때문이다.
+  // 그래서 소비된 해시를 이력으로 남기고, 나중에 제시된 값이 그 이력에 있으면
+  // "이미 쓴 자격증명을 또 쓴다"는 신호로 읽는다(RFC 9700 refresh token reuse).
+  //
+  // 다만 즉시 폐기는 오탐을 부른다 — 회전 직전에 출발한 요청이 회전 직후 도착하는
+  // 정상 경합이 있다. 유예 창(REFRESH_REUSE_GRACE_MS) 안이면 세션을 살려둔다.
+  async rotate(credential: string, idleTtlMs: number): Promise<RotateOutcome> {
     const separator = credential.indexOf(CREDENTIAL_SEPARATOR);
-    if (separator <= 0) return null;
+    if (separator <= 0) return { status: 'rejected' };
     const id = credential.slice(0, separator);
     const secret = credential.slice(separator + 1);
-    if (!secret) return null;
+    if (!secret) return { status: 'rejected' };
 
     const record = await this.readRecord(id);
-    if (!record) return null;
+    if (!record) return { status: 'rejected' };
 
     // 상한을 넘었으면 활동과 무관하게 끝이다. 세션도 함께 정리한다.
     if (record.absoluteExpiresAt <= Date.now()) {
       await this.deleteById(id, record.userId);
-      return null;
+      return { status: 'rejected' };
     }
 
     // idle 만료가 상한을 넘지 않도록 자른다.
     const ttlMs = Math.min(idleTtlMs, record.absoluteExpiresAt - Date.now());
     const ttlSeconds = Math.ceil(ttlMs / 1000);
+    const presented = sha256(secret);
     const nextSecret = randomBytes(SECRET_BYTES).toString('base64url');
 
-    // 자격증명 교체 · 본체 수명 연장 · 인덱스 갱신이 **한 번에** 일어난다.
+    // 자격증명 교체 · 본체 수명 연장 · 인덱스 갱신 · 소비 이력 기록이 **한 번에** 일어난다.
     // 나눠서 하면 교체만 성공하고 죽었을 때 "새 자격증명인데 본체는 옛 수명" 또는
-    // "살아 있는데 인덱스에 없는 세션"(목록·전체 폐기에서 누락)이 생긴다.
+    // "살아 있는데 인덱스에 없는 세션"(목록·전체 폐기에서 누락)이 생기고,
+    // 이력만 누락되면 그 자격증명의 재사용을 영영 탐지하지 못한다.
     const rotated = await this.redis.compareAndRenew({
       key: refreshKey(id),
-      expected: sha256(secret),
+      expected: presented,
       next: sha256(nextSecret),
       ttlSeconds,
       renewKeys: [sessionKey(id)],
@@ -147,10 +177,19 @@ export class SessionsRepository {
         member: id,
         score: Date.now() + ttlMs,
       },
+      consumed: {
+        key: consumedKey(id),
+        member: presented,
+        score: Date.now(),
+        keep: CONSUMED_HISTORY_LIMIT,
+      },
     });
-    if (!rotated) return null;
+    if (!rotated) {
+      return this.classifyRejected(id, record.userId, presented);
+    }
 
     return {
+      status: 'rotated',
       user: {
         id: record.userId,
         provider: record.provider,
@@ -159,6 +198,30 @@ export class SessionsRepository {
       },
       refreshCredential: `${id}${CREDENTIAL_SEPARATOR}${nextSecret}`,
     };
+  }
+
+  // 교체에 실패한 자격증명이 "이미 소비된 것"인지 이력에서 확인한다.
+  //
+  // ⚠️ 이력에 **없는** 값은 폐기 대상이 아니다. 발급된 적 없는 값까지 폐기 신호로 보면,
+  // 세션 id만 아는 사람이 아무 문자열이나 붙여 남의 세션을 끊을 수 있다(폐기 DoS).
+  // 폐기는 "한때 유효했음을 증명한" 값에만 적용한다.
+  private async classifyRejected(
+    id: string,
+    userId: string,
+    presented: string,
+  ): Promise<RotateOutcome> {
+    const consumedAt = await this.redis.zScore(consumedKey(id), presented);
+    if (consumedAt === null) return { status: 'rejected' };
+
+    // 회전 직후의 재제시 = 이미 출발했던 요청. 세션을 유지한다.
+    if (Date.now() - consumedAt <= REFRESH_REUSE_GRACE_MS) {
+      return { status: 'raced' };
+    }
+
+    // 유예 창 밖의 재사용 — 자격증명이 두 곳에 존재한다는 뜻이다. 어느 쪽이 공격자인지
+    // 알 수 없으므로 세션 전체를 끊고 재로그인시킨다(둘 다 잃는 것이 안전한 쪽).
+    await this.deleteById(id, userId);
+    return { status: 'reused' };
   }
 
   // 로그아웃 — 이 세션만 폐기한다(다른 기기의 세션은 그대로).
@@ -197,7 +260,11 @@ export class SessionsRepository {
   async deleteOwned(userId: string, sessionId: string): Promise<boolean> {
     const record = await this.readRecord(sessionId);
     if (!record || record.userId !== userId) return false;
-    await this.redis.del(sessionKey(sessionId), refreshKey(sessionId));
+    await this.redis.del(
+      sessionKey(sessionId),
+      refreshKey(sessionId),
+      consumedKey(sessionId),
+    );
     await this.redis.zRem(userIndexKey(userId), sessionId);
     return true;
   }
@@ -208,6 +275,7 @@ export class SessionsRepository {
     const keys = items.flatMap(({ member }) => [
       sessionKey(member),
       refreshKey(member),
+      consumedKey(member),
     ]);
     if (keys.length > 0) await this.redis.del(...keys);
     await this.redis.del(userIndexKey(userId));
@@ -215,7 +283,7 @@ export class SessionsRepository {
   }
 
   private async deleteById(id: string, userId?: string): Promise<void> {
-    await this.redis.del(sessionKey(id), refreshKey(id));
+    await this.redis.del(sessionKey(id), refreshKey(id), consumedKey(id));
     if (userId) await this.redis.zRem(userIndexKey(userId), id);
   }
 

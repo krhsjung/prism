@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import type { SocialProvider } from '@app/common';
 import type { PostgresConfig } from '@app/database';
 import type { RedisConfig } from '@app/redis';
-import { loadAppConfig, type AppConfig } from './app-config';
+import { loadAppConfig, type AppConfig, type CookiePolicy } from './app-config';
 import type { AppleOAuthOptions, GoogleOAuthOptions } from './oauth-options';
 
 // 타입드 설정 서비스 — 파싱은 전부 순수 함수(app-config.ts)에 위임하고,
@@ -50,6 +50,26 @@ export class PrismConfigService {
 
   get demoEnabled(): boolean {
     return this.app.auth.demoEnabled;
+  }
+
+  // 쿠키 이름을 정하는 두 축을 한 값으로 묶어 넘긴다 — 심는 쪽과 읽는 쪽이
+  // 같은 판단을 쓰게 강제한다(@app/session의 CookiePolicy).
+  get cookiePolicy(): CookiePolicy {
+    return {
+      isProduction: this.app.production,
+      namespace: this.app.auth.cookieNamespace,
+    };
+  }
+
+  // ── 세션 수명 ──
+  // 세 값이 서로 다른 일을 한다(session-cookie.ts 참고). 앞의 둘은 env로 조정하고,
+  // absolute 상한만 코드 상수로 남는다 — "무한 연장 금지"는 운영 취향이 아니라 정책이다.
+  get accessTokenTtlMs(): number {
+    return this.app.auth.accessTokenTtlMs;
+  }
+
+  get refreshTokenTtlMs(): number {
+    return this.app.auth.refreshTokenTtlMs;
   }
 
   // ── DB (PostgreSQL) ──

@@ -82,7 +82,9 @@
       "^@app/config$": "<rootDir>/libs/config/src/index.ts",
       "^@app/config/(.*)$": "<rootDir>/libs/config/src/$1",
       "^@app/redis$": "<rootDir>/libs/redis/src/index.ts",
-      "^@app/redis/(.*)$": "<rootDir>/libs/redis/src/$1"
+      "^@app/redis/(.*)$": "<rootDir>/libs/redis/src/$1",
+      "^@app/session$": "<rootDir>/libs/session/src/index.ts",
+      "^@app/session/(.*)$": "<rootDir>/libs/session/src/$1"
     },
     "collectCoverageFrom": [
       "services/**/*.(t|j)s",

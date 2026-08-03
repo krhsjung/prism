@@ -21,6 +21,29 @@ export interface HttpConfig {
 export interface AuthConfig {
   jwtSecret: string;
   demoEnabled: boolean;
+  // 쿠키 이름에 끼워 넣는 앱 구분자(빈 문자열이면 없음 — 기본).
+  //
+  // __Host- 접두어는 호스트 단위 격리까지만 해준다. 호스트가 갈리는 배포에서는 그것으로
+  // 충분하지만, **한 호스트에 앱을 둘 이상 얹으면** 같은 이름의 쿠키를 함께 쓰게 되어
+  // 서로의 세션을 덮는다. 그때 이 값으로 이름을 가른다.
+  cookieNamespace: string;
+  // 액세스 토큰의 수명. 짧을수록 탈취된 토큰의 사용 가능 시간이 줄지만, 그만큼 갱신이
+  // 잦아진다(요청 수 = 세션 길이 / 이 값).
+  accessTokenTtlMs: number;
+  // 리프레시 자격증명의 수명 = 세션의 sliding idle 만료. 갱신할 때마다 다시 채워지므로
+  // "이만큼 활동이 없으면 끊긴다"는 뜻이다. 세션 쿠키의 maxAge도 이 값을 쓴다 —
+  // 만료된 액세스 토큰이라도 실려 와야 서버가 갱신을 안내할 수 있기 때문이다.
+  refreshTokenTtlMs: number;
+}
+
+// 쿠키 이름을 정하는 두 축을 **한 값으로 묶는다.** 따로 다니는 인자였다면 한쪽만
+// 갱신된 호출부가 생기고, 그 순간 심는 이름과 읽는 이름이 갈린다 — 타입이 그걸 막는다.
+// (설정에서 파생되는 값이라 여기 두고, @app/session이 타입으로만 가져다 쓴다 —
+//  의존 방향을 session → config 한쪽으로 유지하려는 것)
+export interface CookiePolicy {
+  isProduction: boolean;
+  // 빈 문자열이면 접미사 없음(기본).
+  namespace: string;
 }
 
 export interface AppConfig {
@@ -35,6 +58,41 @@ export interface AppConfig {
 
 const str = (env: Env, key: string, fallback = ''): string =>
   env[key] ?? fallback;
+
+// 토큰 수명 표기 — 단위 없는 숫자는 **초**로 읽고(JWT `expiresIn` 관례), 접미사가 있으면
+// 그 단위로 읽는다. `900`과 `15m`이 같은 값이다.
+//
+// 잘못된 표기를 조용히 기본값으로 되돌리지 않는다. `15min`이나 `1 h` 같은 오타가
+// 기본값으로 흡수되면 "설정했는데 안 먹는" 상태가 운영에서 드러나지 않는다.
+const DURATION_UNITS_MS: { [unit: string]: number } = {
+  ms: 1,
+  s: 1000,
+  m: 60 * 1000,
+  h: 60 * 60 * 1000,
+  d: 24 * 60 * 60 * 1000,
+};
+
+export function parseDurationMs(
+  env: Env,
+  key: string,
+  fallbackMs: number,
+): number {
+  const raw = str(env, key).trim();
+  if (!raw) return fallbackMs;
+
+  const matched = /^(\d+)(ms|s|m|h|d)?$/.exec(raw);
+  const amount = matched?.[1];
+  if (!amount) {
+    throw new Error(
+      `Invalid ${key}: expected a duration like 900, 15m, 12h, or 7d`,
+    );
+  }
+  const unitMs = DURATION_UNITS_MS[matched?.[2] ?? 's'] ?? 1000;
+  const ms = Number(amount) * unitMs;
+  // 0은 "즉시 만료"라 로그인하자마자 끊기는 설정이다 — 오타일 가능성이 훨씬 높다.
+  if (ms <= 0) throw new Error(`Invalid ${key}: must be greater than zero`);
+  return ms;
+}
 
 export function loadHttpConfig(env: Env): HttpConfig {
   const corsRaw = str(env, 'PRISM_CORS_ORIGIN');
@@ -77,6 +135,24 @@ export function loadAuthConfig(env: Env): AuthConfig {
       );
     }
   }
+  const accessTokenTtlMs = parseDurationMs(
+    env,
+    'PRISM_JWT_ACCESS_TOKEN_EXPIRES_IN',
+    15 * 60 * 1000,
+  );
+  const refreshTokenTtlMs = parseDurationMs(
+    env,
+    'PRISM_JWT_REFRESH_TOKEN_EXPIRES_IN',
+    12 * 60 * 60 * 1000,
+  );
+  // 액세스가 리프레시보다 오래 살면 갱신이라는 개념 자체가 성립하지 않는다 —
+  // 세션(=리프레시 창)이 끝난 뒤에도 액세스 토큰만으로 통과하는 구간이 생긴다.
+  if (accessTokenTtlMs > refreshTokenTtlMs) {
+    throw new Error(
+      'PRISM_JWT_ACCESS_TOKEN_EXPIRES_IN must not exceed PRISM_JWT_REFRESH_TOKEN_EXPIRES_IN',
+    );
+  }
+
   return {
     jwtSecret: str(
       env,
@@ -84,7 +160,23 @@ export function loadAuthConfig(env: Env): AuthConfig {
       'dev-insecure-secret-change-me',
     ),
     demoEnabled: str(env, 'PRISM_AUTH_DEMO_ENABLED') !== 'false',
+    cookieNamespace: parseCookieNamespace(env),
+    accessTokenTtlMs,
+    refreshTokenTtlMs,
   };
+}
+
+// 쿠키 이름에 그대로 들어가는 값이라 문법상 안전한 문자만 받는다.
+// (`;`나 `=`가 섞이면 Set-Cookie 헤더가 쪼개져 이름이 엉뚱하게 잘린다)
+function parseCookieNamespace(env: Env): string {
+  const raw = str(env, 'PRISM_COOKIE_NAMESPACE').trim();
+  if (!raw) return '';
+  if (!/^[a-z0-9-]+$/.test(raw)) {
+    throw new Error(
+      'Invalid PRISM_COOKIE_NAMESPACE: expected lowercase letters, digits, or hyphens',
+    );
+  }
+  return raw;
 }
 
 // 표준 접속 URL(12-factor DATABASE_URL)로 지정한다 — postgres://user[:pw]@host[:port]/db.

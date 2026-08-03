@@ -28,7 +28,9 @@
       "@app/config": ["./libs/config/src/index.ts"],
       "@app/config/*": ["./libs/config/src/*"],
       "@app/redis": ["./libs/redis/src/index.ts"],
-      "@app/redis/*": ["./libs/redis/src/*"]
+      "@app/redis/*": ["./libs/redis/src/*"],
+      "@app/session": ["./libs/session/src/index.ts"],
+      "@app/session/*": ["./libs/session/src/*"]
     }
   }
 }

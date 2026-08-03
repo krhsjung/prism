@@ -29,6 +29,29 @@ spec:
               value: {{ .Values.env.apiPort | quote }}
             - name: PRISM_CORS_ORIGIN
               value: {{ .Values.env.corsOrigin | quote }}
+            # 세션 검증용 — auth가 발급한 토큰을 같은 키·같은 저장소로 확인한다.
+            - name: PRISM_JWT_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "prism-api.fullname" . }}-secret
+                  key: jwt-secret-key
+            - name: PRISM_REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "prism-api.fullname" . }}-secret
+                  key: redis-url
+            - name: PRISM_DB_REQUIRED
+              value: {{ .Values.env.dbRequired | quote }}
+            - name: PRISM_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "prism-api.fullname" . }}-secret
+                  key: database-url
+            - name: PRISM_DATABASE_REPLICA_URLS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "prism-api.fullname" . }}-secret
+                  key: database-replica-urls
           livenessProbe:
             httpGet:
               path: /healthz

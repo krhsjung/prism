@@ -132,6 +132,13 @@ export const AUTH_ERROR_CODES = {
   DEMO_DISABLED: 'DEMO_DISABLED',
   UNAUTHORIZED: 'UNAUTHORIZED',
   INVALID_TOKEN: 'INVALID_TOKEN',
+  // 자격증명은 실려 왔지만 액세스 토큰의 수명이 끝났다 — **갱신하면 살아나는** 401.
+  //
+  // UNAUTHORIZED와 나누는 이유는 클라이언트가 "지금 갱신을 시도할 가치가 있는가"를
+  // 알 방법이 이것뿐이기 때문이다. 세션은 HttpOnly 쿠키라 JS가 들여다볼 수 없으므로,
+  // 구분이 없으면 한 번도 로그인한 적 없는 첫 방문조차 반드시 실패할 /auth/refresh를
+  // 한 번 더 부르게 되고(왕복 2회) 그 호출이 갱신 레이트리밋까지 깎는다.
+  SESSION_EXPIRED: 'SESSION_EXPIRED',
   // 쿠키가 실릴 수 있는 상태 변경 요청이 허용되지 않은 출처에서 왔다(CSRF 차단).
   // 정상 클라이언트는 볼 일이 없다 — 뜨면 CORS 허용 목록 설정을 의심할 것.
   FORBIDDEN_ORIGIN: 'FORBIDDEN_ORIGIN',
