@@ -8,7 +8,7 @@
     "card-foreground": { "$value": "#E5ECF7", "$type": "color" },
     "border": { "$value": "#30425E", "$type": "color" },
     "input": { "$value": "#30425E", "$type": "color" },
-    "primary": { "$value": "#4A78B8", "$type": "color" },
+    "primary": { "$value": "#5F92D8", "$type": "color" },
     "primary-foreground": { "$value": "#FFFFFF", "$type": "color" },
     "secondary": { "$value": "#30425E", "$type": "color" },
     "secondary-foreground": { "$value": "#E5ECF7", "$type": "color" },
