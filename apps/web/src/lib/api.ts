@@ -1,6 +1,7 @@
 import {
   AUTH_ERROR_CODES,
   CLIENT_ERROR_CODES,
+  decodeSessionList,
   decodeSessionUser,
   decodeUser,
   jsonBodyOf,
@@ -133,4 +134,15 @@ export const api = {
   me: () => requestJson('/auth/me', decodeUser),
   // 서버가 쿠키를 지워야 로그아웃이 성립한다.
   logout: () => requestEmpty('/auth/logout', { method: 'POST' }),
+  // 내 활성 세션 목록. 서버가 "지금 이 요청의 세션"을 isCurrent로 표시해 준다
+  // (세션 id는 HttpOnly 쿠키 안에만 있어 클라이언트가 자기 세션을 알 방법이 없다).
+  sessions: () => requestJson('/auth/sessions', decodeSessionList),
+  // 다른 기기의 세션 하나를 원격 폐기. 소유자 범위는 서버가 확인한다.
+  revokeSession: (id: string) =>
+    requestEmpty(`/auth/sessions/${encodeURIComponent(id)}/revoke`, {
+      method: 'POST',
+    }),
+  // 내 모든 세션 폐기(현재 세션 포함) — 이후 쿠키는 무효가 된다.
+  revokeAllSessions: () =>
+    requestEmpty('/auth/sessions/revoke-all', { method: 'POST' }),
 };

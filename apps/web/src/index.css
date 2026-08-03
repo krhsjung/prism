@@ -18,6 +18,8 @@
   --color-accent: #4a78b8;
   --color-error: #c75b5b;
   --color-error-bg: #fdeeee;
+  --color-success: #4a9d6e;
+  --color-success-bg: #e9f6ef;
 
   --radius-sm: 4px;
   --radius-md: 8px;
@@ -47,6 +49,8 @@
   --color-accent: #7fa9de;
   --color-error: #e08a8a;
   --color-error-bg: #3a2630;
+  --color-success: #7cc79a;
+  --color-success-bg: #1f3a2c;
   --shadow-md: 0 4px 8px rgba(0, 0, 0, 0.35);
   --shadow-lg: 0 8px 16px rgba(0, 0, 0, 0.35);
 
@@ -319,49 +323,298 @@ body {
   filter: brightness(1.15);
 }
 
-/* ---- Dashboard ---- */
-.dash {
+/* ---- Button: ghost + compact (대시보드 인라인 액션) ---- */
+.btn--ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--color-primary);
+}
+.btn--ghost:not(:disabled):hover {
+  background: var(--color-secondary-bg);
+}
+/* 폭을 채우지 않는 인라인 액션(로그아웃·Revoke·Sign out all). 기본 .btn은 width:100%. */
+.btn--compact {
+  width: auto;
+  height: 36px;
+  padding: 0 14px;
+  font-size: 14px;
+}
+
+/* ---- Dashboard shell (사이드바 + 상단 바 + 콘텐츠) ---- */
+.shell {
   min-height: 100svh;
-  padding: 32px;
+  display: flex;
+}
+
+.sidebar {
+  flex: none;
+  width: 240px;
+  padding: 24px 16px;
   display: flex;
   flex-direction: column;
   gap: 24px;
+  background: var(--color-card);
+  border-right: 1px solid var(--color-border);
 }
-
-.dash__head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 16px;
-}
-
-.dash__head h1 {
-  margin: 0;
+.sidebar__brand {
+  padding: 0 8px;
   font-weight: 800;
-  font-size: 28px;
+  font-size: 20px;
   color: var(--color-heading);
 }
-
-.dash__head p {
-  margin: 4px 0 0;
+.sidebar__nav {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.navitem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--color-muted);
+}
+.navitem--active {
+  background: var(--color-secondary-bg);
+  color: var(--color-heading);
+}
+.navitem--soon {
+  opacity: 0.7;
+  cursor: default;
+}
+.navitem__badge {
+  padding: 2px 6px;
+  border-radius: 9999px;
+  background: var(--color-secondary-bg);
+  font-size: 11px;
+  font-weight: 600;
   color: var(--color-muted);
 }
 
-.dash__actions {
+.shell__main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 32px;
+  background: var(--color-card);
+  border-bottom: 1px solid var(--color-border);
+}
+.topbar__title {
+  font-weight: 800;
+  font-size: 20px;
+  color: var(--color-heading);
+}
+.topbar__controls {
+  margin-left: auto;
   display: flex;
   align-items: center;
   gap: 12px;
 }
-
-.dash__head .btn {
-  width: auto;
+.topbar__user {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+  padding-left: 4px;
+}
+.topbar__user-name {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--color-heading);
+}
+.topbar__user-provider {
+  font-size: 12px;
+  color: var(--color-muted);
+  text-transform: capitalize;
 }
 
-.dash .card {
+.content {
+  flex: 1;
+  padding: 32px;
+}
+
+/* ---- Sessions card ---- */
+.sessions {
   max-width: none;
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
   color: var(--color-text);
 }
-
-.dash__loading {
+.sessions__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 20px 24px;
+}
+.sessions__title {
+  margin: 0;
+  font-weight: 700;
+  font-size: 18px;
+  color: var(--color-heading);
+}
+.sessions__desc {
+  margin: 2px 0 0;
+  font-size: 14px;
   color: var(--color-muted);
+}
+.sessions__state {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 20px 24px;
+  color: var(--color-muted);
+}
+.sessions .alert {
+  margin: 0 24px 16px;
+}
+.sessions__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.sessions__row {
+  display: grid;
+  grid-template-columns: 2fr 1.3fr 1.3fr 0.9fr auto;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 24px;
+}
+.sessions__row--head {
+  padding-top: 10px;
+  padding-bottom: 10px;
+  border-top: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+}
+.session {
+  border-bottom: 1px solid var(--color-border);
+}
+.session:last-child {
+  border-bottom: 0;
+}
+.session__id {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.session__icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-md);
+  background: var(--color-secondary-bg);
+  color: var(--color-heading);
+}
+.session__glyph {
+  width: 18px;
+  height: 18px;
+}
+.session__label {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--color-heading);
+}
+.session__code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-weight: 400;
+  font-size: 12px;
+  color: var(--color-muted);
+}
+.session__when {
+  font-size: 14px;
+  color: var(--color-text);
+}
+/* 열 라벨은 데스크톱 표에서는 헤더가 대신하므로 숨긴다(모바일에서만 노출). */
+.session__k {
+  display: none;
+}
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: 9999px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.badge--success {
+  background: var(--color-success-bg);
+  color: var(--color-success);
+}
+.badge--info {
+  background: var(--color-secondary-bg);
+  color: var(--color-accent);
+}
+.session__action {
+  justify-self: end;
+}
+.sessions__note {
+  margin: 0;
+  padding: 12px 24px 20px;
+  font-size: 13px;
+  color: var(--color-muted);
+}
+
+/* 모바일: 사이드바를 숨기고 표를 카드형으로 쌓는다. */
+@media (max-width: 720px) {
+  .sidebar {
+    display: none;
+  }
+  .topbar {
+    padding: 12px 20px;
+  }
+  .content {
+    padding: 20px;
+  }
+  .sessions__row--head {
+    display: none;
+  }
+  .sessions__row {
+    grid-template-columns: 1fr auto;
+    row-gap: 8px;
+  }
+  .session__id {
+    grid-column: 1;
+  }
+  .session__status {
+    grid-column: 2;
+    justify-self: end;
+  }
+  .session__when {
+    grid-column: 1 / -1;
+    font-size: 13px;
+    color: var(--color-muted);
+  }
+  .session__k {
+    display: inline;
+    margin-right: 6px;
+    color: var(--color-muted);
+  }
+  .session__action {
+    grid-column: 1 / -1;
+    justify-self: start;
+  }
 }

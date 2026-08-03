@@ -36,6 +36,24 @@ export const messages: Messages = {
   'dashboard.log_out': '로그아웃',
   'dashboard.logging_out': '로그아웃하는 중…',
   'dashboard.placeholder_body': '로그인됐습니다. 인증 vertical slice를 위한 임시 대시보드로, 데모 로그인 흐름이 처음부터 끝까지 동작합니다.',
+  'dashboard.nav_webrtc': 'WebRTC',
+  'dashboard.coming_soon': '준비 중',
+  'dashboard.active_sessions': '활성 세션',
+  'dashboard.active_sessions_desc': '계정이 로그인된 위치',
+  'dashboard.sign_out_all': '모두 로그아웃',
+  'dashboard.signing_out_all': '로그아웃하는 중…',
+  'dashboard.col_session': '세션',
+  'dashboard.col_started': '시작',
+  'dashboard.col_expires': '만료',
+  'dashboard.col_status': '상태',
+  'dashboard.status_current': '현재',
+  'dashboard.status_active': '활성',
+  'dashboard.this_session': '현재 세션',
+  'dashboard.a_session': '로그인된 세션',
+  'dashboard.revoke': '해제',
+  'dashboard.revoking': '해제하는 중…',
+  'dashboard.only_this_session': '이 기기에서만 로그인돼 있습니다.',
+  'dashboard.retry': '다시 시도',
 
   // ── error ──
   // 오류 메시지 — 키는 계약의 오류 코드와 1:1로 대응한다 (contracts.ts)
@@ -44,4 +62,6 @@ export const messages: Messages = {
   'error.demo_disabled': '지금은 데모 로그인을 사용할 수 없습니다.',
   'error.network_error': '연결이 끊겼습니다. 네트워크를 확인하고 다시 시도해 주세요.',
   'error.logout_failed': '로그아웃하지 못했습니다. 아직 로그인된 상태입니다 — 연결을 확인하고 다시 시도해 주세요.',
+  'error.sessions_load_failed': '세션을 불러오지 못했습니다. 연결을 확인하고 다시 시도해 주세요.',
+  'error.revoke_failed': '해당 세션을 로그아웃하지 못했습니다. 다시 시도해 주세요.',
 };

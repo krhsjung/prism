@@ -1,5 +1,5 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
 import { DashboardPage } from './DashboardPage';
 import { AuthContext, type AuthContextValue } from '../lib/auth-context';
@@ -7,7 +7,18 @@ import { I18nContext } from '../lib/i18n/i18n-context';
 import { englishI18n } from '../lib/i18n/test-i18n';
 import { ThemeContext } from '../lib/theme/theme-context';
 import { lightTheme } from '../lib/theme/test-theme';
-import type { User } from '../lib/contracts.gen';
+import type { SessionListItem, User } from '../lib/contracts.gen';
+
+// 대시보드는 마운트 시 세션을 불러오고 revoke/sign-out-all을 호출한다 — 네트워크 대신
+// 계약 형태의 값을 돌려주는 가짜 api로 대체한다(테스트가 서버에 의존하지 않게).
+vi.mock('../lib/api', () => ({
+  api: {
+    sessions: vi.fn(),
+    revokeSession: vi.fn(),
+    revokeAllSessions: vi.fn(),
+  },
+}));
+import { api } from '../lib/api';
 
 const user: User = {
   id: 'u-1',
@@ -16,14 +27,29 @@ const user: User = {
   createdAt: '2026-01-01T00:00:00.000Z',
 };
 
-function renderDashboard(signOut: () => Promise<boolean>) {
+const currentSession: SessionListItem = {
+  id: 'sess-current-1',
+  startedAt: '2026-01-01T09:00:00.000Z',
+  expiresAt: '2026-01-01T17:00:00.000Z',
+  isCurrent: true,
+};
+const otherSession: SessionListItem = {
+  id: 'sess-other-2',
+  startedAt: '2026-01-02T09:00:00.000Z',
+  expiresAt: '2026-01-03T09:00:00.000Z',
+  isCurrent: false,
+};
+
+function renderDashboard(
+  signOut: () => Promise<boolean> = async () => true,
+): void {
   const auth: AuthContextValue = {
     state: { status: 'authenticated', user },
     signIn: vi.fn(),
     refresh: vi.fn(async () => true),
     signOut,
   };
-  return render(
+  render(
     <MemoryRouter initialEntries={['/dashboard']}>
       <I18nContext.Provider value={englishI18n()}>
         <ThemeContext.Provider value={lightTheme()}>
@@ -42,7 +68,17 @@ const logoutButton = () =>
   });
 
 describe('DashboardPage', () => {
-  afterEach(cleanup);
+  beforeEach(() => {
+    vi.mocked(api.sessions).mockResolvedValue([currentSession, otherSession]);
+    vi.mocked(api.revokeSession).mockResolvedValue(undefined);
+    vi.mocked(api.revokeAllSessions).mockResolvedValue(undefined);
+  });
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+  });
+
+  // ── 로그아웃(상단 바) ──
 
   it('로그아웃 중에는 버튼이 잠긴다(중복 요청 방지)', () => {
     renderDashboard(() => new Promise<boolean>(() => undefined)); // 응답 없음
@@ -57,9 +93,8 @@ describe('DashboardPage', () => {
     renderDashboard(async () => false);
     fireEvent.click(logoutButton());
 
-    await waitFor(() => expect(screen.getByRole('alert')).toBeDefined());
-    expect(screen.getByRole('alert').textContent).toContain(
-      'still signed in',
+    await waitFor(() =>
+      expect(screen.getByText(/still signed in/)).toBeDefined(),
     );
     expect(logoutButton().disabled).toBe(false); // 다시 시도할 수 있다
   });
@@ -70,6 +105,47 @@ describe('DashboardPage', () => {
     fireEvent.click(logoutButton());
 
     await waitFor(() => expect(signOut).toHaveBeenCalled());
-    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.queryByText(/still signed in/)).toBeNull();
+  });
+
+  // ── 활성 세션 ──
+
+  it('세션 목록을 불러와 현재/다른 세션을 구분해 보여준다', async () => {
+    renderDashboard();
+
+    await waitFor(() => expect(screen.getByText('This session')).toBeDefined());
+    expect(screen.getByText('Current')).toBeDefined();
+    expect(screen.getByText('Signed-in session')).toBeDefined();
+    expect(screen.getByText('Active')).toBeDefined();
+    // Revoke는 현재 세션이 아닌 행에만 있다(현재 세션은 상단 바 Log out으로 끊는다).
+    expect(
+      screen.getAllByRole('button', { name: 'Revoke' }),
+    ).toHaveLength(1);
+  });
+
+  it('세션을 Revoke하면 목록에서 사라진다', async () => {
+    renderDashboard();
+    await waitFor(() => expect(screen.getByText('Signed-in session')).toBeDefined());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Revoke' }));
+
+    await waitFor(() =>
+      expect(vi.mocked(api.revokeSession)).toHaveBeenCalledWith('sess-other-2'),
+    );
+    await waitFor(() =>
+      expect(screen.queryByText('Signed-in session')).toBeNull(),
+    );
+  });
+
+  it('세션을 못 불러오면 오류와 재시도를 보여준다', async () => {
+    vi.mocked(api.sessions).mockRejectedValueOnce(new Error('network'));
+    renderDashboard();
+
+    await waitFor(() =>
+      expect(screen.getByText(/load your sessions/)).toBeDefined(),
+    );
+    // 재시도하면 다시 불러온다.
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    await waitFor(() => expect(screen.getByText('This session')).toBeDefined());
   });
 });

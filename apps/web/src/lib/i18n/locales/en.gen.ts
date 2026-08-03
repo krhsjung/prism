@@ -36,6 +36,24 @@ export const messages: Messages = {
   'dashboard.log_out': 'Log out',
   'dashboard.logging_out': 'Logging out…',
   'dashboard.placeholder_body': 'You’re in. This is a placeholder dashboard for the authentication vertical slice — the demo login flow works end to end.',
+  'dashboard.nav_webrtc': 'WebRTC',
+  'dashboard.coming_soon': 'Coming soon',
+  'dashboard.active_sessions': 'Active sessions',
+  'dashboard.active_sessions_desc': 'Where your account is signed in',
+  'dashboard.sign_out_all': 'Sign out all',
+  'dashboard.signing_out_all': 'Signing out…',
+  'dashboard.col_session': 'Session',
+  'dashboard.col_started': 'Started',
+  'dashboard.col_expires': 'Expires',
+  'dashboard.col_status': 'Status',
+  'dashboard.status_current': 'Current',
+  'dashboard.status_active': 'Active',
+  'dashboard.this_session': 'This session',
+  'dashboard.a_session': 'Signed-in session',
+  'dashboard.revoke': 'Revoke',
+  'dashboard.revoking': 'Revoking…',
+  'dashboard.only_this_session': 'You’re only signed in on this device.',
+  'dashboard.retry': 'Try again',
 
   // ── error ──
   // 오류 메시지 — 키는 계약의 오류 코드와 1:1로 대응한다 (contracts.ts)
@@ -44,4 +62,6 @@ export const messages: Messages = {
   'error.demo_disabled': 'Demo login is disabled right now.',
   'error.network_error': 'Connection lost. Check your network and try again.',
   'error.logout_failed': 'Couldn’t log you out. You’re still signed in — check your connection and try again.',
+  'error.sessions_load_failed': 'Couldn’t load your sessions. Check your connection and try again.',
+  'error.revoke_failed': 'Couldn’t sign out that session. Try again.',
 };

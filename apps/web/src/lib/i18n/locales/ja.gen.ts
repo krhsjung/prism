@@ -36,6 +36,24 @@ export const messages: Messages = {
   'dashboard.log_out': 'ログアウト',
   'dashboard.logging_out': 'ログアウトしています…',
   'dashboard.placeholder_body': 'ログインできました。認証の vertical slice 用の仮ダッシュボードで、デモログインの流れが最後まで動作します。',
+  'dashboard.nav_webrtc': 'WebRTC',
+  'dashboard.coming_soon': '準備中',
+  'dashboard.active_sessions': 'アクティブなセッション',
+  'dashboard.active_sessions_desc': 'アカウントがサインインしている場所',
+  'dashboard.sign_out_all': 'すべてサインアウト',
+  'dashboard.signing_out_all': 'サインアウトしています…',
+  'dashboard.col_session': 'セッション',
+  'dashboard.col_started': '開始',
+  'dashboard.col_expires': '有効期限',
+  'dashboard.col_status': 'ステータス',
+  'dashboard.status_current': '現在',
+  'dashboard.status_active': 'アクティブ',
+  'dashboard.this_session': 'このセッション',
+  'dashboard.a_session': 'サインイン中のセッション',
+  'dashboard.revoke': '解除',
+  'dashboard.revoking': '解除しています…',
+  'dashboard.only_this_session': 'この端末でのみサインインしています。',
+  'dashboard.retry': 'もう一度試す',
 
   // ── error ──
   // 오류 메시지 — 키는 계약의 오류 코드와 1:1로 대응한다 (contracts.ts)
@@ -44,4 +62,6 @@ export const messages: Messages = {
   'error.demo_disabled': '現在デモログインはご利用いただけません。',
   'error.network_error': '接続が切れました。ネットワークを確認してもう一度お試しください。',
   'error.logout_failed': 'ログアウトできませんでした。まだサインインしたままです — 接続を確認してもう一度お試しください。',
+  'error.sessions_load_failed': 'セッションを読み込めませんでした。接続を確認してもう一度お試しください。',
+  'error.revoke_failed': 'そのセッションをサインアウトできませんでした。もう一度お試しください。',
 };
