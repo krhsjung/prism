@@ -17,6 +17,11 @@ service:
 env:
   apiPort: "3000"
   corsOrigin: "https://${PRISM_SERVICE_DOMAIN}"
+  # api는 쓰지 않지만 공통 설정 로더가 운영에서 필수로 검증한다(auth와 동일 값).
+  webAppUrl: "https://${PRISM_SERVICE_DOMAIN}"
+  # 쿠키 이름 네임스페이스(선택, 기본 없음). 세션 쿠키를 읽으려면 발급(auth)과 **같은**
+  # 값이어야 한다 — 갈리면 api가 쿠키를 못 찾아 인증이 전부 실패한다.
+  cookieNamespace: "${PRISM_COOKIE_NAMESPACE:-}"
   # 운영 기본 true: DB 장애 시 부팅 실패 + 프로브로 트래픽 차단.
   dbRequired: "${PRISM_DB_REQUIRED:-true}"
 

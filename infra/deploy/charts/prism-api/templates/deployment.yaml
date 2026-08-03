@@ -29,6 +29,13 @@ spec:
               value: {{ .Values.env.apiPort | quote }}
             - name: PRISM_CORS_ORIGIN
               value: {{ .Values.env.corsOrigin | quote }}
+            # api는 이 값을 쓰지 않지만(OAuth redirect는 auth만) 공통 설정 로더가
+            # 운영에서 필수로 검증한다 — 미설정이면 부팅에 실패한다.
+            - name: PRISM_WEB_APP_URL
+              value: {{ .Values.env.webAppUrl | quote }}
+            # 세션 쿠키 이름 네임스페이스 — auth와 같은 값이어야 쿠키를 찾는다.
+            - name: PRISM_COOKIE_NAMESPACE
+              value: {{ .Values.env.cookieNamespace | quote }}
             # 세션 검증용 — auth가 발급한 토큰을 같은 키·같은 저장소로 확인한다.
             - name: PRISM_JWT_SECRET_KEY
               valueFrom:

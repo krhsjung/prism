@@ -18,6 +18,11 @@ service:
 env:
   authPort: "3000"
   corsOrigin: "https://${PRISM_SERVICE_DOMAIN}"
+  # 세션 수명(선택). 미설정 시 코드 기본값(15m/12h). 표기: 900 또는 15m/12h/7d.
+  jwtAccessTokenExpiresIn: "${PRISM_JWT_ACCESS_TOKEN_EXPIRES_IN:-15m}"
+  jwtRefreshTokenExpiresIn: "${PRISM_JWT_REFRESH_TOKEN_EXPIRES_IN:-12h}"
+  # 쿠키 이름 네임스페이스(선택, 기본 없음). 한 호스트에 앱이 둘 이상일 때만.
+  cookieNamespace: "${PRISM_COOKIE_NAMESPACE:-}"
   # 로그인 완료 후 브라우저를 되돌려보낼 웹 앱 주소.
   webAppUrl: "https://${PRISM_SERVICE_DOMAIN}"
   # 소셜 OAuth — 비시크릿 설정(미설정 시 빈 값 → 해당 provider 비활성).

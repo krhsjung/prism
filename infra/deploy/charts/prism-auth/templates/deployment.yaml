@@ -34,6 +34,14 @@ spec:
                 secretKeyRef:
                   name: {{ include "prism-auth.fullname" . }}-secret
                   key: jwt-secret-key
+            # 세션 수명 — 미설정 시 코드 기본값(15m/12h). 비민감 값이라 일반 env로 둔다.
+            - name: PRISM_JWT_ACCESS_TOKEN_EXPIRES_IN
+              value: {{ .Values.env.jwtAccessTokenExpiresIn | quote }}
+            - name: PRISM_JWT_REFRESH_TOKEN_EXPIRES_IN
+              value: {{ .Values.env.jwtRefreshTokenExpiresIn | quote }}
+            # 쿠키 이름 네임스페이스(빈 값이면 기본 이름). 발급·검증 양쪽이 같아야 한다.
+            - name: PRISM_COOKIE_NAMESPACE
+              value: {{ .Values.env.cookieNamespace | quote }}
             - name: PRISM_WEB_APP_URL
               value: {{ .Values.env.webAppUrl | quote }}
             - name: PRISM_GOOGLE_CLIENT_ID
