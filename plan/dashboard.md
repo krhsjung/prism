@@ -33,7 +33,7 @@
 
 <!-- ▼ 최신 항목을 이 아래에 쌓는다 ▼ -->
 
-### 활성 세션 관리 — 기획
+### 활성 세션 관리 — 구현 (web)
 
 - 요약: 내 계정의 활성 세션을 조회하고, 개별/전체로 원격 폐기한다(다른 기기에서
   로그인된 세션 끊기 + 현재 세션 로그아웃).
@@ -41,7 +41,10 @@
   ([Figma](https://www.figma.com/design/sTDo6HDslOcRmWL78klk1I/Prism?node-id=2480-60))
 - 데이터/API: `GET /auth/sessions` · `POST /auth/sessions/:id/revoke` ·
   `POST /auth/sessions/revoke-all` · `POST /auth/logout`
-- 관련: 기획 문서 최초 작성
+- 구현: `apps/web` — 앱 셸(사이드바 + 상단 바) + 세션 목록 · Revoke · Sign out all ·
+  Log out, 로딩·빈·오류 상태. **기기 라벨은 쓰지 않는다**(계약이 UA/IP를 담지 않음 —
+  PII 미저장): 각 행은 "현재 세션/로그인된 세션 + 짧은 세션 id + 시작·만료 시각"으로 표시.
+- 관련: `feat(web)` 세션 관리 구현 · i18n 문자열 추가(`i18n/client.csv`)
 - 추가: 2026-08-03
 
 ---
@@ -102,13 +105,13 @@
   "Dark" 시안을 두지 않는다 — 관리 포인트만 늘고 값은 토큰이 쥔다.
 - **콘텐츠는 Active sessions 카드 하나.** 데스크톱은 테이블, 모바일은 스택 카드.
 
-| 열      | 내용                                    |
-| ------- | --------------------------------------- |
-| Device  | 기기/브라우저 라벨 + 아이콘 (⚠️ §5 참고) |
-| Started | 세션 시작 시각 (`startedAt`)            |
-| Expires | 만료 시각 (`expiresAt`)                 |
-| Status  | `Current`(Success) / `Active`(Info) 배지 |
-| —       | `Revoke` (현재 세션 행은 미노출)         |
+각 행(row)의 구성:
+
+- **Session** — 현재/로그인된 세션 + 짧은 id + 아이콘 (기기 라벨 아님 — §5)
+- **Started** — 세션 시작 시각 (`startedAt`)
+- **Expires** — 만료 시각 (`expiresAt`)
+- **Status** — `Current`(Success) / `Active`(Info) 배지
+- **(action)** — `Revoke` (현재 세션 행은 미노출)
 
 ### 컴포넌트 의존성
 
@@ -166,17 +169,15 @@ interface SessionListItem extends SessionInfo {
 > `sessions/:id/revoke`보다 **먼저** 둔다. 아니면 `revoke-all`이 `:id`에 흡수된다.
 > `/auth/sessions`도 `/auth/:provider`보다 뒤에 두면 provider로 먹힌다.
 
-### ⚠️ 미해결: 기기/브라우저/위치 메타
+### 결정됨: 기기/브라우저/위치 메타 → 표시 축소
 
 Figma 시안은 `MacBook Pro · Chrome · Seoul, KR` 같은 **기기 라벨**을 보여주지만,
-현재 `SessionListItem`에는 **그 필드가 없다**(`id/startedAt/expiresAt/isCurrent`뿐).
-둘 중 하나를 골라야 한다 — §8 오픈 이슈로 추적.
+계약(`SessionListItem`)은 **의도적으로 그 필드를 담지 않는다** — 주석에 명시돼 있듯
+UA/IP를 저장하면 개인정보 미저장 원칙이 깨지기 때문이다(`id/startedAt/expiresAt/isCurrent`뿐).
 
-1. **컨트랙트 확장** — 세션 생성 시 `User-Agent`/IP를 파싱해 `deviceLabel`,
-   `lastSeenAt`, (선택)대략 위치를 저장·노출. **단, PII 미저장 원칙과 충돌 검토 필요**
-   (IP·UA는 개인정보로 볼 여지 → 저장 대신 표시용 파생·비영속 또는 마스킹).
-2. **표시 축소** — 기기 라벨을 빼고 `Session #abcd · Started/Expires · Current`처럼
-   보유 필드만 노출. 시안도 그에 맞춰 단순화.
+→ **표시 축소로 확정.** 웹 UI는 기기 라벨 없이 "현재 세션/로그인된 세션 + 짧은 세션
+id + 시작·만료 시각 + Current/Active 배지"로 그린다. Figma의 기기 라벨은 시각적
+예시일 뿐 실제 데이터가 아니다(컨트랙트 확장안은 PII 원칙과 충돌해 보류).
 
 ---
 
@@ -193,10 +194,10 @@ Figma 시안은 `MacBook Pro · Chrome · Seoul, KR` 같은 **기기 라벨**을
 
 1. ✅ Figma 시안 (Desktop/Mobile · 테마 변수 대응, 별도 다크 시안 없음)
 2. ✅ 디자인 토큰 sync — 다크 `Primary` 보정 + `Text Strong` 토큰 도입 (web 반영/배포)
-3. ⏳ 기기 메타 컨트랙트 결정 (§5) — UI 구현 전 선행
-4. ⏳ `apps/web` Dashboard UI — 셸 + 세션 목록 · Revoke · Sign out all
-5. ⏳ 서버 연동 (`GET /auth/sessions`, `POST .../revoke`, `.../revoke-all`, `logout`)
-6. ⏳ 상태 처리 (Loading 스켈레톤 · Empty · Error)
+3. ✅ 기기 메타 컨트랙트 결정 (§5) — 표시 축소(계약이 PII 미포함)
+4. ✅ `apps/web` Dashboard UI — 셸 + 세션 목록 · Revoke · Sign out all
+5. ✅ 서버 연동 (`GET /auth/sessions`, `POST .../revoke`, `.../revoke-all`, `logout`)
+6. ✅ 상태 처리 (Loading · Empty · Error)
 7. ⏳ iOS / Android 세션 화면 (동일 컨트랙트 재사용)
 8. ⏳ WebRTC 슬라이스 착수 시 사이드바 `WebRTC` 활성화
 
@@ -204,8 +205,8 @@ Figma 시안은 `MacBook Pro · Chrome · Seoul, KR` 같은 **기기 라벨**을
 
 ## 8. 오픈 이슈
 
-- **기기/브라우저/위치 표기(§5)** — 컨트랙트 확장 vs 표시 축소. PII 미저장 원칙과의
-  경계를 먼저 정한다. UI 라벨·접근성 문구가 여기에 달려 있다.
+- ~~기기/브라우저/위치 표기~~ — **해결(§5)**: 계약이 PII를 담지 않아 표시 축소로 확정.
+  웹은 세션 id + 시작·만료 + Current/Active로 표시한다.
 - **현재 세션의 Revoke** — 현재 세션 행은 `Revoke` 대신 상단 바 `Log out`으로 처리
   (자기 세션을 표에서 끊는 동작이 로그아웃과 중복되지 않게). v1 확정.
 - **Sign out all 확인** — 즉시 실행 vs 확인 모달(`Organism/Modal`). 파괴적·비가역이므로
