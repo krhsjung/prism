@@ -1,4 +1,5 @@
 import {
+  AUTH_ERROR_CODES,
   CLIENT_ERROR_CODES,
   decodeSessionUser,
   decodeUser,
@@ -67,12 +68,20 @@ function refreshSession(): Promise<boolean> {
 }
 
 // 401이면 갱신 후 1회 재시도. 갱신 경로 자체는 재시도하지 않는다(무한 루프 방지).
+//
+// 단, 모든 401에 갱신을 시도하지는 않는다. 자격증명이 없는 첫 방문이나 이미 폐기된
+// 세션은 갱신해도 똑같이 실패하므로, 요청만 한 번 더 나가고 /auth/refresh의
+// 레이트리밋을 깎는다. "갱신하면 살아나는 401"인지는 서버만 알 수 있고(HttpOnly 쿠키를
+// JS가 못 읽는다) 서버가 SESSION_EXPIRED로 알려준다 — 그때만 갱신한다.
 async function fetchWithRefresh(
   path: string,
   init?: RequestInit,
 ): Promise<Response> {
   const res = await fetchOrThrow(path, init);
   if (res.status !== 401 || path === '/auth/refresh') return res;
+  // body는 한 번만 읽을 수 있다 — 코드 확인은 사본으로 하고 원본은 호출부에 그대로 넘긴다.
+  const code = await errorCodeOf(res.clone());
+  if (code !== AUTH_ERROR_CODES.SESSION_EXPIRED) return res;
   if (!(await refreshSession())) return res;
   return fetchOrThrow(path, init);
 }
