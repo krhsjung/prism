@@ -39,7 +39,7 @@ dashboard,this_session,This session,현재 세션,このセッション
 dashboard,a_session,Signed-in session,로그인된 세션,サインイン中のセッション
 dashboard,revoke,Revoke,해제,解除
 dashboard,revoking,Revoking…,해제하는 중…,解除しています…
-dashboard,only_this_session,You’re only signed in on this device.,이 기기에서만 로그인돼 있습니다.,この端末でのみサインインしています。
+dashboard,only_this_session,You’re only signed in on this device.,이 기기에서만 로그인되어 있습니다.,この端末でのみサインインしています。
 dashboard,retry,Try again,다시 시도,もう一度試す
 error,# 오류 메시지 — 키는 계약의 오류 코드와 1:1로 대응한다 (contracts.ts),,,
 error,generic,Something went wrong. Please try again in a moment.,문제가 발생했습니다. 잠시 후 다시 시도해 주세요.,問題が発生しました。しばらくしてからもう一度お試しください。

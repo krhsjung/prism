@@ -52,7 +52,7 @@ export const messages: Messages = {
   'dashboard.a_session': '로그인된 세션',
   'dashboard.revoke': '해제',
   'dashboard.revoking': '해제하는 중…',
-  'dashboard.only_this_session': '이 기기에서만 로그인돼 있습니다.',
+  'dashboard.only_this_session': '이 기기에서만 로그인되어 있습니다.',
   'dashboard.retry': '다시 시도',
 
   // ── error ──
