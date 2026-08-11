@@ -10,7 +10,8 @@ export type AuthState =
 export interface AuthContextValue {
   state: AuthState;
   // 서버가 방금 세션을 발급한 경우(데모 로그인) — 쿠키는 이미 심겼고 사용자만 반영한다.
-  signIn(user: User): void;
+  // accessTokenTtlMs로 선제 갱신 스케줄을 곧바로 건다(로그인 직후부터 세션이 밀린다).
+  signIn(user: User, accessTokenTtlMs: number): void;
   // 쿠키 세션을 서버(/auth/me)에 확인해 상태를 갱신한다. 성공 여부 반환.
   // 세션이 HttpOnly 쿠키라 클라이언트는 서버에 묻는 것 외에 알 방법이 없다.
   refresh(): Promise<boolean>;

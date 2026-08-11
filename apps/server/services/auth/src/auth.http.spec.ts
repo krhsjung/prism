@@ -132,8 +132,8 @@ describe('auth HTTP 경계', () => {
       .set('Origin', WEB)
       .expect(201);
 
-    // body에는 사용자만 — 토큰은 쿠키로만 간다.
-    expect(res.body).toEqual({ user });
+    // body에는 사용자와 액세스 토큰 수명만 — 토큰·자격증명은 쿠키로만 간다.
+    expect(res.body).toEqual({ user, accessTokenTtlMs: 15 * 60 * 1000 });
 
     const setCookie = res.get('Set-Cookie') ?? [];
     const session = setCookie.find((c) => c.startsWith('prism_session='));
@@ -228,7 +228,7 @@ describe('auth HTTP 경계', () => {
     await server()
       .get('/auth/me')
       .set('Cookie', `prism_session=${token}`)
-      .expect(200, user);
+      .expect(200, { user, accessTokenTtlMs: 15 * 60 * 1000 });
   });
 
   it('me: Bearer(네이티브)로도 인증된다', async () => {
@@ -236,7 +236,7 @@ describe('auth HTTP 경계', () => {
     await server()
       .get('/auth/me')
       .set('Authorization', `Bearer ${token}`)
-      .expect(200, user);
+      .expect(200, { user, accessTokenTtlMs: 15 * 60 * 1000 });
   });
 
   // ──────────────── 401의 종류 (클라이언트의 갱신 판단 근거) ────────────────
@@ -363,7 +363,7 @@ describe('auth HTTP 경계', () => {
       .set('Cookie', 'prism_refresh=sess-1.secret-1')
       .expect(200);
 
-    expect(res.body).toEqual({ user });
+    expect(res.body).toEqual({ user, accessTokenTtlMs: 15 * 60 * 1000 });
     expect(JSON.stringify(res.body)).not.toContain('secret-2');
   });
 

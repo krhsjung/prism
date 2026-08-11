@@ -13,7 +13,6 @@ i18n/
 ├── client.csv            # 클라이언트(web · iOS · Android) 문구 마스터
 ├── server.csv            # 서버가 직접 그리는 문구 마스터
 ├── scripts/generate.js   # CSV → 플랫폼별 산출물
-├── build/                # iOS · Android 산출물 (gitignored)
 └── package.json
 ```
 
@@ -32,14 +31,25 @@ node scripts/generate.js --check    # 커밋된 산출물이 마스터와 일치
 | 서비스 | 플랫폼 | 경로 | 형식 |
 | --- | --- | --- | --- |
 | client | web | `apps/web/src/lib/i18n/` | `messages.gen.ts` + `locales/{lang}.gen.ts` |
-| client | iOS | `i18n/build/ios/` | `{Module}.xcstrings` |
-| client | Android | `i18n/build/android/values[-{lang}]/` | `strings_{module}.xml` |
+| client | iOS | `apps/ios/prism/Resources/Localization/` | `{Module}.xcstrings` + `Messages.gen.swift` |
+| client | Android | `apps/android/app/src/generated/res/values[-{lang}]/` | `strings_{module}.xml` |
 | server | server | `apps/server/libs/common/src/i18n/` | `messages.gen.ts` + `locales/{lang}.gen.ts` |
 
-web·server 산출물은 **커밋합니다**. 컴파일 대상이라 없으면 빌드가 되지 않고, 계약
+산출물은 전부 **커밋합니다**. 컴파일·번들 대상이라 없으면 빌드가 되지 않고, 계약
 파일(`contracts.gen.ts`)과 같은 이유로 저장소에 있는 것이 실제로 도는 것과 같아야
-합니다. iOS·Android 앱은 아직 없어 `build/`에만 만들고 gitignore합니다 — 앱이
-생기면 `scripts/generate.js`의 `TARGETS`에서 경로만 앱 안으로 바꿉니다.
+합니다. 새 플랫폼을 추가할 때는 `scripts/generate.js`의 `TARGETS`에 `dir`·`suffix`를
+더하면 잔재 정리·`--check`가 함께 걸립니다.
+
+> **iOS** — `.xcstrings`를 앱 타깃 폴더 안에 두면 충분합니다(Xcode의 파일 시스템 동기화
+> 그룹이라 놓으면 빌드에 들어갑니다). 타입 안전 키(`MessageKey`)도 함께 생성합니다.
+> 언어를 늘릴 때는 `prism.xcodeproj`의 `knownRegions`에도 코드를 더해야 그 언어의
+> `.lproj`가 번들에 생성됩니다.
+>
+> **Android** — 전용 생성 소스셋(`app/src/generated/res`)에 넣고 `build.gradle.kts`의
+> `sourceSets`에서 `res.srcDir`로 등록합니다. 손으로 쓴 `res/`와 섞이지 않아 잔재
+> 정리가 안전합니다. 리소스 이름은 `[a-zA-Z0-9_]`만 되므로 키의 점을 언더스코어로
+> 바꿉니다(`auth.welcome_back` → `R.string.auth_welcome_back`). R.string 자체가
+> 컴파일 타임에 검증되므로 별도 키 열거형은 만들지 않습니다.
 
 ## 마스터 포맷
 

@@ -1,13 +1,13 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { LoginPage } from './LoginPage';
 import { AuthContext, type AuthContextValue } from '../lib/auth-context';
 import { I18nContext } from '../lib/i18n/i18n-context';
 import { englishI18n } from '../lib/i18n/test-i18n';
 import { ThemeContext } from '../lib/theme/theme-context';
 import { lightTheme } from '../lib/theme/test-theme';
-import { OAUTH_MESSAGE_TYPE } from '../lib/contracts.gen';
+import { OAUTH_MESSAGE_TYPE, type User } from '../lib/contracts.gen';
 
 // 소셜 시작은 브라우저 이동이라 api 모듈만 대체하고 실제 이동은 스텁으로 막는다.
 vi.mock('../lib/api', () => ({
@@ -164,6 +164,40 @@ describe('LoginPage', () => {
     fireEvent.click(googleButton());
     firePageShow(false);
     expect(googleButton().disabled).toBe(true);
+  });
+
+  // 회귀 방지: 로그인 성공 후 /login이 history에 남아, 대시보드에서 뒤로 가기로
+  // 로그인 폼이 다시 뜨며 흐름이 꼬였다. 이미 인증된 상태면 대시보드로 되돌린다.
+  it('이미 인증된 상태로 도달하면 대시보드로 되돌린다', () => {
+    const user: User = {
+      id: 'u1',
+      provider: 'google',
+      displayName: 'Ada',
+      createdAt: '2026-01-01T00:00:00.000Z',
+    };
+    const authedCtx: AuthContextValue = {
+      ...auth,
+      state: { status: 'authenticated', user },
+    };
+    render(
+      <MemoryRouter initialEntries={['/login']}>
+        <I18nContext.Provider value={englishI18n()}>
+          <ThemeContext.Provider value={lightTheme()}>
+            <AuthContext.Provider value={authedCtx}>
+              <Routes>
+                <Route path="/login" element={<LoginPage />} />
+                <Route path="/dashboard" element={<div>DASHBOARD</div>} />
+              </Routes>
+            </AuthContext.Provider>
+          </ThemeContext.Provider>
+        </I18nContext.Provider>
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText('DASHBOARD')).toBeDefined();
+    expect(
+      screen.queryByRole('button', { name: /Continue with Google/ }),
+    ).toBeNull();
   });
 
   // ──────────────── popup 흐름 ────────────────

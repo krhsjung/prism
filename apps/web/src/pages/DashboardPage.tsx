@@ -34,12 +34,17 @@ export function DashboardPage() {
   const [revokingId, setRevokingId] = useState<string | null>(null);
   const [signingOutAll, setSigningOutAll] = useState(false);
   const [actionFailed, setActionFailed] = useState(false);
+  // 모바일 네비 드로어(사이드바 슬라이드인) — 데스크톱은 CSS로 항상 열린 사이드바.
+  const [navOpen, setNavOpen] = useState(false);
 
   // 언마운트 뒤 도착한 응답이 상태를 건드리지 않게 한다(경합·누수 방지). 이 가드가
   // await 뒤 setState를 조건부로 만들어, 효과에서의 동기 setState 경고도 함께 없앤다
   // (AuthProvider가 generation으로 하는 것과 같은 방식).
   const alive = useRef(true);
   const started = useRef(false);
+  // 드로어 열림 시 포커스를 옮길 닫기 버튼, 닫힐 때 되돌릴 햄버거 버튼.
+  const menuBtnRef = useRef<HTMLButtonElement>(null);
+  const closeBtnRef = useRef<HTMLButtonElement>(null);
 
   const fetchSessions = useCallback(async () => {
     try {
@@ -67,6 +72,24 @@ export function DashboardPage() {
       alive.current = false;
     };
   }, [fetchSessions]);
+
+  // 드로어가 열리면: 포커스를 안으로 옮기고, Esc로 닫고, 배경 스크롤을 잠근다.
+  // 닫힐 때(cleanup) 포커스를 햄버거로 되돌린다 — 키보드 사용자가 위치를 잃지 않는다.
+  useEffect(() => {
+    if (!navOpen) return;
+    const menuBtn = menuBtnRef.current; // 닫힐 때 되돌릴 대상을 지금 잡아둔다
+    closeBtnRef.current?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setNavOpen(false);
+    };
+    document.addEventListener('keydown', onKey);
+    document.body.classList.add('nav-open');
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.body.classList.remove('nav-open');
+      menuBtn?.focus();
+    };
+  }, [navOpen]);
 
   // 시각은 화면 언어를 따른다 — 언어를 바꾸면 날짜 표기도 함께 바뀐다.
   const dtf = useMemo(
@@ -127,9 +150,26 @@ export function DashboardPage() {
 
   return (
     <div className="shell">
-      <aside className="sidebar">
-        <div className="sidebar__brand">Prism</div>
-        <nav className="sidebar__nav" aria-label="Primary">
+      <aside
+        id="dashboard-nav"
+        className={`sidebar${navOpen ? ' sidebar--open' : ''}`}
+      >
+        <div className="sidebar__head">
+          <div className="sidebar__brand">Prism</div>
+          {/* 닫기는 모바일 드로어에서만 보인다(CSS) — 데스크톱 사이드바엔 없다. */}
+          <button
+            ref={closeBtnRef}
+            type="button"
+            className="sidebar__close"
+            aria-label={t('dashboard.close_menu')}
+            onClick={() => setNavOpen(false)}
+          >
+            <svg className="icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M6 6l12 12M18 6L6 18" />
+            </svg>
+          </button>
+        </div>
+        <nav className="sidebar__nav" aria-label={t('dashboard.navigation')}>
           <span className="navitem navitem--active" aria-current="page">
             {t('dashboard.title')}
           </span>
@@ -140,9 +180,31 @@ export function DashboardPage() {
           </span>
         </nav>
       </aside>
+      {/* 스크림 — 모바일 드로어 열림 시에만 렌더. 탭하면 닫힌다. */}
+      {navOpen && (
+        <div
+          className="scrim"
+          aria-hidden="true"
+          onClick={() => setNavOpen(false)}
+        />
+      )}
 
       <div className="shell__main">
         <header className="topbar">
+          {/* 햄버거 — 모바일에서만 보인다(CSS). 드로어를 연다. */}
+          <button
+            ref={menuBtnRef}
+            type="button"
+            className="topbar__menu"
+            aria-label={t('dashboard.open_menu')}
+            aria-controls="dashboard-nav"
+            aria-expanded={navOpen}
+            onClick={() => setNavOpen(true)}
+          >
+            <svg className="icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 7h16M4 12h16M4 17h16" />
+            </svg>
+          </button>
           <span className="topbar__title">{t('dashboard.title')}</span>
           <div className="topbar__controls">
             <ThemeSwitcher align="end" />

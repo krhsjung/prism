@@ -15,6 +15,10 @@ const user = {
   createdAt: '2026-01-01T00:00:00.000Z',
 };
 
+// 쿠키 흐름의 /auth/me·/auth/refresh 응답 형태 — 사용자 + 액세스 토큰 수명(선제 갱신용).
+const ACCESS_TTL_MS = 15 * 60 * 1000;
+const sessionUser = { user, accessTokenTtlMs: ACCESS_TTL_MS };
+
 const json = (status: number, body: object) =>
   new Response(JSON.stringify(body), {
     status,
@@ -66,11 +70,14 @@ describe('401 갱신 판단', () => {
   // 로그인된 사용자의 액세스 토큰 만료 — 사용자에겐 아무 일도 없었던 것처럼 이어져야 한다.
   it('SESSION_EXPIRED면 갱신 후 원래 요청을 재시도한다', async () => {
     const calls = mockFetch({
-      '/auth/me': [json(401, { error: 'SESSION_EXPIRED' }), json(200, user)],
-      '/auth/refresh': [json(200, { user })],
+      '/auth/me': [
+        json(401, { error: 'SESSION_EXPIRED' }),
+        json(200, sessionUser),
+      ],
+      '/auth/refresh': [json(200, sessionUser)],
     });
 
-    await expect(api.me()).resolves.toEqual(user);
+    await expect(api.me()).resolves.toEqual(sessionUser);
     expect(calls).toEqual(['/auth/me', '/auth/refresh', '/auth/me']);
   });
 
@@ -90,15 +97,15 @@ describe('401 갱신 판단', () => {
       '/auth/me': [
         json(401, { error: 'SESSION_EXPIRED' }),
         json(401, { error: 'SESSION_EXPIRED' }),
-        json(200, user),
-        json(200, user),
+        json(200, sessionUser),
+        json(200, sessionUser),
       ],
-      '/auth/refresh': [json(200, { user })],
+      '/auth/refresh': [json(200, sessionUser)],
     });
 
     await expect(Promise.all([api.me(), api.me()])).resolves.toEqual([
-      user,
-      user,
+      sessionUser,
+      sessionUser,
     ]);
     expect(calls.filter((p) => p === '/auth/refresh')).toHaveLength(1);
   });

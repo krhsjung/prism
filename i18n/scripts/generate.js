@@ -5,8 +5,8 @@
 //   node scripts/generate.js --check    커밋된 산출물이 마스터와 일치하는지 검사(쓰지 않음)
 //
 // 마스터가 진실의 원천이다 — 산출물은 절대 직접 수정하지 않는다.
-// web/server 산출물은 컴파일 대상이라 커밋하고(계약 파일과 같은 방식), 아직 앱이 없는
-// iOS/Android 산출물은 build/에만 만든다(gitignore).
+// 앱이 있는 플랫폼(web/server/iOS)의 산출물은 컴파일·번들 대상이라 커밋하고(계약 파일과
+// 같은 방식), 아직 앱이 없는 Android 산출물은 build/에만 만든다(gitignore).
 
 import {
   existsSync,
@@ -32,29 +32,39 @@ const SERVICES = {
 // 타깃: 산출물의 형식·위치.
 // platform은 `{{platform}}` 치환값이다(빈 문자열이면 변수를 지운다).
 // committed=true인 산출물만 --check가 검사한다(나머지는 gitignore된 build/).
+// suffix는 "이 타깃이 만드는 파일"의 표식이다 — 커밋된 디렉터리에서 이번에 만들지
+// 않은 같은 확장자 파일을 잔재로 보고 지운다(모듈·언어가 마스터에서 사라진 경우).
+// 손으로 쓴 파일이 같은 자리에 있어도 확장자가 달라 건드리지 않는다.
 const TARGETS = {
   web: {
     platform: 'Web',
     committed: true,
+    suffix: '.gen.ts',
     dir: 'apps/web/src/lib/i18n',
     emit: emitWeb,
   },
   server: {
     platform: '',
     committed: true,
+    suffix: '.gen.ts',
     dir: 'apps/server/libs/common/src/i18n',
     emit: emitServer,
   },
   ios: {
     platform: 'iOS',
-    committed: false,
-    dir: 'i18n/build/ios',
+    committed: true,
+    suffix: '.xcstrings',
+    dir: 'apps/ios/prism/Resources/Localization',
     emit: emitIos,
   },
   android: {
     platform: 'Android',
-    committed: false,
-    dir: 'i18n/build/android',
+    committed: true,
+    suffix: '.xml',
+    // 전용 생성 리소스 소스셋. 손으로 쓴 res/(colors·themes·strings)와 섞이지 않게
+    // 별도 디렉터리에 두고 build.gradle의 sourceSets에서 res.srcDir로 등록한다 —
+    // 그래야 잔재 정리가 이 디렉터리의 .xml만 지워도 안전하다.
+    dir: 'apps/android/app/src/generated/res',
     emit: emitAndroid,
   },
 };
@@ -210,6 +220,12 @@ function pascalCase(name) {
     .split('_')
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join('');
+}
+
+// `auth.welcome_back` → `authWelcomeBack` (Swift 열거형 케이스 이름).
+function camelCase(key) {
+  const pascal = pascalCase(key.replace(/\./g, '_'));
+  return pascal.charAt(0).toLowerCase() + pascal.slice(1);
 }
 
 function tsString(value) {
@@ -393,7 +409,70 @@ function emitIos(master, _service, platform) {
     files.set(`${pascalCase(module.name)}.xcstrings`, `${JSON.stringify(catalog, null, 2)}\n`);
   }
 
+  files.set('Messages.gen.swift', emitIosKeys(master));
   return files;
+}
+
+// iOS: 키를 문자열로 적으면 오타가 런타임까지 살아남는다(빠진 키는 키 자체가 화면에
+// 그려질 뿐 빌드는 통과한다). 웹의 `MessageKey` 유니온과 같은 역할을 하는 열거형을
+// 함께 만들어, 마스터에 없는 키를 쓰면 컴파일에서 걸리게 한다.
+// 테이블 이름(= 모듈)도 여기서 짝지어 준다 — 호출부가 카탈로그 파일명을 알 필요가 없다.
+function emitIosKeys(master) {
+  const lines = [
+    '// GENERATED FILE — DO NOT EDIT.',
+    '// 원본: i18n/client.csv, i18n/locales.json',
+    '// 재생성: i18n에서 `pnpm generate`',
+    '',
+    'import Foundation',
+    '',
+    '/// 지원 언어 — locales.json의 순서 그대로이며, 첫 항목이 기본 언어다.',
+    'enum AppLocale: String, CaseIterable, Sendable {',
+    ...master.locales.map((l) => `    case ${l.code}`),
+    '',
+    '    /// 목록에 그리는 이름. 각 언어를 **그 언어로** 적는다 — 지금 화면 언어를 못 읽는',
+    '    /// 사용자가 쓰는 장치라, 현재 언어로 번역해 두면 정작 필요한 사람이 찾지 못한다.',
+    '    var label: String {',
+    '        switch self {',
+    ...master.locales.map((l) => `        case .${l.code}: "${l.label}"`),
+    '        }',
+    '    }',
+    '}',
+    '',
+    '/// 번역 키 — 값은 마스터의 `{module}.{key}`이고, `table`은 그 키가 실린 카탈로그다.',
+    'enum MessageKey: String, CaseIterable, Sendable {',
+  ];
+
+  for (const module of master.modules) {
+    const entries = module.entries.filter((e) => e.type === 'entry');
+    if (entries.length === 0) continue;
+    lines.push(`    // ${pascalCase(module.name)}`);
+    for (const entry of entries) {
+      lines.push(`    case ${camelCase(entry.fullKey)} = "${entry.fullKey}"`);
+    }
+  }
+
+  lines.push(
+    '',
+    '    /// 키가 실린 .xcstrings 카탈로그 이름.',
+    '    var table: String {',
+    '        switch self {',
+  );
+
+  for (const module of master.modules) {
+    const entries = module.entries.filter((e) => e.type === 'entry');
+    if (entries.length === 0) continue;
+    // 케이스가 모듈당 수십 개까지 가므로 한 줄에 몰지 않는다(생성물도 읽힌다).
+    const cases = entries.map((e) => `.${camelCase(e.fullKey)}`);
+    cases.forEach((name, i) => {
+      const head = i === 0 ? '        case ' : '             ';
+      const tail = i === cases.length - 1 ? ':' : ',';
+      lines.push(`${head}${name}${tail}`);
+    });
+    lines.push(`            "${pascalCase(module.name)}"`);
+  }
+
+  lines.push('        }', '    }', '}', '');
+  return lines.join('\n');
 }
 
 function escapeXml(value) {
@@ -402,8 +481,16 @@ function escapeXml(value) {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
-    .replace(/'/g, '\\&apos;')
+    // Android는 문자열 리터럴에서 아포스트로피를 escape해야 한다. `\'`가 정식 표기다
+    // (`&apos;`는 XML 엔티티일 뿐 Android 리소스 파서에는 통하지 않는다).
+    .replace(/'/g, "\\'")
     .replace(/\n/g, '\\n');
+}
+
+// Android 리소스 이름은 `[a-zA-Z0-9_]`만 허용한다 — 점을 언더스코어로 바꾼다
+// (`auth.welcome_back` → `auth_welcome_back`). R.string 필드도 이 이름을 쓴다.
+function androidName(fullKey) {
+  return fullKey.replace(/\./g, '_');
 }
 
 // Android: 언어별 values 디렉터리 + 모듈별 strings 파일.
@@ -419,7 +506,7 @@ function emitAndroid(master, _service, platform) {
         if (entry.type === 'comment') lines.push('', `    <!-- ${entry.text} -->`);
         else {
           const value = escapeXml(forPlatform(entry.values[code], platform));
-          lines.push(`    <string name="${entry.fullKey}">${value}</string>`);
+          lines.push(`    <string name="${androidName(entry.fullKey)}">${value}</string>`);
         }
       }
       lines.push('</resources>', '');
@@ -453,16 +540,27 @@ function buildFiles(serviceNames) {
   return built;
 }
 
-// 마스터에서 사라진 언어의 파일이 남지 않도록, 생성 대상 디렉터리의 .gen.ts 중
-// 이번에 만들지 않은 것을 지운다. 손으로 쓴 파일(.ts)은 건드리지 않는다.
-function pruneGenerated(dir, keep) {
-  if (!existsSync(dir)) return;
-  for (const name of readdirSync(dir)) {
-    const path = join(dir, name);
-    if (name.endsWith('.gen.ts') && !keep.has(path)) {
-      unlinkSync(path);
-      console.log(`  - ${relative(REPO_ROOT, path)} (제거)`);
-    }
+// 생성 대상 디렉터리 트리에서 이 타깃이 만드는 확장자(suffix) 파일을 모두 모은다.
+// web/server는 root + `locales/`, Android는 root + `values-*/`처럼 한 단계 아래에도
+// 산출물이 있어 재귀로 훑는다. 손으로 쓴 파일은 확장자가 다르거나(.ts·.swift) 전용
+// 생성 디렉터리 밖에 있어 걸리지 않는다.
+function collectGenerated(dir, suffix) {
+  if (!existsSync(dir)) return [];
+  const found = [];
+  for (const name of readdirSync(dir, { withFileTypes: true })) {
+    const path = join(dir, name.name);
+    if (name.isDirectory()) found.push(...collectGenerated(path, suffix));
+    else if (name.name.endsWith(suffix)) found.push(path);
+  }
+  return found;
+}
+
+// 마스터에서 사라진 언어·모듈의 파일이 남지 않도록, 이번에 만들지 않은 산출물을 지운다.
+function pruneGenerated(dir, keep, suffix) {
+  for (const path of collectGenerated(dir, suffix)) {
+    if (keep.has(path)) continue;
+    unlinkSync(path);
+    console.log(`  - ${relative(REPO_ROOT, path)} (제거)`);
   }
 }
 
@@ -481,9 +579,7 @@ function writeAll(built) {
     }
 
     if (config.committed) {
-      const keep = new Set(files.keys());
-      pruneGenerated(root, keep);
-      pruneGenerated(join(root, 'locales'), keep);
+      pruneGenerated(root, new Set(files.keys()), config.suffix);
     }
   }
 }
@@ -500,17 +596,11 @@ function checkAll(built) {
       else if (readFileSync(path, 'utf8') !== contents) drifted.push(`${at} (내용 불일치)`);
     }
 
-    // 마스터에 없는 언어 파일이 남아 있는 경우도 drift다.
+    // 마스터에 없는 언어·모듈 파일이 남아 있는 경우도 drift다.
     const root = join(REPO_ROOT, config.dir);
     const keep = new Set(files.keys());
-    for (const dir of [root, join(root, 'locales')]) {
-      if (!existsSync(dir)) continue;
-      for (const name of readdirSync(dir)) {
-        const path = join(dir, name);
-        if (name.endsWith('.gen.ts') && !keep.has(path)) {
-          drifted.push(`${relative(REPO_ROOT, path)} (마스터에 없음)`);
-        }
-      }
+    for (const path of collectGenerated(root, config.suffix)) {
+      if (!keep.has(path)) drifted.push(`${relative(REPO_ROOT, path)} (마스터에 없음)`);
     }
   }
 
