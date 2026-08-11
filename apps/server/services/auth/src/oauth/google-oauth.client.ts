@@ -41,6 +41,30 @@ export class GoogleOAuthClient implements OAuthClient {
     });
   }
 
+  // 네이티브 SDK(google_sign_in 등)가 받은 id_token을 직접 검증한다 — code 교환 없음.
+  // audience는 웹 clientId + 설정된 네이티브 audience 후보. 하나라도 맞아야 통과하므로
+  // 우리 앱을 위해 발급된 토큰만 세션이 된다(다른 앱의 id_token 재사용 방어).
+  // google-auth-library가 Google 공개 키(JWKS)·서명·iss·exp·aud를 한 번에 검증한다.
+  async verifyIdToken(idToken: string): Promise<OAuthProfile> {
+    const token = idToken?.trim();
+    if (!token) {
+      throw new Error('Google idToken is required');
+    }
+    const audience = [
+      this.options.clientId,
+      ...this.options.nativeAudiences,
+    ].filter(Boolean);
+    if (audience.length === 0) {
+      throw new Error('Google native login requires a configured audience');
+    }
+    const ticket = await this.client.verifyIdToken({ idToken: token, audience });
+    const payload = ticket.getPayload();
+    if (!payload?.sub) {
+      throw new Error('Google id_token missing sub');
+    }
+    return { sub: payload.sub, displayName: payload.name };
+  }
+
   // authorization code → access_token 교환 → userinfo 조회 → 프로필 추출.
   // 저장은 sub(=userinfo.id)만, 이름은 세션 표시용으로만 쓴다(PII 미저장).
   async exchangeCode(code: string): Promise<OAuthProfile> {

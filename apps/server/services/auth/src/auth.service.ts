@@ -11,6 +11,8 @@ import { SessionsRepository, UsersRepository } from '@app/common';
 import { PrismConfigService } from '@app/config';
 import { SESSION_ABSOLUTE_TTL_MS, SessionTokenService } from '@app/session';
 import { AppleOAuthClient } from './oauth/apple-oauth.client';
+import { GoogleOAuthClient } from './oauth/google-oauth.client';
+import { KakaoOAuthClient } from './oauth/kakao-oauth.client';
 import { joinPersonName, type AppleUserName } from './oauth/apple-user';
 import {
   OAUTH_CLIENTS,
@@ -46,8 +48,11 @@ export class AuthService {
     private readonly users: UsersRepository,
     private readonly sessions: SessionsRepository,
     @Inject(OAUTH_CLIENTS) private readonly clients: OAuthClientRegistry,
-    // native 로그인(identityToken 직접 검증)은 Apple 고유 프로토콜이라 별도 주입.
+    // native 로그인(토큰 직접 검증)은 provider별 프로토콜이 달라 각 클라이언트를 별도 주입한다
+    // (레지스트리의 OAuthClient 인터페이스에는 없는 검증 메서드를 쓰기 때문).
     private readonly apple: AppleOAuthClient,
+    private readonly google: GoogleOAuthClient,
+    private readonly kakao: KakaoOAuthClient,
     private readonly tokens: SessionTokenService,
     // OAuth state 서명은 이 서비스 전용 토큰이라 별도 주입(같은 키, 다른 typ).
     private readonly state: AuthTokenService,
@@ -107,7 +112,12 @@ export class AuthService {
     return client;
   }
 
-  // ──────────────────────── Apple 고유 경로 ────────────────────────
+  // ──────────────────────── 네이티브(모바일 SDK) 경로 ────────────────────────
+  //
+  // 모바일 앱은 웹 redirect 대신 provider 네이티브 SDK로 토큰을 받아 서버에 POST한다.
+  // 웹 흐름의 커스텀 스킴/앱링크 redirect가 다른 앱(구글 계열 등)에 가로채여 앱으로
+  // 돌아오지 못하는 문제를 피한다. 서버는 받은 토큰을 provider 프로토콜대로 검증하고
+  // 세션(AuthSession)을 발급한다 — 자격증명을 body로 돌려주는 유일한 경로다.
 
   // Apple 네이티브(iOS/Android SDK) 로그인: code 교환 없이 identityToken을 직접 검증.
   // nonce는 클라이언트가 보낸 raw 값 — 토큰의 nonce 클레임과 대조된다(필수: 재생 방지).
@@ -119,6 +129,19 @@ export class AuthService {
   ): Promise<AuthSession> {
     const { sub } = await this.apple.verifyIdentityToken(identityToken, nonce);
     return this.issueSocialSession('apple', sub, joinPersonName(user?.name));
+  }
+
+  // Google 네이티브(google_sign_in 등): id_token을 Google 공개 키로 검증(audience 대조).
+  async loginWithGoogleNative(idToken: string): Promise<AuthSession> {
+    const profile = await this.google.verifyIdToken(idToken);
+    return this.issueSocialSession('google', profile.sub, profile.displayName);
+  }
+
+  // Kakao 네이티브(kakao_flutter_sdk 등): access token의 발급 앱(app_id)을 대조한 뒤
+  // 프로필을 읽는다(Kakao access token은 불투명 문자열이라 로컬 서명 검증이 없다).
+  async loginWithKakaoNative(accessToken: string): Promise<AuthSession> {
+    const profile = await this.kakao.verifyAccessToken(accessToken);
+    return this.issueSocialSession('kakao', profile.sub, profile.displayName);
   }
 
   // ──────────────────────── 세션 발급 ────────────────────────

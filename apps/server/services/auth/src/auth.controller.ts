@@ -109,7 +109,10 @@ export class AuthController {
     }
     const session = await this.auth.issueDemoSession();
     this.setSession(res, session);
-    return { user: session.user };
+    return {
+      user: session.user,
+      accessTokenTtlMs: this.config.accessTokenTtlMs,
+    };
   }
 
   // ──────────────────── 콜백 (provider별 프로토콜이 달라 통합하지 않음) ────────────────────
@@ -142,6 +145,38 @@ export class AuthController {
       this.finish(req, res, consumed.flow, { ok: true });
     } catch (e) {
       this.logger.error(`[google] callback failed: ${this.reason(e)}`);
+      this.finish(req, res, consumed.flow, { ok: false, code: SIGNIN_FAILED });
+    }
+  }
+
+  // Kakao: GET 쿼리 콜백(Google과 동일한 authorization-code 흐름).
+  @Get('kakao/callback')
+  async kakaoCallback(
+    @Req() req: Request,
+    @Res() res: Response,
+    @Query('code') code?: string,
+    @Query('state') state?: string,
+    @Query('error') error?: string,
+  ): Promise<void> {
+    if (error) {
+      // 취소/오류로 끝난 흐름도 시작했던 nonce는 소진한다(state 잔존 방지).
+      const cancelled = this.consumeState(req, res, state, 'kakao');
+      return this.finish(req, res, cancelled?.flow, this.cancelOrFail(error));
+    }
+    const consumed = this.consumeState(req, res, state, 'kakao');
+    if (!consumed || !code) {
+      return this.finish(req, res, consumed?.flow, {
+        ok: false,
+        code: SIGNIN_FAILED,
+      });
+    }
+
+    try {
+      const session = await this.auth.loginWithSocial('kakao', code);
+      this.setSession(res, session);
+      this.finish(req, res, consumed.flow, { ok: true });
+    } catch (e) {
+      this.logger.error(`[kakao] callback failed: ${this.reason(e)}`);
       this.finish(req, res, consumed.flow, { ok: false, code: SIGNIN_FAILED });
     }
   }
@@ -206,12 +241,50 @@ export class AuthController {
     }
   }
 
+  // Google 네이티브 SDK(google_sign_in 등) 로그인. Body: { idToken } (plan/auth.md §5).
+  // id_token은 Google 서명·audience로 검증되므로 nonce 없이도 우리 앱 대상 토큰만 통과한다.
+  @Post('google/native')
+  @UseGuards(ThrottlerGuard)
+  async googleNative(
+    @Body('idToken') idToken?: string,
+  ): Promise<AuthSession> {
+    if (!idToken) {
+      throw new HttpException({ error: AUTH_ERROR_CODES.INVALID_TOKEN }, 401);
+    }
+    try {
+      return await this.auth.loginWithGoogleNative(idToken);
+    } catch (e) {
+      this.logger.error(`[google/native] login failed: ${this.reason(e)}`);
+      throw new HttpException({ error: AUTH_ERROR_CODES.INVALID_TOKEN }, 401);
+    }
+  }
+
+  // Kakao 네이티브 SDK(kakao_flutter_sdk 등) 로그인. Body: { accessToken } (plan/auth.md §5).
+  // Kakao access token은 불투명 문자열이라, 서버가 access_token_info로 발급 앱(app_id)을
+  // 대조해 우리 앱 토큰인지 확인한 뒤 세션을 발급한다.
+  @Post('kakao/native')
+  @UseGuards(ThrottlerGuard)
+  async kakaoNative(
+    @Body('accessToken') accessToken?: string,
+  ): Promise<AuthSession> {
+    if (!accessToken) {
+      throw new HttpException({ error: AUTH_ERROR_CODES.INVALID_TOKEN }, 401);
+    }
+    try {
+      return await this.auth.loginWithKakaoNative(accessToken);
+    } catch (e) {
+      this.logger.error(`[kakao/native] login failed: ${this.reason(e)}`);
+      throw new HttpException({ error: AUTH_ERROR_CODES.INVALID_TOKEN }, 401);
+    }
+  }
+
   // ──────────────────────── 세션 ────────────────────────
 
   @Get('me')
   @UseGuards(JwtAuthGuard)
-  me(@Req() req: Request & { user: User }): User {
-    return req.user;
+  me(@Req() req: Request & { user: User }): SessionUser {
+    // 웹이 선제 갱신 시점을 잡도록 액세스 토큰 수명을 함께 준다(HttpOnly라 exp를 못 읽는다).
+    return { user: req.user, accessTokenTtlMs: this.config.accessTokenTtlMs };
   }
 
   // 로그아웃 = 서버 세션 폐기 + 쿠키 삭제.
@@ -280,7 +353,9 @@ export class AuthController {
 
     const session = result.session;
     this.setSession(res, session);
-    return bodyToken ? session : { user: session.user };
+    return bodyToken
+      ? session
+      : { user: session.user, accessTokenTtlMs: this.config.accessTokenTtlMs };
   }
 
   // ──────────────────── 세션 관리 ────────────────────

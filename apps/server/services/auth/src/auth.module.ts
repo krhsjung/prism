@@ -11,6 +11,7 @@ import { HealthController } from './health.controller';
 import { WebOriginGuard } from './web-origin.guard';
 import { AppleOAuthClient } from './oauth/apple-oauth.client';
 import { GoogleOAuthClient } from './oauth/google-oauth.client';
+import { KakaoOAuthClient } from './oauth/kakao-oauth.client';
 import {
   OAUTH_CLIENTS,
   type OAuthClient,
@@ -63,18 +64,26 @@ import type { SocialProvider } from '@app/common';
         new AppleOAuthClient(config.appleOptions),
       inject: [PrismConfigService],
     },
+    {
+      provide: KakaoOAuthClient,
+      useFactory: (config: PrismConfigService) =>
+        new KakaoOAuthClient(config.kakaoOptions),
+      inject: [PrismConfigService],
+    },
     // provider → 클라이언트 레지스트리. 새 provider는 여기에만 등록하면 공통 경로에 편입된다.
     {
       provide: OAUTH_CLIENTS,
       useFactory: (
         google: GoogleOAuthClient,
         apple: AppleOAuthClient,
+        kakao: KakaoOAuthClient,
       ): OAuthClientRegistry =>
         new Map<SocialProvider, OAuthClient>([
           ['google', google],
           ['apple', apple],
+          ['kakao', kakao],
         ]),
-      inject: [GoogleOAuthClient, AppleOAuthClient],
+      inject: [GoogleOAuthClient, AppleOAuthClient, KakaoOAuthClient],
     },
   ],
 })

@@ -21,6 +21,11 @@
   --color-success: #4a9d6e;
   --color-success-bg: #e9f6ef;
 
+  /* Kakao 브랜드 고정색 — 로그인 버튼 가이드 값이라 테마별로 갈리지 않는다
+     (다크에서도 동일). 배경 노랑 · 라벨 검정 85%. */
+  --color-kakao: #fee500;
+  --color-kakao-fg: rgba(0, 0, 0, 0.85);
+
   --radius-sm: 4px;
   --radius-md: 8px;
   --radius-lg: 16px;
@@ -323,6 +328,16 @@ body {
   filter: brightness(1.15);
 }
 
+/* Kakao 브랜드 버튼 — 색은 Kakao 로그인 가이드 고정값이라 테마 토큰을 따르지 않는다
+   (라이트/다크 공통: 노랑 #FEE500 배경 · 라벨 검정 85%). */
+.btn--kakao {
+  background: var(--color-kakao);
+  color: var(--color-kakao-fg);
+}
+.btn--kakao:not(:disabled):hover {
+  filter: brightness(0.96);
+}
+
 /* ---- Button: ghost + compact (대시보드 인라인 액션) ---- */
 .btn--ghost {
   background: transparent;
@@ -361,6 +376,32 @@ body {
   font-weight: 800;
   font-size: 20px;
   color: var(--color-heading);
+}
+.sidebar__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+/* 닫기(X)는 모바일 드로어에서만 노출 — 데스크톱 사이드바에는 없다. */
+.sidebar__close {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  border-radius: var(--radius-md);
+  color: var(--color-muted);
+  cursor: pointer;
+}
+.sidebar__close:hover {
+  background: var(--color-secondary-bg);
+}
+.sidebar__close .icon {
+  width: 20px;
+  height: 20px;
 }
 .sidebar__nav {
   display: flex;
@@ -414,6 +455,28 @@ body {
   font-weight: 800;
   font-size: 20px;
   color: var(--color-heading);
+}
+/* 햄버거 — 모바일에서만 노출(드로어 토글). */
+.topbar__menu {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  margin-left: -8px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  border-radius: var(--radius-md);
+  color: var(--color-heading);
+  cursor: pointer;
+}
+.topbar__menu:hover {
+  background: var(--color-secondary-bg);
+}
+.topbar__menu .icon {
+  width: 22px;
+  height: 22px;
 }
 .topbar__controls {
   margin-left: auto;
@@ -487,7 +550,10 @@ body {
 }
 .sessions__row {
   display: grid;
-  grid-template-columns: 2fr 1.3fr 1.3fr 0.9fr auto;
+  /* 각 행이 독립된 grid라 마지막 트랙을 auto로 두면 행마다 내용(버튼 유무)에 따라
+     폭이 달라져 fr 컬럼들이 행 간에 어긋난다. 액션 컬럼을 고정 폭으로 잡아
+     모든 행(헤더 포함)의 트랙 계산을 동일하게 만든다. */
+  grid-template-columns: 2fr 1.3fr 1.3fr 0.9fr 128px;
   align-items: center;
   gap: 16px;
   padding: 14px 24px;
@@ -503,6 +569,12 @@ body {
   letter-spacing: 0.03em;
   text-transform: uppercase;
   color: var(--color-muted);
+}
+/* 시작·만료·상태 열은 헤더와 값을 모두 가운데 정렬한다(세션은 왼쪽, 액션은 오른쪽). */
+.sessions__row--head span:nth-child(2),
+.sessions__row--head span:nth-child(3),
+.sessions__row--head span:nth-child(4) {
+  text-align: center;
 }
 .session {
   border-bottom: 1px solid var(--color-border);
@@ -547,6 +619,11 @@ body {
 .session__when {
   font-size: 14px;
   color: var(--color-text);
+  text-align: center;
+}
+/* 배지(inline-flex)를 트랙 가운데로 — text-align이 인라인 배지를 가운데로 민다. */
+.session__status {
+  text-align: center;
 }
 /* 열 라벨은 데스크톱 표에서는 헤더가 대신하므로 숨긴다(모바일에서만 노출). */
 .session__k {
@@ -571,17 +648,51 @@ body {
 .session__action {
   justify-self: end;
 }
+/* 고정 폭 액션 컬럼에서 로딩 라벨("해제하는 중…" 등)이 줄바꿈돼 행 높이가 튀지 않게 한다. */
+.session__action .btn {
+  white-space: nowrap;
+}
 .sessions__note {
   margin: 0;
   padding: 12px 24px 20px;
+  border-top: 1px solid var(--color-border);
   font-size: 13px;
   color: var(--color-muted);
 }
 
 /* 모바일: 사이드바를 숨기고 표를 카드형으로 쌓는다. */
 @media (max-width: 720px) {
+  /* 사이드바가 왼쪽에서 슬라이드인하는 드로어가 된다. 닫힘 상태는 visibility:hidden으로
+     포커스·스크린리더에서 빠진다(화면 밖에 살아있는 요소가 tab에 걸리지 않게). */
   .sidebar {
-    display: none;
+    position: fixed;
+    inset: 0 auto 0 0;
+    width: min(280px, 82vw);
+    z-index: 50;
+    transform: translateX(-100%);
+    visibility: hidden;
+    transition: transform 0.25s ease, visibility 0s linear 0.25s;
+    box-shadow: 2px 0 24px rgba(22, 35, 56, 0.22);
+  }
+  .sidebar--open {
+    transform: none;
+    visibility: visible;
+    transition: transform 0.25s ease;
+  }
+  .sidebar__close {
+    display: inline-flex;
+  }
+  .topbar__menu {
+    display: inline-flex;
+  }
+  .scrim {
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    background: rgba(22, 35, 56, 0.45);
+  }
+  body.nav-open {
+    overflow: hidden;
   }
   .topbar {
     padding: 12px 20px;
@@ -607,6 +718,7 @@ body {
     grid-column: 1 / -1;
     font-size: 13px;
     color: var(--color-muted);
+    text-align: left;
   }
   .session__k {
     display: inline;

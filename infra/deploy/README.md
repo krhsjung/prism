@@ -75,6 +75,9 @@ api 서비스는 전역 가드가 걸려 있어 **모든 라우트가 기본 보
 | -------------------------------------------------------------------------------------------------- | --------------------------------------------------------- |
 | `PRISM_GOOGLE_CLIENT_ID` / `PRISM_GOOGLE_CLIENT_SECRET`                                            | Google OAuth (web redirect)                               |
 | `PRISM_APPLE_TEAM_ID` / `PRISM_APPLE_CLIENT_ID` / `PRISM_APPLE_KEY_ID` / `PRISM_APPLE_PRIVATE_KEY` | Apple Sign In (`PRISM_APPLE_BUNDLE_ID`는 네이티브용 옵션) |
+| `PRISM_KAKAO_CLIENT_ID` (`PRISM_KAKAO_CLIENT_SECRET`는 콘솔에서 켠 경우만)                         | Kakao 로그인 (web redirect)                               |
+| `PRISM_KAKAO_APP_ID`                                                                               | Kakao 앱 숫자 app_id — 네이티브 로그인(`/auth/kakao/native`) 토큰 대조 |
+| `PRISM_GOOGLE_NATIVE_AUDIENCES` (선택, 콤마 구분)                                                  | Google 네이티브 id_token 추가 audience (웹 clientId는 자동 포함)       |
 
 데이터베이스(사용자 upsert). 표준 접속 URL(12-factor `DATABASE_URL`)로 지정한다:
 

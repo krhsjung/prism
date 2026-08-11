@@ -3,7 +3,11 @@ import type { SocialProvider } from '@app/common';
 import type { PostgresConfig } from '@app/database';
 import type { RedisConfig } from '@app/redis';
 import { loadAppConfig, type AppConfig, type CookiePolicy } from './app-config';
-import type { AppleOAuthOptions, GoogleOAuthOptions } from './oauth-options';
+import type {
+  AppleOAuthOptions,
+  GoogleOAuthOptions,
+  KakaoOAuthOptions,
+} from './oauth-options';
 
 // 타입드 설정 서비스 — 파싱은 전부 순수 함수(app-config.ts)에 위임하고,
 // 생성 시 1회 실행한 불변 결과만 노출한다. env 형식 오류는 부팅 순간 fail-fast.
@@ -101,8 +105,20 @@ export class PrismConfigService {
     return Boolean(a.teamId && a.clientId && a.keyId && a.privateKey);
   }
 
+  get kakaoOptions(): KakaoOAuthOptions {
+    return this.app.kakao;
+  }
+
+  // client secret은 Kakao 콘솔에서 선택적으로 켜는 값이라 판별 조건에 넣지 않는다 —
+  // REST API 키(clientId)만 있으면 authorization-code 흐름을 시작할 수 있다.
+  get kakaoConfigured(): boolean {
+    return Boolean(this.app.kakao.clientId);
+  }
+
   // provider 공통 경로(소셜 시작 라우트)용 판별. 새 provider 추가 시 분기도 추가.
   socialConfigured(provider: SocialProvider): boolean {
-    return provider === 'google' ? this.googleConfigured : this.appleConfigured;
+    if (provider === 'google') return this.googleConfigured;
+    if (provider === 'kakao') return this.kakaoConfigured;
+    return this.appleConfigured;
   }
 }

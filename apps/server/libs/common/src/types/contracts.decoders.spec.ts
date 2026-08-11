@@ -39,13 +39,34 @@ describe('contract decoders', () => {
     ).toThrow(/accessToken/);
   });
 
-  // 쿠키 흐름 응답 — 토큰이 없어야 하고, 중첩 user는 그대로 검증된다.
-  it('decodeSessionUser: user만 담긴 응답을 검증한다', () => {
-    expect(decodeSessionUser({ user })).toEqual({ user });
+  // 쿠키 흐름 응답 — 토큰이 없어야 하고, 중첩 user와 액세스 토큰 수명이 검증된다.
+  it('decodeSessionUser: user와 accessTokenTtlMs를 검증한다', () => {
+    expect(decodeSessionUser({ user, accessTokenTtlMs: 900_000 })).toEqual({
+      user,
+      accessTokenTtlMs: 900_000,
+    });
     expect(() => decodeSessionUser({})).toThrow(/User/);
     expect(() => decodeSessionUser({ user: null })).toThrow(/expected object/);
+    // 수명은 필수 — 없거나 양의 정수가 아니면 형식 오류다(선제 갱신 스케줄이 의존한다).
+    expect(() => decodeSessionUser({ user })).toThrow(/accessTokenTtlMs/);
+    expect(() => decodeSessionUser({ user, accessTokenTtlMs: 0 })).toThrow(
+      /accessTokenTtlMs/,
+    );
+    // 소수·안전 정수 범위 밖의 값도 거부한다 — 네이티브(Swift Int)와 해석이 갈리지 않게.
+    expect(() => decodeSessionUser({ user, accessTokenTtlMs: 1.5 })).toThrow(
+      /accessTokenTtlMs/,
+    );
+    expect(() =>
+      decodeSessionUser({ user, accessTokenTtlMs: Number.MAX_SAFE_INTEGER + 1 }),
+    ).toThrow(/accessTokenTtlMs/);
     // 서버가 실수로 토큰을 실어도 계약 타입에는 들어오지 않는다.
-    expect(decodeSessionUser({ user, accessToken: 'leak' })).toEqual({ user });
+    expect(
+      decodeSessionUser({
+        user,
+        accessTokenTtlMs: 900_000,
+        accessToken: 'leak',
+      }),
+    ).toEqual({ user, accessTokenTtlMs: 900_000 });
   });
 
   it('decodeAuthSession: 중첩 user까지 검증한다', () => {

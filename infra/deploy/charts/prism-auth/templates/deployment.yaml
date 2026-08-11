@@ -58,6 +58,14 @@ spec:
               value: {{ .Values.env.appleBundleId | quote }}
             - name: PRISM_APPLE_REDIRECT_URI
               value: {{ .Values.env.appleRedirectUri | quote }}
+            - name: PRISM_KAKAO_CLIENT_ID
+              value: {{ .Values.env.kakaoClientId | quote }}
+            - name: PRISM_KAKAO_REDIRECT_URI
+              value: {{ .Values.env.kakaoRedirectUri | quote }}
+            - name: PRISM_KAKAO_APP_ID
+              value: {{ .Values.env.kakaoAppId | quote }}
+            - name: PRISM_GOOGLE_NATIVE_AUDIENCES
+              value: {{ .Values.env.googleNativeAudiences | quote }}
             - name: PRISM_GOOGLE_CLIENT_SECRET
               valueFrom:
                 secretKeyRef:
@@ -68,6 +76,11 @@ spec:
                 secretKeyRef:
                   name: {{ include "prism-auth.fullname" . }}-secret
                   key: apple-private-key
+            - name: PRISM_KAKAO_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "prism-auth.fullname" . }}-secret
+                  key: kakao-client-secret
             - name: PRISM_DB_REQUIRED
               value: {{ .Values.env.dbRequired | quote }}
             - name: PRISM_DATABASE_URL

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Navigate, useNavigate, useSearchParams } from 'react-router-dom';
 import { Button } from '../components/Button';
 import { LocaleSwitcher } from '../components/LocaleSwitcher';
 import { ThemeSwitcher } from '../components/ThemeSwitcher';
@@ -39,7 +39,7 @@ function keyFor(code: string | null): MessageKey | null {
 
 export function LoginPage() {
   const navigate = useNavigate();
-  const { signIn, refresh } = useAuth();
+  const { state, signIn, refresh } = useAuth();
   const { t } = useI18n();
   const [searchParams] = useSearchParams();
   const [pending, setPending] = useState<Pending>(null);
@@ -52,6 +52,11 @@ export function LoginPage() {
     keyFor(searchParams.get('error')),
   );
   const busy = pending !== null;
+
+  // 이미 인증된 상태로 이 화면에 도달하면(대시보드에서 뒤로 가기 등) 대시보드로 되돌린다.
+  // 로그인 성공 후 /login이 history에 남아, 뒤로 가기로 로그인 폼이 다시 뜨며 흐름이
+  // 꼬이는 것을 막는다 — RequireAuth·HomeRedirect와 같은 가드를 로그인 화면에도 건다.
+  const authed = state.status === 'authenticated';
 
   // 소셜 로그인은 전체 페이지 이동이라, 뒤로 가기로 돌아오면 브라우저가 bfcache에서
   // 이 페이지를 "그대로" 복원한다 — 컴포넌트가 다시 마운트되지 않으므로 pending이
@@ -96,7 +101,7 @@ export function LoginPage() {
     // 창을 닫으므로, 메시지 배달보다 닫힘이 먼저 관측되면 로그인에 성공하고도
     // 로그인 화면에 남는다. 쿠키는 이미 심겼으니 서버에 물어보면 확실하다.
     if (!result.error) {
-      if (await refresh()) return navigate('/dashboard');
+      if (await refresh()) return navigate('/dashboard', { replace: true });
       // 성공 메시지를 받았는데 세션이 없다면 진짜 실패다.
       if (result.ok) setErrorKey(keyFor(AUTH_ERROR_CODES.SIGNIN_FAILED));
     } else {
@@ -110,15 +115,17 @@ export function LoginPage() {
     setErrorKey(null);
     setPending('demo');
     try {
-      // 세션 쿠키는 서버가 응답에 심는다 — 웹은 사용자 정보만 채택한다.
-      const { user } = await api.demoLogin();
-      signIn(user);
-      navigate('/dashboard');
+      // 세션 쿠키는 서버가 응답에 심는다 — 웹은 사용자와 액세스 토큰 수명만 채택한다.
+      const { user, accessTokenTtlMs } = await api.demoLogin();
+      signIn(user, accessTokenTtlMs);
+      navigate('/dashboard', { replace: true });
     } catch (e) {
       setErrorKey(e instanceof ApiError ? keyFor(e.code) : GENERIC_ERROR_KEY);
       setPending(null);
     }
   }
+
+  if (authed) return <Navigate to="/dashboard" replace />;
 
   return (
     <main className="auth">
@@ -147,6 +154,11 @@ export function LoginPage() {
             {pending === 'apple'
               ? t('auth.connecting')
               : t('auth.continue_with_apple')}
+          </Button>
+          <Button variant="kakao" disabled={busy} onClick={() => handleSocial('kakao')}>
+            {pending === 'kakao'
+              ? t('auth.connecting')
+              : t('auth.continue_with_kakao')}
           </Button>
           <Button variant="secondary" disabled={busy} onClick={handleDemo}>
             {pending === 'demo' ? t('auth.connecting') : t('auth.try_the_demo')}

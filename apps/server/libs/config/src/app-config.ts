@@ -1,6 +1,10 @@
 import type { PostgresConfig } from '@app/database';
 import type { RedisConfig } from '@app/redis';
-import type { AppleOAuthOptions, GoogleOAuthOptions } from './oauth-options';
+import type {
+  AppleOAuthOptions,
+  GoogleOAuthOptions,
+  KakaoOAuthOptions,
+} from './oauth-options';
 
 // env 파싱을 전부 순수 함수로 모은다 — 입력은 env 스냅샷, 출력은 불변 설정 객체.
 // PrismConfigService가 부팅 시 loadAppConfig를 1회 호출하므로, 모든 형식 오류는
@@ -54,6 +58,7 @@ export interface AppConfig {
   redis: RedisConfig;
   google: GoogleOAuthOptions;
   apple: AppleOAuthOptions;
+  kakao: KakaoOAuthOptions;
 }
 
 const str = (env: Env, key: string, fallback = ''): string =>
@@ -283,6 +288,25 @@ export function loadGoogleOAuthConfig(env: Env): GoogleOAuthOptions {
       'PRISM_GOOGLE_REDIRECT_URI',
       'http://localhost:3000/auth/google/callback',
     ),
+    // 콤마 구분 목록(공백 허용) → 빈 항목 제거.
+    nativeAudiences: str(env, 'PRISM_GOOGLE_NATIVE_AUDIENCES')
+      .split(',')
+      .map((a) => a.trim())
+      .filter(Boolean),
+  };
+}
+
+export function loadKakaoOAuthConfig(env: Env): KakaoOAuthOptions {
+  return {
+    clientId: str(env, 'PRISM_KAKAO_CLIENT_ID'),
+    // Kakao 콘솔에서 "client secret 사용"을 켠 경우에만 필요 — 꺼져 있으면 빈 값이다.
+    clientSecret: str(env, 'PRISM_KAKAO_CLIENT_SECRET'),
+    redirectUri: str(
+      env,
+      'PRISM_KAKAO_REDIRECT_URI',
+      'http://localhost:3000/auth/kakao/callback',
+    ),
+    appId: str(env, 'PRISM_KAKAO_APP_ID') || undefined,
   };
 }
 
@@ -310,5 +334,6 @@ export function loadAppConfig(env: Env): AppConfig {
     redis: loadRedisConfig(env),
     google: loadGoogleOAuthConfig(env),
     apple: loadAppleOAuthConfig(env),
+    kakao: loadKakaoOAuthConfig(env),
   };
 }

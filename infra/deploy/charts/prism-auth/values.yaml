@@ -34,6 +34,12 @@ env:
   appleKeyId: "${PRISM_APPLE_KEY_ID:-}"
   appleBundleId: "${PRISM_APPLE_BUNDLE_ID:-}"
   appleRedirectUri: "https://${PRISM_SERVICE_DOMAIN}/auth/apple/callback"
+  kakaoClientId: "${PRISM_KAKAO_CLIENT_ID:-}"
+  kakaoRedirectUri: "https://${PRISM_SERVICE_DOMAIN}/auth/kakao/callback"
+  # Kakao 앱의 숫자 app_id — 네이티브 로그인(/auth/kakao/native)의 토큰 app_id 대조용.
+  kakaoAppId: "${PRISM_KAKAO_APP_ID:-}"
+  # Google 네이티브 id_token의 추가 audience(콤마 구분) — 웹 clientId는 자동 포함되므로 선택값.
+  googleNativeAudiences: "${PRISM_GOOGLE_NATIVE_AUDIENCES:-}"
   # 운영 기본 true: DB 장애 시 부팅 실패 + readyz로 트래픽 차단. 데모(DB 없는) 배포만 false.
   dbRequired: "${PRISM_DB_REQUIRED:-true}"
 
@@ -45,6 +51,8 @@ oauth:
   googleClientSecret: "${PRISM_GOOGLE_CLIENT_SECRET:-}"
   # .p8 키 내용. 개행은 \n 이스케이프로 넣어도 앱이 복원한다.
   applePrivateKey: "${PRISM_APPLE_PRIVATE_KEY:-}"
+  # Kakao 콘솔에서 "client secret 사용"을 켠 경우에만 필요(꺼져 있으면 빈 값).
+  kakaoClientSecret: "${PRISM_KAKAO_CLIENT_SECRET:-}"
 
 # DB(PostgreSQL) — 표준 접속 URL(12-factor DATABASE_URL). 비밀번호를 포함하므로 Secret으로 주입.
 # replica URL(콤마 목록)이 있으면 replica 토폴로지, 없으면 single.

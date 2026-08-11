@@ -28,6 +28,8 @@
     "info": { "$value": "#8FB8E0", "$type": "color" },
     "info-foreground": { "$value": "#162338", "$type": "color" },
     "info-bg": { "$value": "#22334A", "$type": "color" },
-    "navy": { "$value": "#0F1726", "$type": "color" }
+    "navy": { "$value": "#0F1726", "$type": "color" },
+    "kakao": { "$value": "#FEE500", "$type": "color" },
+    "kakao-foreground": { "$value": "#000000D9", "$type": "color" }
   }
 }

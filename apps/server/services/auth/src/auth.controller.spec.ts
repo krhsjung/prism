@@ -34,11 +34,15 @@ describe('AuthController', () => {
 
   const getAuthUrl = jest.fn(() => 'https://provider/authorize');
   const loginWithSocial = jest.fn();
+  const loginWithGoogleNative = jest.fn();
+  const loginWithKakaoNative = jest.fn();
   const issueDemoSession = jest.fn(() => Promise.resolve(session));
   const revokeSession = jest.fn(() => Promise.resolve());
   const authStub = {
     getAuthUrl,
     loginWithSocial,
+    loginWithGoogleNative,
+    loginWithKakaoNative,
     issueDemoSession,
     revokeSession,
   } as object as AuthService;
@@ -50,6 +54,7 @@ describe('AuthController', () => {
       isProduction,
       // 쿠키 이름 판단의 단일 원천 — 심는 쪽과 읽는 쪽이 같은 값을 본다.
       cookiePolicy: { isProduction, namespace: '' },
+      accessTokenTtlMs: 15 * 60 * 1000,
       refreshTokenTtlMs: 12 * 60 * 60 * 1000,
       socialConfigured: () => true,
     }) as object as PrismConfigService;
@@ -136,7 +141,7 @@ describe('AuthController', () => {
 
   it('socialStart: 미지의 provider는 쿠키 발급 없이 실패 redirect', () => {
     const { fns, res } = makeRes();
-    controller.socialStart(reqWith(), 'kakao', res);
+    controller.socialStart(reqWith(), 'facebook', res);
     expect(fns.cookie).not.toHaveBeenCalled();
     expect(fns.redirect).toHaveBeenCalledWith(
       'http://web/login?error=SIGNIN_FAILED',
@@ -530,9 +535,12 @@ describe('AuthController', () => {
 
   // 회귀 방지 — 리뷰 3차. 쿠키를 심는 응답이 body로도 토큰을 주면
   // XSS가 fetch 한 번으로 자격증명을 가져가므로 HttpOnly가 무의미해진다.
-  it('demo: 세션은 쿠키로만 주고 body에는 사용자만 담는다', async () => {
+  it('demo: 세션은 쿠키로만 주고 body에는 사용자·수명만 담는다', async () => {
     const { fns, res } = makeRes();
-    await expect(controller.demo(res)).resolves.toEqual({ user: session.user });
+    await expect(controller.demo(res)).resolves.toEqual({
+      user: session.user,
+      accessTokenTtlMs: 15 * 60 * 1000,
+    });
     expect(sessionCookieOf(fns)).toEqual([
       'prism_session',
       'token-1',
@@ -549,6 +557,49 @@ describe('AuthController', () => {
     );
     const { res } = makeRes();
     await expect(disabled.demo(res)).rejects.toThrow();
+  });
+
+  // ──────────────── 네이티브(모바일 SDK) 로그인 ────────────────
+  //
+  // 웹 흐름과 달리 자격증명(AuthSession)을 body로 반환한다 — 네이티브는 쿠키가 아니라
+  // Bearer로 세션을 유지하기 때문. 토큰 누락·검증 실패는 provider 구분 없이 401 INVALID_TOKEN.
+
+  it('google/native: idToken을 검증해 세션(AuthSession)을 body로 반환한다', async () => {
+    loginWithGoogleNative.mockResolvedValueOnce(session);
+    await expect(controller.googleNative('id-tok-1')).resolves.toBe(session);
+    expect(loginWithGoogleNative).toHaveBeenCalledWith('id-tok-1');
+  });
+
+  it('google/native: idToken이 없으면 401 INVALID_TOKEN (검증 호출 안 함)', async () => {
+    await expect(controller.googleNative(undefined)).rejects.toThrow();
+    expect(loginWithGoogleNative).not.toHaveBeenCalled();
+  });
+
+  it('google/native: 검증 실패는 401 INVALID_TOKEN으로 뭉갠다(원인 미노출)', async () => {
+    loginWithGoogleNative.mockRejectedValueOnce(new Error('aud mismatch'));
+    await expect(controller.googleNative('bad')).rejects.toMatchObject({
+      status: 401,
+      response: { error: 'INVALID_TOKEN' },
+    });
+  });
+
+  it('kakao/native: accessToken을 검증해 세션(AuthSession)을 body로 반환한다', async () => {
+    loginWithKakaoNative.mockResolvedValueOnce(session);
+    await expect(controller.kakaoNative('acc-tok-1')).resolves.toBe(session);
+    expect(loginWithKakaoNative).toHaveBeenCalledWith('acc-tok-1');
+  });
+
+  it('kakao/native: accessToken이 없으면 401 INVALID_TOKEN (검증 호출 안 함)', async () => {
+    await expect(controller.kakaoNative(undefined)).rejects.toThrow();
+    expect(loginWithKakaoNative).not.toHaveBeenCalled();
+  });
+
+  it('kakao/native: 검증 실패는 401 INVALID_TOKEN으로 뭉갠다(원인 미노출)', async () => {
+    loginWithKakaoNative.mockRejectedValueOnce(new Error('app_id mismatch'));
+    await expect(controller.kakaoNative('bad')).rejects.toMatchObject({
+      status: 401,
+      response: { error: 'INVALID_TOKEN' },
+    });
   });
 
   // 로그아웃의 본질은 쿠키 삭제가 아니라 **서버 세션 폐기**다 —

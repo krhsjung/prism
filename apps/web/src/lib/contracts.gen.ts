@@ -7,7 +7,7 @@
 // 수정 후 `pnpm sync:contracts`로 웹 사본(apps/web/src/lib/contracts.gen.ts)을 재생성할 것.
 // 동기화가 어긋나면 contracts.spec.ts(drift 테스트)가 실패한다.
 
-export const AUTH_PROVIDERS = ['google', 'apple', 'demo'] as const;
+export const AUTH_PROVIDERS = ['google', 'apple', 'kakao', 'demo'] as const;
 export type AuthProvider = (typeof AUTH_PROVIDERS)[number];
 
 // OAuth가 실제로 다루는 provider(데모 제외). AuthProvider에서 파생해 중복 union을 막는다.
@@ -84,10 +84,21 @@ export function decodeSessionList(v: JsonValue): SessionListItem[] {
 // (웹 클라이언트가 body를 안 읽는다는 것은 방어가 아니다 — 다른 스크립트가 읽는다)
 export interface SessionUser {
   user: User;
+  // 액세스 토큰이 만료되기까지 남은 시간(ms). 토큰·비밀이 아니라 수명값일 뿐이라
+  // body에 실어도 HttpOnly 방어와 무관하다. 웹이 "언제 선제적으로 세션을 회전(갱신)할지"
+  // 스케줄하는 데 쓴다 — HttpOnly 쿠키라 클라이언트가 토큰의 exp를 직접 읽을 수 없다.
+  accessTokenTtlMs: number;
 }
 
 export function decodeSessionUser(v: JsonValue): SessionUser {
-  return { user: decodeUser(decodeObject(v, 'SessionUser').user) };
+  const obj = decodeObject(v, 'SessionUser');
+  return {
+    user: decodeUser(obj.user),
+    accessTokenTtlMs: decodePositiveInt(
+      obj.accessTokenTtlMs,
+      'SessionUser.accessTokenTtlMs',
+    ),
+  };
 }
 
 // ── 소셜 로그인 흐름 ──
@@ -201,6 +212,20 @@ export function decodeObject(
 export function decodeString(v: JsonValue | undefined, label: string): string {
   if (typeof v !== 'string' || v === '') {
     throw new Error(`${label}: expected non-empty string`);
+  }
+  return v;
+}
+
+// 계약의 수명·개수 필드(ms TTL 등) — 양의 **정수**만 유효하다.
+// 음수·0·NaN·Infinity는 물론, 소수와 안전 정수 범위(2^53-1) 밖의 값도 형식 오류다:
+// 그런 값은 네이티브(Swift `Int`)가 그대로 받지 못해 플랫폼마다 해석이 갈린다.
+// `Number.isSafeInteger`가 유한·정수·안전범위를 한 번에 검사한다.
+export function decodePositiveInt(
+  v: JsonValue | undefined,
+  label: string,
+): number {
+  if (typeof v !== 'number' || !Number.isSafeInteger(v) || v <= 0) {
+    throw new Error(`${label}: expected positive integer`);
   }
   return v;
 }
