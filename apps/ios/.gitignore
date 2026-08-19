@@ -1,0 +1,30 @@
+# Xcode / Swift — apps/ios
+
+## 개인 사용자 상태 (커밋 대상 아님)
+xcuserdata/
+*.xcuserstate
+
+## 빌드 산출물
+build/
+DerivedData/
+*.moved-aside
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+## Swift Package Manager
+.build/
+.swiftpm/
+# Package.resolved(프로젝트의 xcshareddata 안)는 재현 가능한 빌드를 위해 커밋한다 —
+# 여기서 무시하지 않는다.
+
+## CocoaPods (미사용이지만 안전망)
+Pods/
+
+## 시크릿을 담는 xcconfig는 커밋 금지(예: Kakao 앱 키). 비시크릿 base는 이름을 달리한다.
+Secrets.xcconfig
+*.secret.xcconfig
+
+# macOS
+.DS_Store

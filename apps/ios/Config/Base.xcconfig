@@ -1,0 +1,13 @@
+// Base.xcconfig — 커밋되는 빌드 설정 진입점.
+//
+// 프로젝트(Info ▸ Configurations)의 Debug/Release가 이 파일을 Configuration File로
+// 가리킨다. 실제 크리덴셜은 옆의 Secrets.xcconfig(=.gitignore 대상)에 두고 여기서
+// 선택적으로 포함한다.
+//
+// `#include?` 는 **선택 포함**이라 Secrets.xcconfig가 없어도 빌드가 깨지지 않는다 —
+// 새로 클론한 사람은 그대로 빌드되고, 소셜 로그인만 비활성 상태가 된다
+// (미설정 키는 빈 문자열로 치환되고, 각 컨트롤러가 이를 감지해 크래시 대신 거절한다).
+//
+// ⚠️ xcconfig는 `//` 를 주석으로 잘라먹으므로 `https://` 같은 값은 여기 두지 않는다.
+
+#include? "Secrets.xcconfig"

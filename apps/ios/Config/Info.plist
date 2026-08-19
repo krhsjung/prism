@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- API(=auth 서비스) 주소. 값은 빌드 환경변수 PRISM_API_URL에서 온다 —
+	     주소를 소스에 박지 않기 위한 통로이며, 웹의 VITE_API_URL과 같은 역할이다.
+	     비어 있으면 APIConfiguration이 로컬 개발 서버로 떨어진다.
+
+	     나머지 Info.plist 키(씬 매니페스트·런치 스크린·방향 등)는 Xcode가
+	     GENERATE_INFOPLIST_FILE로 생성해 이 파일 위에 얹는다 — 여기에는 생성기가
+	     모르는 커스텀 키만 둔다. -->
+	<key>PRISM_API_URL</key>
+	<string>$(PRISM_API_URL)</string>
+
+	<!-- ── 네이티브 소셜 로그인 크리덴셜 ──
+	     실제 값은 gitignore된 Config/Secrets.xcconfig가 빌드 변수로 채운다(커밋 소스에는
+	     값이 없다). GoogleSignIn은 여기 GIDClientID를 읽고, URL 스킴은 iOS가 redirect
+	     라우팅에 쓴다. -->
+	<key>GIDClientID</key>
+	<string>$(GOOGLE_IOS_CLIENT_ID)</string>
+	<key>KAKAO_NATIVE_APP_KEY</key>
+	<string>$(KAKAO_NATIVE_APP_KEY)</string>
+
+	<!-- 외부 앱에서 우리 앱으로 돌아오는 redirect 스킴.
+	       역순 구글 클라이언트 ID : Google 로그인 복귀
+	       kakao{앱키}          : 카카오톡 로그인 복귀 -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>$(GOOGLE_REVERSED_CLIENT_ID)</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>kakao$(KAKAO_NATIVE_APP_KEY)</string>
+			</array>
+		</dict>
+	</array>
+
+	<!-- 카카오톡 앱을 열 수 있는지 조회하려면 이 스킴들을 허용 목록에 둬야 한다(iOS). -->
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>kakaokompassauth</string>
+		<string>kakaolink</string>
+	</array>
+</dict>
+</plist>
