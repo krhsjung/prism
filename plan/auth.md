@@ -12,7 +12,9 @@
 
 > **개인정보 미저장** — 서버 DB에는 이름·이메일 등 개인정보를 저장하지 않는다.
 > `provider` 종류와 가명 식별자(`provider_id`, OAuth sub)만 보관하며, 표시 이름은
-> 로그인 시 소셜 토큰에서 추출해 JWT 세션에만 담는다(영구 저장 안 함). 이 사실을
+> 로그인 시 소셜 토큰에서 추출해 **서버 세션 레코드(Redis)에만** 담는다(DB에도, JWT에도
+> 넣지 않는다 — 세션 만료와 함께 사라진다). JWT엔 식별자(`sub`·세션 id)뿐이라 쿠키가
+> 유출돼도 이름이 읽히지 않는다. 이 사실을
 > 로그인 화면에도 문구로 노출해 리뷰어가 안심하고 체험하도록 한다.
 
 ## 1. 범위
@@ -42,7 +44,8 @@
 
 1. 사용자가 Login 화면에서 `Try the demo` 클릭
 2. 클릭된 버튼 text → "Connecting...", 모든 버튼 Disabled (소셜과 동일 패턴)
-3. 클라이언트가 `POST /auth/demo` 호출 (외부 리다이렉트 없음)
+3. 클라이언트가 데모 로그인 호출 (외부 리다이렉트 없음) — 웹은 `POST /auth/demo`(쿠키),
+   네이티브는 `POST /auth/demo/native`(Bearer 토큰을 body로)
 4. 서버가 시드된 데모 계정(`provider='demo'`, `provider_id='demo-001'`)으로
    JWT 발급 → 즉시 Dashboard로 이동
 
@@ -62,10 +65,10 @@
 [Auth 페이지](https://www.figma.com/design/sTDo6HDslOcRmWL78klk1I/Prism) —
 6개 시안: Desktop / Mobile × Default / Error / Loading.
 
-| 시안    | 핵심 요소                                                                      |
-| ------- | -------------------------------------------------------------------------- |
+| 시안    | 핵심 요소                                                                           |
+| ------- | ----------------------------------------------------------------------------------- |
 | Default | Brand · Welcome back · Google · Apple · **Try the demo** · **개인정보 미저장 문구** |
-| Error   | + Red Alert (Molecule/Alert variant=Error)                                 |
+| Error   | + Red Alert (Molecule/Alert variant=Error)                                          |
 | Loading | 클릭된 버튼 → "Connecting...", 모든 버튼 Disabled state                             |
 
 > 데모 버튼은 소셜 버튼 바로 아래(카드 최하단)에 배치한다. 시각적으로 부차
@@ -82,14 +85,14 @@
 
 ### 컴포넌트 의존성
 
-| 화면 요소      | 디자인 시스템 매핑                                           |
-| -------------- | ------------------------------------------------------------ |
-| Google 버튼    | `Atom/Button` — Variant=Outline, State=Default \| Disabled   |
-| Apple 버튼     | `Atom/Button` — Variant=Primary, State=Default \| Disabled   |
+| 화면 요소      | 디자인 시스템 매핑                                                            |
+| -------------- | ----------------------------------------------------------------------------- |
+| Google 버튼    | `Atom/Button` — Variant=Outline, State=Default \| Disabled                    |
+| Apple 버튼     | `Atom/Button` — Variant=Primary, State=Default \| Disabled                    |
 | Kakao 버튼     | `Atom/Button` — Variant=Kakao(브랜드 노랑 #FEE500), State=Default \| Disabled |
-| 데모 버튼      | `Atom/Button` — Variant=Secondary, State=Default \| Disabled |
-| 에러 알림      | `Molecule/Alert` — Variant=Error                             |
-| 카드 (Desktop) | 토큰: `--color-card`, `--color-border`, `elevation/lg`       |
+| 데모 버튼      | `Atom/Button` — Variant=Secondary, State=Default \| Disabled                  |
+| 에러 알림      | `Molecule/Alert` — Variant=Error                                              |
+| 카드 (Desktop) | 토큰: `--color-card`, `--color-border`, `elevation/lg`                        |
 
 ---
 
@@ -97,9 +100,9 @@
 
 ```text
 ┌────────────┐    OAuth     ┌─────────────┐
-│  Client    │ ──────────── ▶  Provider   │
+│  Client    │ ───────────▶ │  Provider   │
 │  (web/iOS/ │              │  Google /   │
-│   Android) │ ◀──────────  │  Apple      │
+│   Android) │ ◀─────────── │  Apple      │
 └────┬───────┘  code/idToken└─────────────┘
      │ POST /auth/{provider}
      │ { idToken }
@@ -112,22 +115,28 @@
 
 ### 4.1 플랫폼별 OAuth 방식
 
-| 플랫폼          | OAuth 방식                                                                                       |
-| --------------- | ------------------------------------------------------------------------------------------------ |
-| Web             | OAuth 2.0 redirect flow — 서버가 `/auth/{provider}/callback` 처리, ID token을 서버에서 직접 교환 |
+| 플랫폼                    | OAuth 방식                                                                                                                          |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| Web                       | OAuth 2.0 redirect flow — 서버가 `/auth/{provider}/callback` 처리, ID token을 서버에서 직접 교환                                    |
 | Android/iOS (네이티브 앱) | provider 네이티브 SDK로 토큰을 받아 `/auth/{provider}/native`에 POST — Apple=`identityToken`, Google=`idToken`, Kakao=`accessToken` |
 
-> **왜 `/native` 엔드포인트가 있는가(설계 근거).** 지금 모바일 앱을 출시하는 것은
-> 아니지만, 서버는 네이티브 SDK 로그인을 받을 수 있게 열어 둔다. 웹 redirect 흐름은
-> 콜백을 커스텀 스킴/앱 링크로 앱에 되돌리는데, Android에서는 이 redirect가 다른
-> 앱(YouTube·Gmail 등 구글 계열)의 인텐트 필터에 가로채여 앱으로 돌아오지 못하고
-> "앱 선택" 창이 뜨는 문제가 실제로 관측됐다. 이를 피하려면 앱이 provider 네이티브
-> SDK로 **앱 안에서** 토큰을 받아 서버에 POST하고, 서버가 그 토큰을 검증해 세션을
-> 발급해야 한다(§5 `/native`). 아래는 이 흐름을 붙일 때 쓸 대표 클라이언트 라이브러리다.
+> **왜 `/native` 엔드포인트가 있는가(설계 근거).** 웹 redirect 흐름은 콜백을 커스텀
+> 스킴/앱 링크로 앱에 되돌리는데, Android에서는 이 redirect가 다른 앱(YouTube·Gmail 등
+> 구글 계열)의 인텐트 필터에 가로채여 앱으로 돌아오지 못하고 "앱 선택" 창이 뜨는 문제가
+> 실제로 관측됐다. 그래서 네이티브 앱은 provider 네이티브 SDK로 **앱 안에서** 토큰을 받아
+> 서버에 POST하고, 서버가 그 토큰을 검증해 Bearer 세션(`AuthSession`)을 발급한다(§5 `/native`).
 >
-> - Google — [`google_sign_in`](https://pub.dev/packages/google_sign_in) (Android는 `serverClientId`로 받은 `idToken`을 서버에 전달)
-> - Kakao — [`kakao_flutter_sdk_user`](https://pub.dev/packages/kakao_flutter_sdk_user) (`kakao_flutter_sdk`의 로그인 모듈, `OAuthToken.accessToken` 전달)
-> - Apple — [`sign_in_with_apple`](https://pub.dev/packages/sign_in_with_apple) (`identityToken` + 요청 시 쓴 raw `nonce` 전달)
+> 네이티브 앱(`apps/ios`·`apps/android`)이 실제로 쓰는 SDK:
+>
+> | provider | iOS(Swift)                                 | Android(Kotlin)                | 서버에 보내는 값              |
+> | -------- | ------------------------------------------ | ------------------------------ | ----------------------------- |
+> | Google   | GoogleSignIn-iOS                           | Credential Manager + Google ID | `idToken`                     |
+> | Kakao    | kakao-ios-sdk                              | `com.kakao.sdk:v2-user`        | `accessToken`                 |
+> | Apple    | Sign in with Apple(AuthenticationServices) | — (공식 네이티브 SDK 없음)     | `identityToken` + raw `nonce` |
+>
+> Google id_token의 audience는 플랫폼별로 다르다 — iOS는 iOS 클라이언트 ID, Android는
+> `serverClientId`(웹 클라이언트 ID). 서버 `PRISM_GOOGLE_NATIVE_AUDIENCES`에 필요한 값을
+> 더한다. 각 앱의 크리덴셜/빌드 설정은 `apps/{ios,android}/README.md` 참고.
 
 ### 4.2 서버 라이브러리
 
@@ -206,6 +215,27 @@ id_token과 달리) 서명이 없는 불투명 문자열이라 로컬 검증이 
 **Response 200**: `AuthSession` = `{ accessToken, refreshToken, user }`
 **Response 401**: `{ error: 'INVALID_TOKEN' }` — `accessToken` 누락·만료·app_id 불일치 포함
 
+### 네이티브 웹-redirect (`flow=native`) + `POST /auth/native/exchange`
+
+네이티브 앱이 provider SDK 대신 **웹 OAuth**로 로그인하는 경로(iOS
+`ASWebAuthenticationSession` 등). 같은 provider를 SDK(native)·웹(redirect) 두 방식으로
+비교/제공하려는 용도다.
+
+1. 앱이 시스템 웹 세션으로 `GET /auth/{provider}?flow=native`를 연다.
+2. 서버는 평소 웹 흐름대로 provider로 redirect하고 콜백을 처리한다. 단 `flow=native`면
+   세션을 **쿠키로 심지 않고**, 일회용 코드를 만들어 커스텀 스킴으로 돌려준다:
+   `prism://auth/callback?code=<code>` (실패/취소는 `?error=<code>` 또는 파라미터 없음).
+   코드는 Redis에 짧게(120s) 저장되고 **1회용**(GETDEL)이다.
+3. 앱이 그 코드를 교환한다:
+
+   **`POST /auth/native/exchange`** — **Body** `{ code: string }`
+   **Response 200**: `AuthSession = { accessToken, refreshToken, user }`
+   **Response 401**: `{ error: 'INVALID_TOKEN' }` — 코드 누락·없음·이미 소진.
+
+> 토큰을 URL에 싣지 않는다(로그·유출 위험) — 코드만 넘기고 HTTPS로 교환하는
+> authorization-code 방식이다. 콜백 스킴은 `PRISM_NATIVE_AUTH_CALLBACK`(기본
+> `prism://auth/callback`)이며 앱이 등록/캡처하는 스킴과 같아야 한다.
+
 ### `POST /auth/demo`
 
 원클릭 데모 로그인. 외부 OAuth 없이 시드된 데모 계정으로 즉시 세션을 발급.
@@ -219,9 +249,21 @@ id_token과 달리) 서명이 없는 불투명 문자열이라 로컬 검증이 
 > 서버는 시드된 `provider='demo' / provider_id='demo-001'` 계정을 조회해 세션을
 > 발급한다. 새 계정을 만들지 않으므로 모든 리뷰어가 동일 데모 계정을 공유한다.
 >
-> **네이티브(iOS)는 이 흐름을 쓰지 않는다** — 토큰이 body에 없고 쿠키로만 오므로,
-> Bearer + Keychain을 쓰는 iOS는 데모를 미구현으로 둔다(§9). Android는 쿠키 흐름을
-> 그대로 채택해 데모를 실동작시킨다(EncryptedSharedPreferences에 쿠키 저장).
+> 이 쿠키 흐름은 **웹 전용**이다. 네이티브(iOS·Android)는 아래 `/auth/demo/native`를 쓴다.
+
+### `POST /auth/demo/native`
+
+네이티브(Bearer) 데모 로그인. `/auth/demo`와 **세션 발급은 같고**(같은 `issueDemoSession`),
+전달만 다르다 — 토큰을 body로 준다.
+
+**Body**: 없음
+**Response 200**: `AuthSession` = `{ accessToken, refreshToken, user }` — `user.provider === 'demo'`.
+쿠키를 심지 않는다(네이티브는 쿠키를 쓰지 않고 Bearer를 안전 저장소에 담는다, §6).
+**Response 503**: `{ error: 'DEMO_DISABLED' }` — 데모 비활성화 환경일 때
+
+> 쿠키를 심지 않으므로 login-CSRF 대상이 아니라 `WebOriginGuard`를 두지 않는다(레이트리밋만).
+> iOS·Android 모두 이 경로로 데모를 실동작시키며, 세션은 소셜 네이티브와 동일하게
+> Keychain/Keystore(Bearer)에 담기고 `/auth/refresh`(body 토큰)로 회전한다.
 
 ### `GET /auth/me`
 
@@ -250,14 +292,15 @@ id_token과 달리) 서명이 없는 불투명 문자열이라 로컬 검증이 
 ```ts
 type User = {
   id: string;
-  provider: "google" | "apple" | "demo";
-  displayName: string; // 소셜 토큰에서 추출해 JWT에 담김 — DB 미저장(세션 한정)
+  provider: "google" | "apple" | "kakao" | "demo";
+  displayName: string; // 소셜 토큰에서 추출해 서버 세션(Redis)에 담김 — DB·JWT 미저장(세션 한정)
   createdAt: string;
 };
 ```
 
-> `email`은 수집·저장하지 않으므로 모델에 없다. `displayName`은 DB 컬럼이 아니라
-> JWT 클레임에서 채워지며, 데모 세션은 서버가 상수 `"Demo User"`를 부여한다.
+> `email`은 수집·저장하지 않으므로 모델에 없다(OAuth 스코프에서도 요청하지 않는다).
+> `displayName`은 DB 컬럼도 JWT 클레임도 아니라 **서버 세션 레코드(Redis)**에서 채워지며,
+> 세션이 만료되면 함께 사라진다. 데모 세션은 서버가 상수 `"Demo User"`를 부여한다.
 
 ---
 
@@ -266,22 +309,22 @@ type User = {
 세션의 진실은 토큰이 아니라 **서버 세션(Redis)** 이다. 매 요청 세션 행을 확인하므로
 로그아웃·강제 폐기가 다음 요청부터 즉시 반영된다(서명만 보면 만료까지 폐기할 방법이 없다).
 
-| 항목                | 정책                                                                        |
-| ------------------- | --------------------------------------------------------------------------- |
-| Access Token        | JWT (HS256). 수명 `PRISM_JWT_ACCESS_TOKEN_EXPIRES_IN` (기본 15분)           |
-| Refresh 자격증명    | `<sessionId>.<secret>` 난수 32B. **저장은 SHA-256 해시만**. 쓸 때마다 회전   |
+| 항목                | 정책                                                                          |
+| ------------------- | ----------------------------------------------------------------------------- |
+| Access Token        | JWT (HS256). 수명 `PRISM_JWT_ACCESS_TOKEN_EXPIRES_IN` (기본 15분)             |
+| Refresh 자격증명    | `<sessionId>.<secret>` 난수 32B. **저장은 SHA-256 해시만**. 쓸 때마다 회전    |
 | idle 만료 (sliding) | `PRISM_JWT_REFRESH_TOKEN_EXPIRES_IN` (기본 12시간). 갱신할 때마다 다시 채워짐 |
-| absolute 상한       | 7일 고정. 활동이 있어도 여기서 끝 — 리프레시 무한 연장을 막는다             |
-| 저장 위치 (Web)     | HttpOnly 쿠키. 운영은 `__Host-` 접두어 + `Secure` + `SameSite=Lax`          |
-| 쿠키 이름           | `prism_session` / `prism_refresh`. `PRISM_COOKIE_NAMESPACE`로 앱별 분리 가능 |
-| 저장 위치 (iOS)     | Keychain (일반 `UserDefaults` 금지)                                         |
-| 저장 위치 (Android) | 하드웨어 기반 Keystore / EncryptedSharedPreferences (일반 preferences 금지) |
+| absolute 상한       | 7일 고정. 활동이 있어도 여기서 끝 — 리프레시 무한 연장을 막는다               |
+| 저장 위치 (Web)     | HttpOnly 쿠키. 운영은 `__Host-` 접두어 + `Secure` + `SameSite=Lax`            |
+| 쿠키 이름           | `prism_session` / `prism_refresh`. `PRISM_COOKIE_NAMESPACE`로 앱별 분리 가능  |
+| 저장 위치 (iOS)     | Keychain (일반 `UserDefaults` 금지)                                           |
+| 저장 위치 (Android) | 하드웨어 기반 Keystore / EncryptedSharedPreferences (일반 preferences 금지)   |
 
 > 네이티브는 자격증명을 로그에 남기지 않는다. 액세스 토큰은 `Authorization: Bearer`로,
 > 리프레시 자격증명은 `POST /auth/refresh`의 body로만 오간다.
 >
 > **sliding은 "탭이 살아 있는 동안" 밀린다.** idle 창을 다시 채우는 것은 회전(`POST
-> /auth/refresh`)이고, 웹은 이를 두 경로로 부른다: **(1) 반응형** — 요청이 401
+/auth/refresh`)이고, 웹은 이를 두 경로로 부른다: **(1) 반응형** — 요청이 401
 > (`SESSION_EXPIRED`)을 만나면 한 번 갱신하고 재시도([api.ts](../apps/web/src/lib/api.ts)),
 > **(2) 선제 스케줄러** — 로그인·세션 확인 응답이 주는 `accessTokenTtlMs`의 75% 지점마다
 > 회전을 예약하고, 탭 복귀(`visibilitychange`/`focus`/`online`) 시 직전 회전이 오래됐으면
@@ -299,12 +342,12 @@ type User = {
 그래서 소비된 자격증명의 해시를 세션별 이력으로 남기고, 나중에 제시된 값이 그 이력에
 있으면 "이미 쓴 값을 또 쓴다"는 신호로 읽는다(RFC 9700 refresh token reuse).
 
-| 제시된 값                          | 판정       | 세션    |
-| ---------------------------------- | ---------- | ------- |
-| 현재 자격증명                      | `rotated`  | 유지·연장 |
-| 30초 이내에 소비된 값              | `raced`    | **유지** |
-| 30초가 지나 소비된 값              | `reused`   | **폐기** |
-| 이력에 없는 값 · 없는 세션 · 상한 초과 | `rejected` | 유지    |
+| 제시된 값                              | 판정       | 세션      |
+| -------------------------------------- | ---------- | --------- |
+| 현재 자격증명                          | `rotated`  | 유지·연장 |
+| 30초 이내에 소비된 값                  | `raced`    | **유지**  |
+| 30초가 지나 소비된 값                  | `reused`   | **폐기**  |
+| 이력에 없는 값 · 없는 세션 · 상한 초과 | `rejected` | 유지      |
 
 - **유예 창(30초)** 이 있는 이유 — 회전이 끝나기 전에 이미 출발한 요청이 직후에 도착하는
   정상 경합이 있다. 브라우저의 쿠키 항아리는 하나뿐이라 stale 값을 들고 있을 수 있는
@@ -328,11 +371,11 @@ auth 서비스가 세션을 **발급**하고, 모든 서비스가 그 세션을 
 검증에 쓰이는 것(토큰 서명 규칙 · 쿠키 이름 · 가드)은 전부 `@app/session` 한 곳에 있다 —
 서비스마다 따로 두면 인증의 원천이 둘이 되고, 한쪽만 고쳐지는 순간 그게 구멍이 된다.
 
-| 위치 | 담는 것 |
-| --- | --- |
-| `@app/session` | 세션 토큰 서명/검증 · 세션·리프레시 쿠키 이름/속성 · `JwtAuthGuard` · `@Public()` |
-| `services/auth` | 로그인·세션 발급 · OAuth 흐름(state 토큰 · nonce 쿠키) · 갱신 · 폐기 |
-| `services/api` | 도메인 기능. 세션은 검증만 한다 |
+| 위치            | 담는 것                                                                           |
+| --------------- | --------------------------------------------------------------------------------- |
+| `@app/session`  | 세션 토큰 서명/검증 · 세션·리프레시 쿠키 이름/속성 · `JwtAuthGuard` · `@Public()` |
+| `services/auth` | 로그인·세션 발급 · OAuth 흐름(state 토큰 · nonce 쿠키) · 갱신 · 폐기              |
+| `services/api`  | 도메인 기능. 세션은 검증만 한다                                                   |
 
 **api 서비스는 기본이 보호다(protected-by-default).** 전역 가드(`APP_GUARD`)가 걸려 있어
 새로 추가한 엔드포인트는 아무것도 하지 않아도 인증을 요구하고, 공개 경로만 `@Public()`로
@@ -360,15 +403,15 @@ Bearer/Keychain, Android 데모는 쿠키/EncryptedSharedPreferences) 구현은 
 
 **전이:**
 
-| 트리거 | 처리 |
-| --- | --- |
-| 앱 시작·포그라운드 복귀 | 저장된 자격증명으로 `GET /auth/me`. 없으면 `SignedOut` |
-| `/auth/me` 200 | `SignedIn(user)` |
-| `/auth/me` 401 `SESSION_EXPIRED` | `POST /auth/refresh`로 이어감(갱신하면 살아난다) |
-| `/auth/me`·`/auth/refresh` 401 `INVALID_TOKEN`·`UNAUTHORIZED` | **확정 실패** — 자격증명 폐기 후 `SignedOut` |
-| 그 밖의 실패(오프라인·타임아웃·5xx·형식 오류) | **일시적 실패** — 자격증명 **보존**, `SignedOut`(다음 시도에 복구) |
-| 로그인(데모/소셜) 성공 | 자격증명 저장 후 `SignedIn` |
-| 로그아웃 | 로컬 자격증명 폐기 + 서버 세션 폐기, `SignedOut` |
+| 트리거                                                        | 처리                                                               |
+| ------------------------------------------------------------- | ------------------------------------------------------------------ |
+| 앱 시작·포그라운드 복귀                                       | 저장된 자격증명으로 `GET /auth/me`. 없으면 `SignedOut`             |
+| `/auth/me` 200                                                | `SignedIn(user)`                                                   |
+| `/auth/me` 401 `SESSION_EXPIRED`                              | `POST /auth/refresh`로 이어감(갱신하면 살아난다)                   |
+| `/auth/me`·`/auth/refresh` 401 `INVALID_TOKEN`·`UNAUTHORIZED` | **확정 실패** — 자격증명 폐기 후 `SignedOut`                       |
+| 그 밖의 실패(오프라인·타임아웃·5xx·형식 오류)                 | **일시적 실패** — 자격증명 **보존**, `SignedOut`(다음 시도에 복구) |
+| 로그인(데모/소셜) 성공                                        | 자격증명 저장 후 `SignedIn`                                        |
+| 로그아웃                                                      | 로컬 자격증명 폐기 + 서버 세션 폐기, `SignedOut`                   |
 
 **불변식 (플랫폼별 구현이 반드시 지켜야 하는 것):**
 
@@ -391,13 +434,13 @@ Bearer/Keychain, Android 데모는 쿠키/EncryptedSharedPreferences) 구현은 
 
 **플랫폼 매핑 (같은 규칙, 다른 기전):**
 
-| 규칙 | iOS | Android |
-| --- | --- | --- |
-| #2 직렬화 | generation 카운터 + single-flight `restoreTask` | `Mutex`로 세션 연산 감쌈 |
-| #3 회전 저장 | `KeychainManager.save`, "현재 refresh == 보낸 값" 확인 | 쿠키 흐름은 서버가 `Set-Cookie`로 회전(CookieJar가 반영) |
+| 규칙                | iOS                                                                                  | Android                                                                                      |
+| ------------------- | ------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------- |
+| #2 직렬화           | generation 카운터 + single-flight `restoreTask`                                      | `Mutex`로 세션 연산 감쌈                                                                     |
+| #3 회전 저장        | `KeychainManager.save`, "현재 refresh == 보낸 값" 확인                               | 쿠키 흐름은 서버가 `Set-Cookie`로 회전(CookieJar가 반영)                                     |
 | #4 로그아웃 durable | Keychain `revoked` 마커로 자격증명을 **덮어씀**(삭제 아님) — 앱 종료·재설치에도 유지 | `withContext(NonCancellable)` + 정리를 락 **안**에서(경쟁·취소 방어), 쿠키는 `SecureStore`에 |
-| #5 읽기 실패 구분 | `RawReadResult { data \| notFound \| failure }` | CookieJar는 메모리 캐시 + 암호화 저장, 읽기 실패 시 빈 상태로 시작 |
-| #6 극단 처리 | 마커도 삭제도 실패하면 현재 상태 유지 | revoke·clear 모두 실패면 `SignedOut` 미게시(현재 상태 유지) |
+| #5 읽기 실패 구분   | `RawReadResult { data \| notFound \| failure }`                                      | CookieJar는 메모리 캐시 + 암호화 저장, 읽기 실패 시 빈 상태로 시작                           |
+| #6 극단 처리        | 마커도 삭제도 실패하면 현재 상태 유지                                                | revoke·clear 모두 실패면 `SignedOut` 미게시(현재 상태 유지)                                  |
 
 > 이 불변식들은 iOS(테스트 47개)·Android(32개)의 회귀 테스트로 고정돼 있다. 세션 로직을
 > 고칠 때는 이 표를 먼저 읽고, 두 플랫폼에 같은 규칙이 유지되는지 확인할 것.
@@ -411,13 +454,14 @@ Bearer/Keychain, Android 데모는 쿠키/EncryptedSharedPreferences) 구현은 
 - [ ] OAuth `state` parameter (CSRF 방어 — web redirect 흐름)
 - [ ] Replay attack 방지 (token nonce / iat 검증)
 - [ ] **개인정보 미저장** — DB(`core.users`)에 이름/이메일 등 PII 컬럼 없음
-      (provider · provider_id · 타임스탬프만). 표시 이름은 JWT 세션에만.
+      (provider · provider_id · 타임스탬프만). 표시 이름은 서버 세션(Redis)에만,
+      email은 OAuth 스코프에서도 요청하지 않음.
 - [ ] PII 로그 금지 (displayName 등 마스킹 — 로그·에러 트래킹 포함)
 - [ ] JWT secret을 환경 변수로만 관리
 - [ ] **데모 계정 격리** — 데모 세션은 파괴적/민감 작업 차단(읽기 위주 또는
       샌드박스), 공유 계정이므로 PII 입력 금지. `AUTH_DEMO_ENABLED` 플래그로
       운영 환경에서 토글 가능하게.
-- [ ] **데모 레이트리밋** — `/auth/demo` 남용 방지(IP당 분당 N회).
+- [ ] **데모 레이트리밋** — `/auth/demo`·`/auth/demo/native` 남용 방지(IP당 분당 N회).
 
 ---
 
@@ -430,10 +474,10 @@ Bearer/Keychain, Android 데모는 쿠키/EncryptedSharedPreferences) 구현은 
 5. ⏳ Web ↔ Mock 서버 연동 확인 (**데모 원클릭 포함**)
 6. ⏳ 실제 Google OAuth 연동
 7. ⏳ 실제 Apple Sign In 연동
-8. 🔶 iOS 로그인 화면 — UI·토큰·다국어·Keychain·Sign in with Apple 완료.
-   Google·데모는 네이티브 엔드포인트가 없어 보류(§9)
-9. 🔶 Android 로그인 화면 — UI·다국어·다크 테마·데모(쿠키 세션, EncryptedSharedPreferences)
-   완료. Google·Apple은 네이티브 엔드포인트가 없어 보류(§9)
+8. ✅ iOS 로그인 화면 — UI·다국어·Keychain·Apple/Google/Kakao 네이티브·데모(Bearer)·
+   웹 redirect(`flow=native`) 완료. 모두 `AuthSession`(Bearer) 하나로 통일.
+9. 🔶 Android 로그인 화면 — UI·다국어·다크 테마·Google/Kakao 네이티브·데모(Bearer) 완료.
+   Apple만 공식 네이티브 SDK가 없어 보류(§9)
 
 ---
 
@@ -443,13 +487,10 @@ Bearer/Keychain, Android 데모는 쿠키/EncryptedSharedPreferences) 구현은 
   이 문제는 이제 **진짜 만료**(탭을 idle TTL 넘게 닫아둠·7일 상한 초과·원격 폐기)에서만
   드러난다. 그때 자동 재로그인 대신 Login 화면으로 보낸다(단순). 조용한 자동 재로그인은
   향후 검토.
-- **네이티브의 Google·데모 로그인** — 앱에는 세 버튼이 다 있지만 서버가 네이티브
-  응답(`AuthSession`)을 주는 경로는 Apple뿐이다. Google은 `/auth/google/native`가
-  아예 없고(웹은 redirect 콜백으로 처리한다), 데모는 `/auth/demo`가 존재하되 세션을
-  쿠키로만 심고 `SessionUser`를 돌려준다 — Bearer를 쓰는 네이티브가 받을 값이 없다.
-  URLSession의 쿠키 항아리로 데모를 "되게" 만들 수는 있으나 그러면 네이티브 세션이
-  Keychain 밖에서 살게 되어 §6의 저장 정책이 깨지므로, 그 우회는 택하지 않는다.
-  두 엔드포인트가 네이티브 응답을 주도록 여는 것이 남은 일이다.
+- **Android의 Sign in with Apple** — 앱에는 Apple 버튼이 있지만 Android에는 공식 네이티브
+  Sign in with Apple SDK가 없어 미지원으로 둔다(버튼을 누르면 안내를 띄운다). 웹 redirect
+  (`flow=native`)로 여는 방법이 있으나 별도 슬라이스로 검토한다. Google·Kakao·데모는
+  모두 네이티브(Bearer) 응답으로 실동작한다.
 - **Apple credential state 확인(iOS)** — Sign in with Apple의 opaque 사용자 식별자
   (`credential.user`)를 저장해 두면 앱 시작·포그라운드 복귀 때
   `ASAuthorizationAppleIDProvider.getCredentialState(forUserID:)`로 Apple에서 인증이
