@@ -30,6 +30,12 @@ class FakeRedis implements RedisClient {
     return Promise.resolve(entry.value);
   }
 
+  async getDel(key: string): Promise<string | null> {
+    const value = await this.get(key);
+    this.values.delete(key);
+    return value;
+  }
+
   del(...keys: string[]): Promise<number> {
     let removed = 0;
     for (const key of keys) {

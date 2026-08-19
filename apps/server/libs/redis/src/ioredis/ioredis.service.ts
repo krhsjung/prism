@@ -67,6 +67,10 @@ export class IoredisService implements RedisClient, OnModuleDestroy {
     return this.conn.get(key);
   }
 
+  getDel(key: string): Promise<string | null> {
+    return this.conn.getdel(key);
+  }
+
   del(...keys: string[]): Promise<number> {
     if (keys.length === 0) return Promise.resolve(0);
     return this.conn.del(...keys);

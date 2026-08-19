@@ -49,6 +49,10 @@ export interface RedisClient {
   // 값 + TTL(초). 세션 본체는 TTL로 자연 소멸한다.
   setEx(key: string, value: string, ttlSeconds: number): Promise<void>;
   get(key: string): Promise<string | null>;
+  // 값을 읽으면서 **원자적으로** 지운다(GETDEL) — 일회용 토큰/코드의 소비에 쓴다.
+  // get 후 del로 나누면 그 틈에 두 요청이 같은 값을 읽어 한 번만 유효해야 할 코드가
+  // 두 번 소비될 수 있다.
+  getDel(key: string): Promise<string | null>;
   del(...keys: string[]): Promise<number>;
 
   // 사용자별 세션 인덱스(정렬 집합).

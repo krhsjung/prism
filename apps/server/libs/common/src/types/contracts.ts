@@ -102,7 +102,11 @@ export function decodeSessionUser(v: JsonValue): SessionUser {
 // redirect: 전체 페이지 이동 후 웹 콜백 라우트로 복귀(모바일 브라우저 기본).
 // popup: 별도 창에서 진행하고 결과만 opener로 postMessage(데스크톱 기본 — 로그인 화면의
 // 입력/상태가 보존되고, 뒤로 가기 복원 문제 자체가 생기지 않는다).
-export const SOCIAL_FLOWS = ['redirect', 'popup'] as const;
+// native: 네이티브 앱이 시스템 웹 세션(ASWebAuthenticationSession 등)으로 여는 웹 OAuth.
+// 콜백은 쿠키/웹 페이지가 아니라 커스텀 스킴으로 **일회용 코드**를 앱에 돌려주고, 앱이
+// 그 코드를 토큰으로 교환한다(POST /auth/native/exchange). 쿠키를 안 쓰는 네이티브가
+// 웹 redirect 흐름으로도 Bearer 세션을 받게 하는 경로다.
+export const SOCIAL_FLOWS = ['redirect', 'popup', 'native'] as const;
 export type SocialFlow = (typeof SOCIAL_FLOWS)[number];
 
 // popup 흐름의 결과를 opener로 전달하는 메시지. 서버가 만든 콜백 페이지가 postMessage로

@@ -47,6 +47,10 @@ export class PrismConfigService {
     return this.app.http.webAppUrl;
   }
 
+  get nativeAuthCallbackUrl(): string {
+    return this.app.http.nativeAuthCallbackUrl;
+  }
+
   // ── JWT / 데모 ──
   get jwtSecret(): string {
     return this.app.auth.jwtSecret;

@@ -47,10 +47,20 @@ describe('AuthController', () => {
     revokeSession,
   } as object as AuthService;
 
+  // 네이티브 웹-redirect 일회용 코드 저장소(flow=native). 대부분의 테스트는 안 쓰지만
+  // 생성자에 필요하다 — issue는 고정 코드, redeem은 각 테스트가 원하는 값으로 설정.
+  const issueNativeCode = jest.fn(() => Promise.resolve('native-code-1'));
+  const redeemNativeCode = jest.fn();
+  const nativeCodes = {
+    issue: issueNativeCode,
+    redeem: redeemNativeCode,
+  } as object as import('./session/native-auth-code.service').NativeAuthCodeStore;
+
   const makeConfig = (demoEnabled = true, isProduction = false) =>
     ({
       demoEnabled,
       webAppUrl: 'http://web',
+      nativeAuthCallbackUrl: 'prism://auth/callback',
       isProduction,
       // 쿠키 이름 판단의 단일 원천 — 심는 쪽과 읽는 쪽이 같은 값을 본다.
       cookiePolicy: { isProduction, namespace: '' },
@@ -64,6 +74,7 @@ describe('AuthController', () => {
     tokens,
     sessionTokens,
     makeConfig(),
+    nativeCodes,
   );
 
   const makeRes = () => {
@@ -171,6 +182,7 @@ describe('AuthController', () => {
       tokens,
       sessionTokens,
       makeConfig(true, true),
+      nativeCodes,
     );
     const state = tokens.buildState('google', 'nA', 'redirect');
     const { fns, res } = makeRes();
@@ -196,6 +208,7 @@ describe('AuthController', () => {
       tokens,
       sessionTokens,
       makeConfig(true, true),
+      nativeCodes,
     );
     const start = makeRes();
     prod.socialStart(reqWith(), 'google', start.res);
@@ -240,6 +253,65 @@ describe('AuthController', () => {
       'prism_oauth_nB',
       expect.objectContaining({ httpOnly: true }),
     );
+  });
+
+  // ──────────────── 네이티브 웹-redirect (flow=native) ────────────────
+
+  it('flow=native 콜백 성공: 세션 쿠키 없이 커스텀 스킴으로 code를 돌려준다', async () => {
+    loginWithSocial.mockResolvedValueOnce(session);
+    const state = tokens.buildState('google', 'nN', 'native');
+    const { fns, res } = makeRes();
+    await controller.googleCallback(
+      reqWith('prism_oauth_nN=1'),
+      res,
+      'code-1',
+      state,
+      undefined,
+    );
+    expect(issueNativeCode).toHaveBeenCalledWith(session);
+    expect(fns.redirect).toHaveBeenCalledWith(
+      'prism://auth/callback?code=native-code-1',
+    );
+    // 네이티브는 쿠키를 심지 않는다 — 토큰은 code 교환으로만 간다.
+    expect(sessionCookieOf(fns)).toBeUndefined();
+  });
+
+  it('flow=native 콜백 실패: 커스텀 스킴에 error를 싣는다(code 미발급)', async () => {
+    loginWithSocial.mockRejectedValueOnce(new Error('exchange failed'));
+    const state = tokens.buildState('google', 'nN', 'native');
+    const { fns, res } = makeRes();
+    await controller.googleCallback(
+      reqWith('prism_oauth_nN=1'),
+      res,
+      'code-1',
+      state,
+      undefined,
+    );
+    expect(issueNativeCode).not.toHaveBeenCalled();
+    expect(fns.redirect).toHaveBeenCalledWith(
+      'prism://auth/callback?error=SIGNIN_FAILED',
+    );
+  });
+
+  it('native/exchange: 유효한 코드는 세션(AuthSession)을 반환한다', async () => {
+    redeemNativeCode.mockResolvedValueOnce(session);
+    await expect(controller.nativeExchange('native-code-1')).resolves.toBe(
+      session,
+    );
+    expect(redeemNativeCode).toHaveBeenCalledWith('native-code-1');
+  });
+
+  it('native/exchange: 없거나 소진된 코드는 401 INVALID_TOKEN', async () => {
+    redeemNativeCode.mockResolvedValueOnce(null);
+    await expect(controller.nativeExchange('used')).rejects.toMatchObject({
+      status: 401,
+      response: { error: 'INVALID_TOKEN' },
+    });
+  });
+
+  it('native/exchange: 코드가 없으면 401 (redeem 호출 안 함)', async () => {
+    await expect(controller.nativeExchange(undefined)).rejects.toThrow();
+    expect(redeemNativeCode).not.toHaveBeenCalled();
   });
 
   it('소진된 흐름의 콜백 재사용은 차단된다', async () => {
@@ -554,9 +626,27 @@ describe('AuthController', () => {
       tokens,
       sessionTokens,
       makeConfig(false),
+      nativeCodes,
     );
     const { res } = makeRes();
     await expect(disabled.demo(res)).rejects.toThrow();
+  });
+
+  it('demo/native: 토큰(AuthSession)을 body로 준다 — 쿠키를 심지 않는다', async () => {
+    // 쿠키 흐름과 같은 세션을 발급하되(issueDemoSession) 전달만 body다.
+    await expect(controller.demoNative()).resolves.toBe(session);
+    expect(issueDemoSession).toHaveBeenCalled();
+  });
+
+  it('demo/native: 비활성화면 503 DEMO_DISABLED', async () => {
+    const disabled = new AuthController(
+      authStub,
+      tokens,
+      sessionTokens,
+      makeConfig(false),
+      nativeCodes,
+    );
+    await expect(disabled.demoNative()).rejects.toThrow();
   });
 
   // ──────────────── 네이티브(모바일 SDK) 로그인 ────────────────
@@ -623,6 +713,7 @@ describe('AuthController', () => {
       tokens,
       sessionTokens,
       makeConfig(true, true),
+      nativeCodes,
     );
     const { fns, res } = makeRes();
 

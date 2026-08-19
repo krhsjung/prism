@@ -18,6 +18,7 @@ import {
   type OAuthClientRegistry,
 } from './oauth/oauth-client';
 import { AuthTokenService } from './session/auth-token.service';
+import { NativeAuthCodeStore } from './session/native-auth-code.service';
 import type { SocialProvider } from '@app/common';
 
 // 로그인·세션 발급을 담당하는 서비스. 세션 **검증**은 @app/session이 소유하고
@@ -50,6 +51,7 @@ import type { SocialProvider } from '@app/common';
   providers: [
     AuthService,
     AuthTokenService,
+    NativeAuthCodeStore,
     WebOriginGuard,
     // provider별 OAuth 클라이언트 — 설정 서비스에서 옵션을 받아 구성한다.
     {

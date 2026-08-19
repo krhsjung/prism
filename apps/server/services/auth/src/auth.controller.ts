@@ -22,6 +22,7 @@ import {
   AuthTokenService,
   type SocialState,
 } from './session/auth-token.service';
+import { NativeAuthCodeStore } from './session/native-auth-code.service';
 import {
   joinPersonName,
   parseAppleUserName,
@@ -95,6 +96,8 @@ export class AuthController {
     private readonly tokens: AuthTokenService,
     private readonly sessionTokens: SessionTokenService,
     private readonly config: PrismConfigService,
+    // 네이티브 웹-redirect 흐름의 일회용 코드 저장소(flow=native).
+    private readonly nativeCodes: NativeAuthCodeStore,
   ) {}
 
   // 원클릭 데모 로그인 — 외부 OAuth 없이 시드된 데모 계정으로 세션 발급.
@@ -113,6 +116,19 @@ export class AuthController {
       user: session.user,
       accessTokenTtlMs: this.config.accessTokenTtlMs,
     };
+  }
+
+  // 네이티브(Bearer) 데모 로그인. 쿠키를 심는 위 `demo`와 세션 발급은 같고(issueDemoSession),
+  // 전달만 다르다 — 토큰을 body(`AuthSession`)로 준다. 네이티브 앱은 쿠키를 쓰지 않고
+  // 안전 저장소(Keychain/Keystore)에 Bearer를 담기 때문이다(plan/auth.md §5·§6).
+  // 쿠키를 심지 않으므로 login-CSRF 대상이 아니라 WebOriginGuard는 두지 않는다.
+  @Post('demo/native')
+  @UseGuards(ThrottlerGuard)
+  async demoNative(): Promise<AuthSession> {
+    if (!this.config.demoEnabled) {
+      throw new HttpException({ error: AUTH_ERROR_CODES.DEMO_DISABLED }, 503);
+    }
+    return this.auth.issueDemoSession();
   }
 
   // ──────────────────── 콜백 (provider별 프로토콜이 달라 통합하지 않음) ────────────────────
@@ -141,10 +157,9 @@ export class AuthController {
 
     try {
       const session = await this.auth.loginWithSocial('google', code);
-      this.setSession(res, session);
-      this.finish(req, res, consumed.flow, { ok: true });
+      await this.completeSocialSuccess(req, res, consumed.flow, session);
     } catch (e) {
-      this.logger.error(`[google] callback failed: ${this.reason(e)}`);
+      this.logFailure(`[google] callback failed`, e);
       this.finish(req, res, consumed.flow, { ok: false, code: SIGNIN_FAILED });
     }
   }
@@ -173,10 +188,9 @@ export class AuthController {
 
     try {
       const session = await this.auth.loginWithSocial('kakao', code);
-      this.setSession(res, session);
-      this.finish(req, res, consumed.flow, { ok: true });
+      await this.completeSocialSuccess(req, res, consumed.flow, session);
     } catch (e) {
-      this.logger.error(`[kakao] callback failed: ${this.reason(e)}`);
+      this.logFailure(`[kakao] callback failed`, e);
       this.finish(req, res, consumed.flow, { ok: false, code: SIGNIN_FAILED });
     }
   }
@@ -211,10 +225,9 @@ export class AuthController {
         code,
         this.appleNameOf(user),
       );
-      this.setSession(res, session);
-      this.finish(req, res, consumed.flow, { ok: true });
+      await this.completeSocialSuccess(req, res, consumed.flow, session);
     } catch (e) {
-      this.logger.error(`[apple] callback failed: ${this.reason(e)}`);
+      this.logFailure(`[apple] callback failed`, e);
       this.finish(req, res, consumed.flow, { ok: false, code: SIGNIN_FAILED });
     }
   }
@@ -236,7 +249,7 @@ export class AuthController {
     try {
       return await this.auth.loginWithAppleNative(identityToken, nonce, user);
     } catch (e) {
-      this.logger.error(`[apple/native] login failed: ${this.reason(e)}`);
+      this.logFailure(`[apple/native] login failed`, e);
       throw new HttpException({ error: AUTH_ERROR_CODES.INVALID_TOKEN }, 401);
     }
   }
@@ -254,7 +267,7 @@ export class AuthController {
     try {
       return await this.auth.loginWithGoogleNative(idToken);
     } catch (e) {
-      this.logger.error(`[google/native] login failed: ${this.reason(e)}`);
+      this.logFailure(`[google/native] login failed`, e);
       throw new HttpException({ error: AUTH_ERROR_CODES.INVALID_TOKEN }, 401);
     }
   }
@@ -273,9 +286,24 @@ export class AuthController {
     try {
       return await this.auth.loginWithKakaoNative(accessToken);
     } catch (e) {
-      this.logger.error(`[kakao/native] login failed: ${this.reason(e)}`);
+      this.logFailure(`[kakao/native] login failed`, e);
       throw new HttpException({ error: AUTH_ERROR_CODES.INVALID_TOKEN }, 401);
     }
+  }
+
+  // 네이티브 웹-redirect(flow=native) 로그인의 일회용 코드를 토큰으로 교환한다.
+  // 콜백이 커스텀 스킴으로 돌려준 코드를 앱이 여기 보내면 세션(AuthSession)을 받는다.
+  // 코드는 1회용(GETDEL)이라 두 번째 교환은 실패한다.
+  @Post('native/exchange')
+  @UseGuards(ThrottlerGuard)
+  async nativeExchange(
+    @Body('code') code?: string,
+  ): Promise<AuthSession> {
+    const session = code ? await this.nativeCodes.redeem(code) : null;
+    if (!session) {
+      throw new HttpException({ error: AUTH_ERROR_CODES.INVALID_TOKEN }, 401);
+    }
+    return session;
   }
 
   // ──────────────────────── 세션 ────────────────────────
@@ -425,8 +453,15 @@ export class AuthController {
     const social = SOCIAL_PROVIDERS.find((p) => p === provider);
     const wanted = SOCIAL_FLOWS.find((f) => f === flow) ?? 'redirect';
     if (!social || !this.config.socialConfigured(social)) {
+      // 안전값만: provider 문자열(미지 provider면 원문)·flow. state URL은 남기지 않는다.
+      this.logger.debug(
+        `signin_started: provider=${provider} flow=${wanted} configured=false`,
+      );
       return this.finish(req, res, wanted, { ok: false, code: SIGNIN_FAILED });
     }
+    this.logger.debug(
+      `signin_started: provider=${social} flow=${wanted} configured=true`,
+    );
     const nonce = randomUUID();
     // 이 흐름 전용 쿠키 — 다른 탭의 흐름과 이름부터 분리된다.
     const isProd = this.config.isProduction;
@@ -513,7 +548,25 @@ export class AuthController {
     return cancelled ? { ok: false } : { ok: false, code: SIGNIN_FAILED };
   }
 
-  // 콜백 종료 — 세션 쿠키는 이미 심겼고, 여기서는 "결과를 어떻게 알릴지"만 정한다.
+  // 소셜 콜백 성공 처리 — flow에 따라 세션을 어떻게 넘길지 가른다.
+  //  - native: 쿠키를 심지 않고, 일회용 코드를 만들어 커스텀 스킴으로 앱에 돌려준다.
+  //    (앱은 그 코드를 /auth/native/exchange로 교환해 토큰을 받는다)
+  //  - redirect/popup: 기존대로 세션 쿠키를 심고 웹 방식으로 결과를 알린다.
+  private async completeSocialSuccess(
+    req: Request,
+    res: Response,
+    flow: SocialFlow | undefined,
+    session: AuthSession,
+  ): Promise<void> {
+    if (flow === 'native') {
+      const code = await this.nativeCodes.issue(session);
+      return res.redirect(this.nativeCallbackUrl({ code }));
+    }
+    this.setSession(res, session);
+    this.finish(req, res, flow, { ok: true });
+  }
+
+  // 콜백 종료 — 결과를 어떻게 알릴지 정한다(성공 세션 전달은 completeSocialSuccess가 한다).
   // flow가 undefined면 state를 못 읽은 경우(만료·위조)라 신뢰할 정보가 없다.
   // 이때는 브라우저가 스스로 판단하게 둔다 — opener가 있으면 popup, 없으면 redirect.
   private finish(
@@ -522,6 +575,12 @@ export class AuthController {
     flow: SocialFlow | undefined,
     out: Outcome,
   ): void {
+    if (flow === 'native') {
+      // native는 성공이 아니라 실패/취소로만 여기 온다 — 커스텀 스킴에 오류만 싣는다.
+      return res.redirect(
+        this.nativeCallbackUrl(out.ok || !out.code ? {} : { error: out.code }),
+      );
+    }
     if (flow === 'redirect') {
       return res.redirect(this.landingUrl(out));
     }
@@ -533,6 +592,16 @@ export class AuthController {
     const web = this.config.webAppUrl;
     if (out.ok) return `${web}/auth/callback`;
     return `${web}/login${out.code ? `?error=${out.code}` : ''}`;
+  }
+
+  // 네이티브 앱 콜백(커스텀 스킴) 주소 — 성공은 code, 실패는 error를 싣는다(둘 다 없으면 취소).
+  private nativeCallbackUrl(params: { code?: string; error?: string }): string {
+    const base = this.config.nativeAuthCallbackUrl;
+    if (params.code) return `${base}?code=${encodeURIComponent(params.code)}`;
+    if (params.error) {
+      return `${base}?error=${encodeURIComponent(params.error)}`;
+    }
+    return base;
   }
 
   // popup(또는 flow 미상) 흐름의 종료 페이지.
@@ -585,6 +654,16 @@ export class AuthController {
 })();
 </script>`,
     );
+  }
+
+  // 실패를 남기되, 원시 오류 메시지는 **개발에서만** 남긴다.
+  // e.message는 google-auth-library·jose·Kakao HTTP 등 서드파티 경계에서 와서 토큰·URL을
+  // 품을 수 있다 — 운영/공개 로그에는 provider 스코프만 남기고 원인은 dev debug로만 흘린다.
+  private logFailure(scope: string, e: unknown): void {
+    this.logger.error(`${scope} failed`);
+    if (!this.config.isProduction) {
+      this.logger.debug(`${scope} reason: ${this.reason(e)}`);
+    }
   }
 
   // catch 변수를 타입 키워드 없이 받기 위한 제네릭(내부에서 instanceof로 좁힌다).

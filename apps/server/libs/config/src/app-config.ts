@@ -20,6 +20,9 @@ export interface HttpConfig {
   corsOrigins: string[] | undefined;
   // 로그인 완료 후 브라우저를 돌려보낼 웹 앱 주소.
   webAppUrl: string;
+  // 네이티브 웹-redirect(flow=native) 로그인이 일회용 코드를 돌려보낼 앱 콜백 —
+  // 커스텀 스킴 주소. 앱이 ASWebAuthenticationSession 등으로 이 스킴을 캡처한다.
+  nativeAuthCallbackUrl: string;
 }
 
 export interface AuthConfig {
@@ -120,6 +123,8 @@ export function loadHttpConfig(env: Env): HttpConfig {
           .filter(Boolean)
       : undefined,
     webAppUrl: webAppUrl || 'http://localhost:5173',
+    nativeAuthCallbackUrl:
+      str(env, 'PRISM_NATIVE_AUTH_CALLBACK') || 'prism://auth/callback',
   };
 }
 

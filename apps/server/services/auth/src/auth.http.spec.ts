@@ -10,6 +10,7 @@ import { AuthService } from './auth.service';
 import { WebOriginGuard } from './web-origin.guard';
 import { JwtAuthGuard, SessionTokenService } from '@app/session';
 import { AuthTokenService } from './session/auth-token.service';
+import { NativeAuthCodeStore } from './session/native-auth-code.service';
 
 // jose는 ESM 전용이라 jest(CJS)가 파싱하지 못한다 — 이 스펙은 AppleOAuthClient를
 // 인스턴스화하지 않으므로(import 경유로만 닿음) 모듈 로드만 차단한다.
@@ -94,10 +95,18 @@ describe('auth HTTP 경계', () => {
         { provide: AuthService, useValue: auth },
         { provide: SessionsRepository, useValue: sessions },
         {
+          provide: NativeAuthCodeStore,
+          useValue: {
+            issue: jest.fn(() => Promise.resolve('native-code')),
+            redeem: jest.fn(() => Promise.resolve(null)),
+          },
+        },
+        {
           provide: PrismConfigService,
           useValue: {
             demoEnabled: true,
             webAppUrl: WEB,
+            nativeAuthCallbackUrl: 'prism://auth/callback',
             isProduction: false,
             // 쿠키 이름 판단의 단일 원천 — 심는 쪽과 읽는 쪽이 같은 값을 본다.
             cookiePolicy: { isProduction: false, namespace: '' },
@@ -141,6 +150,20 @@ describe('auth HTTP 경계', () => {
     expect(session).toContain('HttpOnly');
     expect(session).toContain('SameSite=Lax');
     expect(session).toContain('Path=/');
+  });
+
+  it('demo/native: 토큰을 body로 주고 쿠키는 심지 않는다 (출처 검증 없음)', async () => {
+    // 쿠키 데모와 달리 Origin 없이도 통과해야 한다(login-CSRF 대상이 아님).
+    const res = await server().post('/auth/demo/native').expect(201);
+
+    expect(res.body).toEqual({
+      accessToken: expect.any(String),
+      refreshToken: 'sess-1.secret-1',
+      user,
+    });
+    // Bearer 흐름이라 세션 쿠키가 실리면 안 된다.
+    const setCookie = res.get('Set-Cookie') ?? [];
+    expect(setCookie.some((c) => c.startsWith('prism_session='))).toBe(false);
   });
 
   // WebOriginGuard가 실제로 이 라우트에 붙어 있는지는 HTTP로만 증명된다.
