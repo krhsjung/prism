@@ -16,3 +16,16 @@ node_modules/
 
 # Helm: install.sh가 생성하는 env 치환 임시 values (시크릿 평문 포함 — 커밋 금지)
 infra/deploy/charts/*/values.generated.yaml
+
+# 시크릿/자격증명 — 실제 값이 담긴 파일은 절대 커밋 금지.
+# (OAuth 클라이언트 ID는 공개 값이라 무방하다. 아래는 진짜 민감한 것들)
+# gitignore는 인라인 주석을 지원하지 않으므로 설명은 이 위에만 둔다:
+#   .p8=Apple Sign In 비공개 키, GoogleService-Info.plist=Google 서비스 키,
+#   Secrets.xcconfig=빌드 설정에 담은 앱 키 등.
+.env
+.env.*
+!.env.example
+*.p8
+GoogleService-Info.plist
+Secrets.xcconfig
+*.secret.xcconfig
