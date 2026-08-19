@@ -180,8 +180,10 @@ export class AuthService {
       this.config.refreshTokenTtlMs,
       SESSION_ABSOLUTE_TTL_MS,
     );
-    // PII 로그 금지: provider_id(sub)·표시 이름은 남기지 않고 내부 id만 기록.
-    this.logger.log(`[${provider}] session issued for user ${userId}`);
+    // PII·식별자 로그 금지: provider_id(sub)·표시 이름은 물론, 내부 user uuid도 남기지
+    // 않는다 — uuid는 세션 간 안정적이라 로그가 활동 추적 트레일이 된다(공개 포트폴리오라
+    // 리뷰어 상관관계를 피한다). 방식 파악에 provider만 남긴다.
+    this.logger.log(`[${provider}] session issued`);
     return {
       accessToken: this.tokens.signSession(userId, issued.sessionId),
       refreshToken: issued.refreshCredential,
@@ -203,9 +205,9 @@ export class AuthService {
     );
 
     if (rotated.status === 'reused') {
-      this.logger.warn(
-        `refresh credential reused — session revoked: ${sessionId}`,
-      );
+      // 보안 이벤트라 WARN으로 남기되, 세션 id는 싣지 않는다 — id는 refresh 자격증명의
+      // 접두어이자 세션 관리 API의 식별자라, 로그에 두면 상관관계 추적에 쓰인다.
+      this.logger.warn('refresh credential reused — session revoked');
       return { status: 'reuse-detected' };
     }
     if (rotated.status !== 'rotated') return { status: 'failed' };

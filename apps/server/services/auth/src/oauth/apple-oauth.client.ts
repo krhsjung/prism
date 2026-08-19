@@ -27,7 +27,9 @@ export class AppleOAuthClient implements OAuthClient {
       redirect_uri: this.options.redirectUri,
       response_type: 'code',
       response_mode: 'form_post',
-      scope: 'name email',
+      // email은 요청하지 않는다(개인정보 미저장 — iOS 네이티브 흐름과도 일치).
+      // name만 받아 세션 표시 이름으로 쓰고, sub는 id_token에 늘 담겨 온다.
+      scope: 'name',
       state,
     });
     return `${APPLE_AUTH_URL}?${params.toString()}`;

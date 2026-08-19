@@ -29,7 +29,9 @@ export class GoogleOAuthClient implements OAuthClient {
   // 사용자를 Google 로그인 페이지로 보낼 authorization URL. state는 CSRF 방어용.
   generateAuthUrl(state: string): string {
     return this.client.generateAuthUrl({
-      scope: ['email', 'profile'],
+      // email은 요청하지 않는다(개인정보 미저장 정책 — 동의 화면도 이 정책과 맞춘다).
+      // profile로 표시 이름(name)을 얻고, 안정적 식별자(id=sub)는 스코프와 무관하게 온다.
+      scope: ['profile'],
       state,
       response_type: 'code',
       // refresh token을 쓰지 않으므로 online 접근으로 둔다.

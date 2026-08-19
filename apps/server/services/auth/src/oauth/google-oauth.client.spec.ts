@@ -23,7 +23,8 @@ describe('GoogleOAuthClient', () => {
       'https://example.test/auth/google/callback',
     );
     expect(url.searchParams.get('response_type')).toBe('code');
-    expect(url.searchParams.get('scope')).toBe('email profile');
+    // email은 요청하지 않는다(개인정보 미저장) — profile만.
+    expect(url.searchParams.get('scope')).toBe('profile');
     expect(url.searchParams.get('state')).toBe('state-1');
   });
 
