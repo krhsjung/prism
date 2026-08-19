@@ -4,6 +4,7 @@ import { Button } from '../components/Button';
 import { LocaleSwitcher } from '../components/LocaleSwitcher';
 import { ThemeSwitcher } from '../components/ThemeSwitcher';
 import { API_ORIGIN, ApiError, api } from '../lib/api';
+import { log } from '../lib/log';
 import { useAuth } from '../lib/auth-context';
 import { useI18n } from '../lib/i18n/i18n-context';
 import type { MessageKey } from '../lib/i18n/messages.gen';
@@ -84,13 +85,20 @@ export function LoginPage() {
 
     // 데스크톱은 팝업 — 로그인 화면이 살아있으니 뒤로 가기 복원 문제 자체가 없고,
     // 취소해도 페이지 상태가 그대로다. 모바일·팝업 차단 시에는 redirect로 폴백한다.
-    if (!prefersPopup()) return startRedirect(provider);
+    if (!prefersPopup()) {
+      log.auth('signin', { outcome: 'started', provider, method: 'redirect' });
+      return startRedirect(provider);
+    }
 
+    log.auth('signin', { outcome: 'started', provider, method: 'popup' });
     const popup = openOAuthPopup(
       api.socialLoginUrl(provider, 'popup'),
       API_ORIGIN,
     );
-    if (!popup) return startRedirect(provider);
+    if (!popup) {
+      log.auth('signin', { outcome: 'popup_blocked', provider });
+      return startRedirect(provider);
+    }
 
     popupRef.current = popup;
     const result = await popup.result;
@@ -101,10 +109,20 @@ export function LoginPage() {
     // 창을 닫으므로, 메시지 배달보다 닫힘이 먼저 관측되면 로그인에 성공하고도
     // 로그인 화면에 남는다. 쿠키는 이미 심겼으니 서버에 물어보면 확실하다.
     if (!result.error) {
-      if (await refresh()) return navigate('/dashboard', { replace: true });
+      if (await refresh()) {
+        log.auth('signin', { outcome: 'success', provider, method: 'popup' });
+        return navigate('/dashboard', { replace: true });
+      }
       // 성공 메시지를 받았는데 세션이 없다면 진짜 실패다.
-      if (result.ok) setErrorKey(keyFor(AUTH_ERROR_CODES.SIGNIN_FAILED));
+      if (result.ok) {
+        log.auth('signin', { outcome: 'failed', provider });
+        setErrorKey(keyFor(AUTH_ERROR_CODES.SIGNIN_FAILED));
+      } else {
+        log.auth('signin', { outcome: 'cancelled', provider });
+      }
     } else {
+      // 오류 코드는 계약 상수라 안전하다(사용자 값·토큰 아님).
+      log.auth('signin', { outcome: 'failed', provider, code: result.error });
       setErrorKey(keyFor(result.error));
     }
     // 취소(오류 코드 없음 + 세션 없음)는 조용히 원상 복귀한다.
@@ -114,12 +132,16 @@ export function LoginPage() {
   async function handleDemo() {
     setErrorKey(null);
     setPending('demo');
+    log.auth('signin', { outcome: 'started', provider: 'demo', method: 'demo' });
     try {
       // 세션 쿠키는 서버가 응답에 심는다 — 웹은 사용자와 액세스 토큰 수명만 채택한다.
       const { user, accessTokenTtlMs } = await api.demoLogin();
       signIn(user, accessTokenTtlMs);
+      log.auth('signin', { outcome: 'success', provider: 'demo', method: 'demo' });
       navigate('/dashboard', { replace: true });
     } catch (e) {
+      const code = e instanceof ApiError ? e.code : 'UNKNOWN';
+      log.auth('signin', { outcome: 'failed', provider: 'demo', code });
       setErrorKey(e instanceof ApiError ? keyFor(e.code) : GENERIC_ERROR_KEY);
       setPending(null);
     }

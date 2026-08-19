@@ -8,6 +8,7 @@ import {
   type SocialFlow,
   type SocialProvider,
 } from './contracts.gen';
+import { log, routeTemplate } from './log';
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 
@@ -30,8 +31,10 @@ export class ApiError extends Error {
 const REQUEST_TIMEOUT_MS = 10_000;
 
 async function fetchOrThrow(path: string, init?: RequestInit): Promise<Response> {
+  const method = init?.method ?? 'GET';
+  const route = routeTemplate(path);
   try {
-    return await fetch(`${API_URL}${path}`, {
+    const res = await fetch(`${API_URL}${path}`, {
       headers: { 'Content-Type': 'application/json', ...(init?.headers ?? {}) },
       ...init,
       // 세션은 HttpOnly 쿠키다 — JS가 토큰을 들고 다니지 않으므로 쿠키를 실어 보낸다.
@@ -39,8 +42,12 @@ async function fetchOrThrow(path: string, init?: RequestInit): Promise<Response>
       credentials: 'include',
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
+    // 메서드·라우트 템플릿·상태만 남긴다(원시 경로·쿼리·바디는 넣지 않는다).
+    log.net('http', { method, route, status: res.status });
+    return res;
   } catch {
     // 타임아웃(TimeoutError)도 네트워크 문제로 묶는다.
+    log.net('http_error', { method, route, code: CLIENT_ERROR_CODES.NETWORK_ERROR });
     throw new ApiError(0, CLIENT_ERROR_CODES.NETWORK_ERROR);
   }
 }
@@ -64,15 +71,21 @@ function refreshSession(): Promise<RefreshResult> {
   refreshing ??= (async () => {
     try {
       const res = await fetchOrThrow('/auth/refresh', { method: 'POST' });
-      if (!res.ok) return { ok: false, ttlMs: null };
+      if (!res.ok) {
+        log.auth('refresh', { outcome: 'rejected', status: res.status });
+        return { ok: false, ttlMs: null };
+      }
       // 쿠키 흐름의 갱신 응답은 { user, accessTokenTtlMs }(토큰은 쿠키로만).
       try {
         const { accessTokenTtlMs } = decodeSessionUser(await jsonBodyOf(res));
+        log.auth('refresh', { outcome: 'rotated' });
         return { ok: true, ttlMs: accessTokenTtlMs };
       } catch {
+        log.auth('refresh', { outcome: 'rotated_undecodable' });
         return { ok: true, ttlMs: null };
       }
     } catch {
+      log.auth('refresh', { outcome: 'network_error' });
       return { ok: false, ttlMs: null };
     } finally {
       // 다음 만료 때 다시 시도할 수 있도록 비운다.

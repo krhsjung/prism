@@ -7,6 +7,7 @@ import {
   type ReactNode,
 } from 'react';
 import { api } from './api';
+import { log } from './log';
 import {
   AuthContext,
   type AuthContextValue,
@@ -93,15 +94,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const gen = ++generation.current;
     try {
       const { user, accessTokenTtlMs } = await api.me();
-      if (generation.current !== gen) return false; // 더 새로운 전이가 있었음 — 폐기
+      if (generation.current !== gen) {
+        log.auth('session_restore', { outcome: 'superseded' });
+        return false; // 더 새로운 전이가 있었음 — 폐기
+      }
       setState({ status: 'authenticated', user });
       lastRefreshAt.current = Date.now();
       schedule(accessTokenTtlMs);
+      log.auth('session_restore', { outcome: 'restored' });
       return true;
     } catch {
-      if (generation.current !== gen) return false;
+      if (generation.current !== gen) {
+        log.auth('session_restore', { outcome: 'superseded' });
+        return false;
+      }
       setState({ status: 'anonymous' });
       clearRefreshTimer();
+      log.auth('session_restore', { outcome: 'anonymous' });
       return false;
     }
   }, [schedule, clearRefreshTimer]);
@@ -165,12 +174,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       await api.logout();
     } catch {
+      log.auth('logout', { outcome: 'failed' });
       return false; // 쿠키가 그대로다 — 여전히 로그인 상태
     }
     if (generation.current === gen) {
       setState({ status: 'anonymous' });
       clearRefreshTimer();
     }
+    log.auth('logout', { outcome: 'success' });
     return true;
   }, [clearRefreshTimer]);
 
