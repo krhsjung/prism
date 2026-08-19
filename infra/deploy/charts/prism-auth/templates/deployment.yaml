@@ -44,6 +44,8 @@ spec:
               value: {{ .Values.env.cookieNamespace | quote }}
             - name: PRISM_WEB_APP_URL
               value: {{ .Values.env.webAppUrl | quote }}
+            - name: PRISM_NATIVE_AUTH_CALLBACK
+              value: {{ .Values.env.nativeAuthCallback | quote }}
             - name: PRISM_GOOGLE_CLIENT_ID
               value: {{ .Values.env.googleClientId | quote }}
             - name: PRISM_GOOGLE_REDIRECT_URI

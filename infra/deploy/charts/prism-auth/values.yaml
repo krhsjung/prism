@@ -25,6 +25,9 @@ env:
   cookieNamespace: "${PRISM_COOKIE_NAMESPACE:-}"
   # 로그인 완료 후 브라우저를 되돌려보낼 웹 앱 주소.
   webAppUrl: "https://${PRISM_SERVICE_DOMAIN}"
+  # 네이티브 웹-redirect(flow=native) 로그인이 일회용 코드를 돌려보낼 앱 커스텀 스킴.
+  # 앱이 등록한 스킴과 같아야 한다(기본 prism://auth/callback).
+  nativeAuthCallback: "${PRISM_NATIVE_AUTH_CALLBACK:-prism://auth/callback}"
   # 소셜 OAuth — 비시크릿 설정(미설정 시 빈 값 → 해당 provider 비활성).
   # redirect URI는 nginx가 /auth를 auth 서비스로 보내므로 도메인 기준으로 구성한다.
   googleClientId: "${PRISM_GOOGLE_CLIENT_ID:-}"
