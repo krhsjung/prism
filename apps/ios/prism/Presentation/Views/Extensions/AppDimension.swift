@@ -65,6 +65,22 @@ enum AppDimension {
         static let disabledOpacity: Double = 0.55
     }
 
+    /// 선택 메뉴(웹 `.select__*`) — 테마·언어 스위처가 공유한다.
+    ///
+    /// 웹의 트리거는 36, 메뉴 한 줄은 위아래 8 패딩(≈36)이지만 여기서는 둘 다 손가락이
+    /// 누르는 표적이라 최소 터치 크기(44, HIG)까지 키운다. 나머지 수치(너비·패딩·간격)는
+    /// 웹과 같다 — 생김새가 갈라지는 것은 높이 하나뿐이다.
+    enum Select {
+        static let triggerHeight: CGFloat = 44
+        static let triggerPadding: CGFloat = 12
+        static let menuWidth: CGFloat = 184
+        static let menuPadding: CGFloat = 4
+        static let optionHeight: CGFloat = 44
+        static let optionPadding: CGFloat = 12
+        static let optionSpacing: CGFloat = 2
+        static let borderWidth: CGFloat = 1
+    }
+
     enum Alert {
         static let horizontalPadding: CGFloat = 14
         static let verticalPadding: CGFloat = 12
