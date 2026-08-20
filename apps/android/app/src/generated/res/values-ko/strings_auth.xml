@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!-- 로그인 화면 -->
+    <string name="auth_welcome_back">다시 오셨네요</string>
+    <string name="auth_sign_in_to_continue">계속하려면 로그인하세요</string>
+    <string name="auth_continue_with_google">Google로 계속하기</string>
+    <string name="auth_continue_with_apple">Apple로 계속하기</string>
+    <string name="auth_continue_with_kakao">카카오로 계속하기</string>
+    <string name="auth_try_the_demo">데모 체험하기</string>
+    <string name="auth_connecting">연결하는 중…</string>
+    <string name="auth_no_personal_data">이 포트폴리오는 개인정보를 저장하지 않습니다.</string>
+
+    <!-- 소셜 로그인 redirect 착지 화면 -->
+    <string name="auth_signing_you_in">로그인하는 중…</string>
+</resources>

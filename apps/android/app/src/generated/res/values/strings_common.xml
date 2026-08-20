@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!-- 화면 공통 -->
+    <string name="common_loading">Loading…</string>
+    <string name="common_language">Language</string>
+    <string name="common_theme">Theme</string>
+</resources>

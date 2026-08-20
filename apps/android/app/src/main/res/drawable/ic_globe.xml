@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  언어 선택 트리거 아이콘. 획(stroke)만 있고 색은 그리는 쪽이 tint로 정한다 —
+  라이트/다크·기본/열림 상태마다 색이 달라지므로 여기에 값을 박으면 한 벌만 맞는다.
+  path는 웹 LocaleSwitcher의 GlobeIcon과 같은 24 그리드다.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:pathData="M12,2a10,10 0 1,0 0,20 10,10 0 1,0 0,-20M2,12h20M12,2a14.5,14.5 0 0,0 0,20 14.5,14.5 0 0,0 0,-20"
+        android:strokeWidth="2"
+        android:strokeColor="#FF000000"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+</vector>

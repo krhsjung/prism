@@ -1,0 +1,23 @@
+*.iml
+.gradle
+/local.properties
+
+# 네이티브 소셜 로그인 크리덴셜(비시크릿이지만 커밋 소스에서는 분리한다).
+# 템플릿은 secrets.example.properties 이고 그쪽은 커밋된다.
+secrets.properties
+/.idea/caches
+/.idea/libraries
+/.idea/modules.xml
+/.idea/workspace.xml
+/.idea/navEditor.xml
+/.idea/assetWizardSettings.xml
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+
+# 네이티브 소셜 로그인 크리덴셜(비시크릿이지만 커밋 소스에서는 분리한다).
+# 템플릿은 secrets.example.properties 이고 그쪽은 커밋된다.
+secrets.properties

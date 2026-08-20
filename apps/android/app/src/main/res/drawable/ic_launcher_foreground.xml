@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  런처 아이콘 전경 — 워드마크의 P. iOS 앱 아이콘(AppIcon-1024.png)의 글자 형태를 재서
+  옮겼다: 줄기 + 볼(오른쪽이 둥근 스타디움) + 카운터(구멍).
+
+  좌표는 108 뷰포트지만 글자는 가운데 72(=안전 영역)에만 놓는다 — 어댑티브 아이콘은
+  런처가 바깥을 잘라내므로, 가장자리까지 채우면 마스크 모양에 따라 글자가 잘린다.
+  그래서 iOS의 1024 캔버스를 이 72 영역에 대응시켰다(글자가 차지하는 비율은 양쪽이 같다).
+
+  구멍은 evenOdd로 뚫는다 — 두 번째 서브패스가 첫 번째와 겹치는 부분이 비워진다.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#FFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M37.477,33.539H57.305A15.434,15.434 0 0 1 57.305,64.406H49.359V77.484H37.477ZM49.359,43.031H54.211A6.082,6.082 0 0 1 54.211,55.195H49.359Z" />
+</vector>

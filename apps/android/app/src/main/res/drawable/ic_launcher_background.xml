@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  런처 아이콘 배경 — iOS 앱 아이콘과 같은 네이비 그라디언트(왼쪽 위 → 오른쪽 아래).
+  값은 apps/ios의 AppIcon-1024.png에서 그대로 가져왔다: 두 앱의 아이콘이 갈라지지
+  않도록 한쪽을 원본으로 삼는다. 시작색은 디자인 토큰의 primary(#1D3557) 계열이다.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path android:pathData="M0,0h108v108h-108z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="0"
+                android:startY="0"
+                android:endX="108"
+                android:endY="108"
+                android:startColor="#1C3556"
+                android:endColor="#172339" />
+        </aapt:attr>
+    </path>
+</vector>

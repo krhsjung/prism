@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!-- 오류 메시지 — 키는 계약의 오류 코드와 1:1로 대응한다 (contracts.ts) -->
+    <string name="error_generic">Something went wrong. Please try again in a moment.</string>
+    <string name="error_signin_failed">Couldn’t sign you in. Try again or use another method.</string>
+    <string name="error_demo_disabled">Demo login is disabled right now.</string>
+    <string name="error_network_error">Connection lost. Check your network and try again.</string>
+
+    <!-- 계약의 오류 코드가 아니라 클라이언트가 만드는 문구 — 서버에 해당 흐름의 엔드포인트가 아직 없을 때 -->
+    <string name="error_provider_unavailable">That sign-in method isn’t available in this app yet.</string>
+    <string name="error_logout_failed">Couldn’t log you out. You’re still signed in — check your connection and try again.</string>
+    <string name="error_sessions_load_failed">Couldn’t load your sessions. Check your connection and try again.</string>
+    <string name="error_revoke_failed">Couldn’t sign out that session. Try again.</string>
+</resources>

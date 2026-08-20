@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!-- 대시보드 -->
+    <string name="dashboard_title">ダッシュボード</string>
+    <string name="dashboard_signed_in_as">{name} としてサインイン中</string>
+    <string name="dashboard_log_out">ログアウト</string>
+    <string name="dashboard_logging_out">ログアウトしています…</string>
+    <string name="dashboard_placeholder_body">ログインできました。認証の vertical slice 用の仮ダッシュボードで、デモログインの流れが最後まで動作します。</string>
+    <string name="dashboard_nav_webrtc">WebRTC</string>
+    <string name="dashboard_coming_soon">準備中</string>
+    <string name="dashboard_navigation">ナビゲーション</string>
+    <string name="dashboard_open_menu">メニューを開く</string>
+    <string name="dashboard_close_menu">メニューを閉じる</string>
+    <string name="dashboard_active_sessions">アクティブなセッション</string>
+    <string name="dashboard_active_sessions_desc">アカウントがサインインしている場所</string>
+    <string name="dashboard_sign_out_all">すべてサインアウト</string>
+    <string name="dashboard_signing_out_all">サインアウトしています…</string>
+    <string name="dashboard_col_session">セッション</string>
+    <string name="dashboard_col_started">開始</string>
+    <string name="dashboard_col_expires">有効期限</string>
+    <string name="dashboard_col_status">ステータス</string>
+    <string name="dashboard_status_current">現在</string>
+    <string name="dashboard_status_active">アクティブ</string>
+    <string name="dashboard_this_session">このセッション</string>
+    <string name="dashboard_a_session">サインイン中のセッション</string>
+    <string name="dashboard_revoke">解除</string>
+    <string name="dashboard_revoking">解除しています…</string>
+    <string name="dashboard_only_this_session">この端末でのみサインインしています。</string>
+    <string name="dashboard_retry">もう一度試す</string>
+</resources>

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!-- 오류 메시지 — 키는 계약의 오류 코드와 1:1로 대응한다 (contracts.ts) -->
+    <string name="error_generic">問題が発生しました。しばらくしてからもう一度お試しください。</string>
+    <string name="error_signin_failed">サインインできませんでした。もう一度お試しになるか別の方法をご利用ください。</string>
+    <string name="error_demo_disabled">現在デモログインはご利用いただけません。</string>
+    <string name="error_network_error">接続が切れました。ネットワークを確認してもう一度お試しください。</string>
+
+    <!-- 계약의 오류 코드가 아니라 클라이언트가 만드는 문구 — 서버에 해당 흐름의 엔드포인트가 아직 없을 때 -->
+    <string name="error_provider_unavailable">このサインイン方法はまだアプリでご利用いただけません。</string>
+    <string name="error_logout_failed">ログアウトできませんでした。まだサインインしたままです — 接続を確認してもう一度お試しください。</string>
+    <string name="error_sessions_load_failed">セッションを読み込めませんでした。接続を確認してもう一度お試しください。</string>
+    <string name="error_revoke_failed">そのセッションをサインアウトできませんでした。もう一度お試しください。</string>
+</resources>

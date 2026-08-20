@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!-- 대시보드 -->
+    <string name="dashboard_title">Dashboard</string>
+    <string name="dashboard_signed_in_as">Signed in as {name}</string>
+    <string name="dashboard_log_out">Log out</string>
+    <string name="dashboard_logging_out">Logging out…</string>
+    <string name="dashboard_placeholder_body">You’re in. This is a placeholder dashboard for the authentication vertical slice — the demo login flow works end to end.</string>
+    <string name="dashboard_nav_webrtc">WebRTC</string>
+    <string name="dashboard_coming_soon">Coming soon</string>
+    <string name="dashboard_navigation">Navigation</string>
+    <string name="dashboard_open_menu">Open menu</string>
+    <string name="dashboard_close_menu">Close menu</string>
+    <string name="dashboard_active_sessions">Active sessions</string>
+    <string name="dashboard_active_sessions_desc">Where your account is signed in</string>
+    <string name="dashboard_sign_out_all">Sign out all</string>
+    <string name="dashboard_signing_out_all">Signing out…</string>
+    <string name="dashboard_col_session">Session</string>
+    <string name="dashboard_col_started">Started</string>
+    <string name="dashboard_col_expires">Expires</string>
+    <string name="dashboard_col_status">Status</string>
+    <string name="dashboard_status_current">Current</string>
+    <string name="dashboard_status_active">Active</string>
+    <string name="dashboard_this_session">This session</string>
+    <string name="dashboard_a_session">Signed-in session</string>
+    <string name="dashboard_revoke">Revoke</string>
+    <string name="dashboard_revoking">Revoking…</string>
+    <string name="dashboard_only_this_session">You’re only signed in on this device.</string>
+    <string name="dashboard_retry">Try again</string>
+</resources>

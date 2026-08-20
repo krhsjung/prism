@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!-- 대시보드 -->
+    <string name="dashboard_title">대시보드</string>
+    <string name="dashboard_signed_in_as">{name} 님으로 로그인했습니다</string>
+    <string name="dashboard_log_out">로그아웃</string>
+    <string name="dashboard_logging_out">로그아웃하는 중…</string>
+    <string name="dashboard_placeholder_body">로그인됐습니다. 인증 vertical slice를 위한 임시 대시보드로, 데모 로그인 흐름이 처음부터 끝까지 동작합니다.</string>
+    <string name="dashboard_nav_webrtc">WebRTC</string>
+    <string name="dashboard_coming_soon">준비 중</string>
+    <string name="dashboard_navigation">내비게이션</string>
+    <string name="dashboard_open_menu">메뉴 열기</string>
+    <string name="dashboard_close_menu">메뉴 닫기</string>
+    <string name="dashboard_active_sessions">활성 세션</string>
+    <string name="dashboard_active_sessions_desc">계정이 로그인된 위치</string>
+    <string name="dashboard_sign_out_all">모두 로그아웃</string>
+    <string name="dashboard_signing_out_all">로그아웃하는 중…</string>
+    <string name="dashboard_col_session">세션</string>
+    <string name="dashboard_col_started">시작</string>
+    <string name="dashboard_col_expires">만료</string>
+    <string name="dashboard_col_status">상태</string>
+    <string name="dashboard_status_current">현재</string>
+    <string name="dashboard_status_active">활성</string>
+    <string name="dashboard_this_session">현재 세션</string>
+    <string name="dashboard_a_session">로그인된 세션</string>
+    <string name="dashboard_revoke">해제</string>
+    <string name="dashboard_revoking">해제하는 중…</string>
+    <string name="dashboard_only_this_session">이 기기에서만 로그인되어 있습니다.</string>
+    <string name="dashboard_retry">다시 시도</string>
+</resources>

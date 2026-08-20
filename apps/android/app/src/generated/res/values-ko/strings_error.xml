@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!-- 오류 메시지 — 키는 계약의 오류 코드와 1:1로 대응한다 (contracts.ts) -->
+    <string name="error_generic">문제가 발생했습니다. 잠시 후 다시 시도해 주세요.</string>
+    <string name="error_signin_failed">로그인하지 못했습니다. 다시 시도하거나 다른 방법을 이용해 주세요.</string>
+    <string name="error_demo_disabled">지금은 데모 로그인을 사용할 수 없습니다.</string>
+    <string name="error_network_error">연결이 끊겼습니다. 네트워크를 확인하고 다시 시도해 주세요.</string>
+
+    <!-- 계약의 오류 코드가 아니라 클라이언트가 만드는 문구 — 서버에 해당 흐름의 엔드포인트가 아직 없을 때 -->
+    <string name="error_provider_unavailable">이 로그인 방법은 아직 앱에서 사용할 수 없습니다.</string>
+    <string name="error_logout_failed">로그아웃하지 못했습니다. 아직 로그인된 상태입니다 — 연결을 확인하고 다시 시도해 주세요.</string>
+    <string name="error_sessions_load_failed">세션을 불러오지 못했습니다. 연결을 확인하고 다시 시도해 주세요.</string>
+    <string name="error_revoke_failed">해당 세션을 로그아웃하지 못했습니다. 다시 시도해 주세요.</string>
+</resources>

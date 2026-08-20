@@ -1,0 +1,4 @@
+<resources>
+    <!-- 런처 라벨. 워드마크는 번역하지 않는 고유명사라 i18n 마스터에 두지 않고 여기 둔다. -->
+    <string name="app_name">Prism</string>
+</resources>

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!-- 로그인 화면 -->
+    <string name="auth_welcome_back">Welcome back</string>
+    <string name="auth_sign_in_to_continue">Sign in to continue</string>
+    <string name="auth_continue_with_google">Continue with Google</string>
+    <string name="auth_continue_with_apple">Continue with Apple</string>
+    <string name="auth_continue_with_kakao">Continue with Kakao</string>
+    <string name="auth_try_the_demo">Try the demo</string>
+    <string name="auth_connecting">Connecting…</string>
+    <string name="auth_no_personal_data">This portfolio stores no personal data.</string>
+
+    <!-- 소셜 로그인 redirect 착지 화면 -->
+    <string name="auth_signing_you_in">Signing you in…</string>
+</resources>

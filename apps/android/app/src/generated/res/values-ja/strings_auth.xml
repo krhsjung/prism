@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!-- 로그인 화면 -->
+    <string name="auth_welcome_back">おかえりなさい</string>
+    <string name="auth_sign_in_to_continue">続けるにはサインインしてください</string>
+    <string name="auth_continue_with_google">Google で続ける</string>
+    <string name="auth_continue_with_apple">Apple で続ける</string>
+    <string name="auth_continue_with_kakao">Kakao で続ける</string>
+    <string name="auth_try_the_demo">デモを試す</string>
+    <string name="auth_connecting">接続しています…</string>
+    <string name="auth_no_personal_data">このポートフォリオは個人情報を保存しません。</string>
+
+    <!-- 소셜 로그인 redirect 착지 화면 -->
+    <string name="auth_signing_you_in">サインインしています…</string>
+</resources>
