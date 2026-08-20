@@ -39,8 +39,8 @@ pnpm build
 
 ## 컴포넌트
 
-Figma 파일은 두 페이지입니다 — `Assets`(섹션: `Foundations` · `Atoms` · `Molecules` ·
-`Organisms`)와 `Auth`(로그인 화면 프레임).
+Figma 파일은 `Assets`(섹션: `Foundations` · `Atoms` · `Molecules` · `Organisms`)와
+화면 페이지(`Auth` · `Dashboard`)로 나뉩니다.
 
 언어 선택은 `Atom/LanguageOption`(메뉴 한 줄) → `Molecule/LanguageMenu`(팝오버) →
 `Molecule/LanguageSelector`(트리거)로 조합하고, `Auth`의 로그인 프레임이 배치를
@@ -53,6 +53,12 @@ Figma 파일은 두 페이지입니다 — `Assets`(섹션: `Foundations` · `At
 공유하므로 웹 구현도 하나의 [SelectMenu](../apps/web/src/components/SelectMenu.tsx)를
 나눠 씁니다([ThemeSwitcher](../apps/web/src/components/ThemeSwitcher.tsx)).
 
+앱도 같은 구성입니다 — [iOS](../apps/ios/prism/Presentation/Views/Components/PreferenceSwitchers.swift) ·
+[Android](../apps/android/app/src/main/java/kr/hs/jung/prism/ui/component/PreferenceSwitchers.kt)
+각각 트리거 + 팝오버 한 벌을 두 스위처가 나눠 씁니다. **높이만 시안과 다릅니다** —
+트리거·메뉴 줄이 웹에서는 36이지만 앱에서는 손가락 표적이라 각 플랫폼의 최소 터치
+크기(iOS 44 · Android 48)까지 키웁니다. 너비·패딩·간격·색은 시안 그대로입니다.
+
 ## 화면
 
 `Auth` 페이지는 로그인 화면을 데스크톱(1440) · 모바일(375) 두 벌로 둡니다.
@@ -62,6 +68,26 @@ Figma 파일은 두 페이지입니다 — `Assets`(섹션: `Foundations` · `At
 | `Default` · `Error` · `Loading` | 기본 상태와 오류·대기 상태 |
 | `Language open` · `Theme open` | 팝오버가 열린 모습 (한 번에 하나만 열린다) |
 | `Dark` | 다크 모드 — `Colors` 컬렉션 모드를 `Dark`로 고정한 프레임 |
+
+[`Dashboard` 페이지](https://www.figma.com/design/sTDo6HDslOcRmWL78klk1I/Prism?node-id=2480-60)는
+로그인 이후 화면입니다 — `Dashboard / Desktop / Default` · `Dashboard / Mobile / Default`,
+그리고 모바일 네비 드로어(`Mobile / Drawer (open)`).
+
+| 프레임 | 보여주는 것 |
+| --- | --- |
+| `Desktop / Default` | 앱 셸(사이드바 + 상단 바) + Active sessions 카드 |
+| `Mobile / Default` | 사이드바가 접힌 모바일 배치 |
+| `Mobile / Drawer (open)` | 햄버거로 연 네비 드로어(슬라이드인 + 스크림) |
+
+> **별도 다크 시안을 두지 않습니다** — 색이 전부 `Colors` 컬렉션 변수에 묶여 있어
+> 프레임의 적용 모드만 `Dark`로 바꾸면 다크가 나옵니다(웹의 `<html data-theme>`와 같은
+> 구조). `Auth`의 `Dark` 프레임은 다크에서의 **선택 상태**(트리거가 `Dark`를 가리킴)를
+> 보여주기 위한 예외입니다.
+>
+> ⚠️ Dashboard 시안은 세션 행에 `MacBook Pro · Chrome · Seoul, KR` 같은 **기기 라벨**을
+> 보여주지만 구현은 그리지 않습니다 — 계약이 UA·IP를 담지 않기 때문입니다(개인정보
+> 미저장, [../plan/dashboard.md](../plan/dashboard.md)). 시안의 라벨은 시각적 밀도를
+> 잡기 위한 자리표시로 읽습니다.
 
 테마·언어 선택은 화면 아래 `Preferences` 줄에 8px 간격으로 나란히 놓습니다(웹의
 `.auth__prefs`와 같은 배치). 다크 프레임의 트리거는 `Dark`를 가리킵니다 — 화면이

@@ -5,16 +5,78 @@ Prism 웹 클라이언트 — React + Vite + TypeScript.
 ## 실행
 
 ```bash
-npm install
-npm run dev       # 개발 서버 (HMR)
-npm run build     # 타입체크 + 프로덕션 빌드
-npm run preview   # 빌드 산출물 미리보기
+pnpm install
+pnpm dev       # 개발 서버 (HMR)
+pnpm build     # 타입체크 + 프로덕션 빌드
+pnpm preview   # 빌드 산출물 미리보기
+pnpm test      # vitest (90개)
 ```
+
+API 주소는 소스에 박지 않고 `VITE_API_URL`에서 옵니다(iOS·Android의 `PRISM_API_URL`과
+같은 역할). 비어 있으면 `http://localhost:3000`으로 떨어집니다.
+
+## 인증 · 세션
+
+로그인은 소셜(Google · Apple · Kakao)과 **원클릭 데모** 넷입니다. 웹에서 중요한 것은
+**클라이언트가 토큰을 들고 다니지 않는다**는 점입니다 — 세션은 `HttpOnly` 쿠키에 있고
+JS는 읽을 수도 지울 수도 없습니다. 그래서 "로그인 상태인가"는 저장소를 보고 판단하지
+않고 서버(`GET /auth/me`)에 묻습니다(초기 상태가 항상 `loading`인 이유).
+
+- **흐름은 화면 크기가 아니라 창이 정합니다** — 데스크톱은 popup(로그인 화면의 상태가
+  보존되고 뒤로 가기 복원 문제가 생기지 않음), 모바일 브라우저는 redirect입니다
+  (`src/lib/oauth-popup.ts`). popup 결과는 `postMessage`로 오고, **origin과 메시지
+  type을 함께 확인한 뒤에만** 수용합니다.
+- **선제 갱신** — 액세스 토큰이 `HttpOnly`라 만료 시각을 읽을 수 없으므로, 서버가
+  응답에 담아주는 `accessTokenTtlMs`의 75% 지점에 세션을 회전시킵니다. 이렇게 해야
+  요청 없이 열어둔 탭도 idle 창에서 죽지 않고 absolute 상한까지 세션이 밀립니다.
+  백그라운드 탭에서 타이머가 억제됐을 경우를 위해 탭 복귀·포커스·온라인 복귀 시에도
+  한 번 보정합니다(`src/lib/AuthProvider.tsx`).
+- **경합 방어** — 모든 전이가 세대(generation)를 올리고, 늦게 도착한 이전 확인 응답은
+  버립니다. 그러지 않으면 로그아웃 직후 도착한 예전 `/auth/me` 응답이 로그인 상태를
+  되살립니다.
+- **로그아웃은 서버가 합니다** — JS가 `HttpOnly` 쿠키를 지울 수 없기 때문입니다.
+  실패하면 "로그아웃됐다"고 표시하지 않습니다(새로고침에서 되살아나면 더 혼란스럽습니다).
+
+정책 전반은 [../../plan/auth.md](../../plan/auth.md) §6.
+
+## 대시보드 — 활성 세션 관리
+
+로그인 이후의 화면입니다. 앱 셸(사이드바 + 상단 바)과 **활성 세션 카드**로 이뤄지고,
+모바일(≤720px)에서는 사이드바가 드로어로 열립니다(Esc·스크림·닫기 버튼, 열림 시 포커스
+이동 + 배경 스크롤 잠금).
+
+- `GET /auth/sessions`로 내 세션을 보고, 개별(`POST /auth/sessions/:id/revoke`)·전체
+  (`.../revoke-all`)로 원격 폐기합니다. 현재 세션을 지우면 이 브라우저의 쿠키도 함께
+  정리됩니다.
+- **기기·위치 라벨을 두지 않습니다.** 계약이 UA·IP를 담지 않기 때문이며, 목록을 보기
+  좋게 만들자고 그것들을 저장하면 개인정보 미저장 원칙이 깨집니다. 각 행은 "현재 세션 /
+  로그인된 세션 + 짧은 세션 id + 시작·만료 시각"으로 표시합니다.
+- 세션 id는 `HttpOnly` 쿠키 안의 토큰에만 있어 클라이언트가 알 수 없으므로, **서버가**
+  지금 요청의 세션을 `isCurrent`로 표시해 줍니다.
+
+기획은 [../../plan/dashboard.md](../../plan/dashboard.md).
+
+## 계약
+
+서버·웹이 공유하는 타입과 디코더는 서버가 소유합니다. `src/lib/contracts.gen.ts`는
+`apps/server/libs/common/src/types/contracts.ts`에서 **생성**된 사본이라 직접 고치지
+않습니다(`apps/server`에서 `pnpm sync:contracts`). 어긋나면 drift 테스트가 실패합니다.
+
+외부에서 온 JSON은 전부 디코더를 거칩니다 — `unknown`/`any` 없이 경계에서 형태를
+확인하고 넘깁니다.
+
+## 로깅
+
+`src/lib/log.ts`는 **개발 전용**입니다(`import.meta.env.DEV` 게이트). 배포된 웹은
+콘솔에 아무것도 남기지 않습니다 — 리뷰어의 활동이 로그로 재구성되지 않게 하기
+위해서입니다. 남기는 값은 provider·outcome·status 같은 안전한 원시값뿐이고, 토큰·쿠키·
+사용자 정보·원시 경로·쿼리스트링은 넘기지 않습니다. 카테고리(`auth`/`net`/`ui`/`error`)는
+iOS `Log`·Android `AppLog`와 맞춥니다.
 
 ## 다국어
 
 화면 문구는 전부 번역 마스터([../../i18n/](../../i18n/))에서 생성됩니다. 문구를
-바꾸려면 `i18n/client.csv`를 고치고 `node scripts/generate.js`를 실행하세요 —
+바꾸려면 `i18n/client.csv`를 고치고 `i18n/`에서 `node scripts/generate.js`를 실행하세요 —
 `src/lib/i18n/`의 `*.gen.ts`는 직접 수정하지 않습니다.
 
 ```tsx
@@ -63,3 +125,4 @@ const { t } = useI18n();
 - 번역 마스터 / 생성기: [../../i18n/README.md](../../i18n/README.md)
 - 디자인 시스템 / 토큰: [../../design/README.md](../../design/README.md)
 - 인증 화면 기획: [../../plan/auth.md](../../plan/auth.md)
+- 대시보드 기획: [../../plan/dashboard.md](../../plan/dashboard.md)

@@ -79,6 +79,17 @@ api 서비스는 전역 가드가 걸려 있어 **모든 라우트가 기본 보
 | `PRISM_KAKAO_APP_ID`                                                                               | Kakao 앱 숫자 app_id — 네이티브 로그인(`/auth/kakao/native`) 토큰 대조 |
 | `PRISM_GOOGLE_NATIVE_AUDIENCES` (선택, 콤마 구분)                                                  | Google 네이티브 id_token 추가 audience (웹 clientId는 자동 포함)       |
 
+네이티브 앱(선택):
+
+| 변수                          | 용도                                                                                  | 기본값                   |
+| ----------------------------- | ------------------------------------------------------------------------------------- | ------------------------ |
+| `PRISM_NATIVE_AUTH_CALLBACK`  | 네이티브 웹-redirect 흐름(`flow=native`)의 콜백 주소. 앱이 여는 시스템 웹 세션이 여기로 돌아오고, 실린 일회용 코드를 `POST /auth/native/exchange`로 교환한다 | `prism://auth/callback`  |
+| `PRISM_AUTH_DEMO_ENABLED`     | 원클릭 데모 로그인 스위치. `false`일 때만 꺼진다(`/auth/demo*`가 503)                   | 켜짐                     |
+
+> 콜백 스킴을 바꾸면 **앱 쪽도 같이** 맞춰야 한다 — iOS는
+> `ASWebAuthenticationSession`의 `callbackURLScheme`, Android는 `WebAuthActivity`의
+> 인텐트 필터다. 한쪽만 바꾸면 로그인이 끝나고도 앱으로 돌아오지 못한다.
+
 데이터베이스(사용자 upsert). 표준 접속 URL(12-factor `DATABASE_URL`)로 지정한다:
 
 | 변수                          | 용도                                                                            |

@@ -13,6 +13,8 @@ xcodebuild test -project prism.xcodeproj -scheme prism \
   -destination 'platform=iOS Simulator,name=iPhone 17' -only-testing:prismTests
 ```
 
+유닛 테스트는 `prismTests`에 48개(계약 디코딩 · Keychain · AuthManager 상태 전이)입니다.
+
 프로젝트는 **파일 시스템 동기화 그룹**(objectVersion 77)을 씁니다 — `prism/` 아래에
 파일을 놓으면 `.xcodeproj`를 건드리지 않아도 타깃에 들어갑니다.
 
@@ -26,8 +28,12 @@ xcodebuild test -project prism.xcodeproj -scheme prism \
 prism/
 ├── App/                    # 앱 진입점
 ├── Features/               # 피처별 모듈
-│   └── Auth/               # 인증 피처: AuthManager · AuthService ·
-│                           #   AppleSignInController · LoginViewModel · LoginView
+│   └── Auth/               # 인증 피처
+│       │                   #   AuthManager · AuthService — 상태 머신 + 전송
+│       │                   #   LoginViewModel · LoginView — 화면
+│       │                   #   SocialSignIn · SocialSDK — provider 공통 추상 + SDK 부트스트랩
+│       │                   #   {Apple,Google,Kakao}SignInController — 네이티브 SDK 경로
+│       │                   #   WebAuthController — 웹 redirect(flow=native) 경로
 ├── Core/                   # 공유 인프라
 │   ├── DI/                 # ServiceContainer — 의존성 조립
 │   ├── Localization/       # 언어 선택 + 문구 조회
@@ -70,7 +76,7 @@ PRISM_API_URL=https://<도메인> xcodebuild ...
 ## 다국어
 
 화면 문구는 전부 번역 마스터([../../i18n/](../../i18n/))에서 생성됩니다. 문구를
-바꾸려면 `i18n/client.csv`를 고치고 `node scripts/generate.js`를 실행하세요 —
+바꾸려면 `i18n/client.csv`를 고치고 `i18n/`에서 `node scripts/generate.js`를 실행하세요 —
 `Resources/Localization/`의 산출물은 직접 수정하지 않습니다.
 
 ```swift
