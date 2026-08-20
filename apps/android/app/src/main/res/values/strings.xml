@@ -1,4 +1,6 @@
 <resources>
-    <!-- 런처 라벨. 워드마크는 번역하지 않는 고유명사라 i18n 마스터에 두지 않고 여기 둔다. -->
-    <string name="app_name">Prism</string>
+    <!-- 런처 라벨. 워드마크는 번역하지 않는 고유명사라 i18n 마스터에 두지 않고 여기 둔다.
+         translatable="false"로 그 의도를 툴에도 알린다 — 없으면 lint가 ko·ja 번역 누락
+         (MissingTranslation)으로 보고 빌드를 실패시킨다. -->
+    <string name="app_name" translatable="false">Prism</string>
 </resources>
