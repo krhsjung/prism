@@ -487,10 +487,10 @@ Bearer/Keychain, Android 데모는 쿠키/EncryptedSharedPreferences) 구현은 
   이 문제는 이제 **진짜 만료**(탭을 idle TTL 넘게 닫아둠·7일 상한 초과·원격 폐기)에서만
   드러난다. 그때 자동 재로그인 대신 Login 화면으로 보낸다(단순). 조용한 자동 재로그인은
   향후 검토.
-- **Android의 Sign in with Apple** — 앱에는 Apple 버튼이 있지만 Android에는 공식 네이티브
-  Sign in with Apple SDK가 없어 미지원으로 둔다(버튼을 누르면 안내를 띄운다). 웹 redirect
-  (`flow=native`)로 여는 방법이 있으나 별도 슬라이스로 검토한다. Google·Kakao·데모는
-  모두 네이티브(Bearer) 응답으로 실동작한다.
+- **Android의 Sign in with Apple** — Android에는 공식 네이티브 Sign in with Apple SDK가
+  없어, Apple만 **redirect 전용**이다(Custom Tabs로 서버 웹 OAuth `flow=native`를 열고
+  일회용 코드를 토큰과 교환). 누를 수 없는 native 버튼을 두지 않고 로그인 화면에서 뺐다.
+  Google·Kakao·데모는 네이티브(Bearer) 응답으로 실동작한다.
 - **Apple credential state 확인(iOS)** — Sign in with Apple의 opaque 사용자 식별자
   (`credential.user`)를 저장해 두면 앱 시작·포그라운드 복귀 때
   `ASAuthorizationAppleIDProvider.getCredentialState(forUserID:)`로 Apple에서 인증이
