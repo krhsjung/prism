@@ -187,6 +187,7 @@ echo "<SHA1>" | tr -d ':' | xxd -r -p | openssl base64    # Kakao에 넣을 값
 | -- | -- | -- | -- |
 | Google (지문 미등록) | 계정 선택 시트가 뜨고, 계정을 고르면 그냥 닫힌다(오류 문구 없음) | `google sign-in cancelled (…TYPE_USER_CANCELED)` | `UNREGISTERED_ON_API_CONSOLE` |
 | Google (지문은 등록됨) | 계정을 고르면 "로그인하지 못했습니다" | `google credential request failed (…)` | `Developer console is not set up correctly` |
+| Google (기기에 계정 없음) | 고를 계정이 없이 "로그인하지 못했습니다" | `no google account available on this device` | — |
 | Kakao | 카카오톡/카카오계정 로그인이 뜨고, 동의 후 "로그인하지 못했습니다" | `kakao … login failed (AuthError:Misconfigured/401)` | — |
 | Kakao (카카오톡만) | 카카오톡이 잠깐 떴다가 카카오계정 웹 로그인으로 넘어간다(로그인 자체는 성공) | `kakaotalk login failed (AuthError:Unknown/302/NotSupportError)` | 콘솔 아님 — 아래 참고 |
 
@@ -207,6 +208,9 @@ curl -s -X POST https://oauth2.googleapis.com/token \
 ```bash
 curl -sI "$PRISM_API_URL/auth/google?flow=native" | grep -i ^location
 ```
+
+세 번째 줄(`NoCredentialException`)은 콘솔과 무관하다 — 기기에 Google 계정이 하나도 없는
+경우다. 계정을 추가하거나 redirect·데모 경로로 로그인하면 된다.
 
 Google이 조용한 이유는 Play 서비스가 콘솔 설정 오류(`UNREGISTERED_ON_API_CONSOLE`)를
 앱에는 **사용자 취소**로 돌려주기 때문이다 — 취소는 오류가 아니라 조용한 복귀이므로

@@ -5,6 +5,7 @@ import androidx.credentials.CredentialManager
 import androidx.credentials.CustomCredential
 import androidx.credentials.exceptions.GetCredentialCancellationException
 import androidx.credentials.exceptions.GetCredentialException
+import androidx.credentials.exceptions.NoCredentialException
 import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import androidx.credentials.GetCredentialRequest
@@ -43,6 +44,13 @@ class GoogleSignInClient(
             // 없다"가 취소인지 설정 오류인지 구분되지 않는다. type만 남겨 그 구분을 남긴다.
             AppLog.d("google sign-in cancelled (${e.type})")
             throw CancellationException("google sign-in cancelled")
+        } catch (e: NoCredentialException) {
+            // 기기에 쓸 수 있는 Google 계정이 없다 — 설정 오류가 아니라 사용자 환경이다.
+            // 위 두 갈래(취소·설정 오류)와 섞이면 "콘솔을 또 뒤지는" 헛수고가 되므로 따로
+            // 남긴다. 화면 문구는 signin_failed 그대로가 맞다 — 그 문구의 "다른 방법을
+            // 이용해 주세요"가 이 상황에서 사용자가 할 수 있는 일이다(계정 추가 · redirect · 데모).
+            AppLog.d("no google account available on this device")
+            throw ApiError(0, kr.hs.jung.prism.domain.model.AuthErrorCode.SIGNIN_FAILED)
         } catch (e: GetCredentialException) {
             // SDK Throwable(스택/메시지)은 라이브러리 제어라 남기지 않는다 — 라이브러리가
             // 정의한 type 상수만 남긴다(사용자 데이터가 아니고, 원인 구분에 꼭 필요하다).
