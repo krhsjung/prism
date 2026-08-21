@@ -29,7 +29,12 @@ import kr.hs.jung.prism.feature.auth.social.KakaoSignInClient
 class ServiceContainer(context: Context) {
     private val secureStore = SecureStore(context)
     private val sessionTokens = SecureSessionTokens(secureStore)
-    private val apiClient = ApiClient()
+    // 태블릿은 `Mobile` 토큰을 빼서 알린다 — 브라우저가 쓰는 구분과 같다.
+    // 600dp는 Android가 태블릿 레이아웃을 가르는 관례적 경계다.
+    private val isTablet = context.resources.configuration.smallestScreenWidthDp >= 600
+    private val apiClient = ApiClient(
+        userAgent = if (isTablet) "Prism (Android)" else "Prism (Android; Mobile)",
+    )
     private val authApi = HttpAuthApi(apiClient)
 
     // 네이티브 소셜 로그인 클라이언트. 키가 비어 있으면 각 클라이언트가 providerUnavailable로

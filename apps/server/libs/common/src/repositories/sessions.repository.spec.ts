@@ -140,6 +140,16 @@ class FakeRedis implements RedisClient {
   indexSize(key: string): number {
     return this.zsets.get(key)?.size ?? 0;
   }
+
+  // 저장된 원문을 들여다보고 바꿔 끼운다 — "예전 형식으로 저장된 세션"을 재현할 때 쓴다.
+  dump(key: string): string | null {
+    return this.values.get(key)?.value ?? null;
+  }
+
+  load(key: string, value: string): void {
+    const entry = this.values.get(key);
+    if (entry) entry.value = value;
+  }
 }
 
 const user: User = {
@@ -260,6 +270,37 @@ describe('SessionsRepository (Redis)', () => {
     const [entry] = await repo.listForUser('u-1');
     expect(entry?.id).toBe('s-1');
     expect(Date.parse(entry?.expiresAt ?? '')).toBe(Date.now() + HOUR);
+  });
+
+  // ──────────────── 기기 종류 ────────────────
+
+  it('로그인 시점의 기기 종류를 그대로 돌려준다', async () => {
+    await repo.create('s-1', user, HOUR, WEEK, 'phone');
+    const [entry] = await repo.listForUser('u-1');
+    expect(entry?.device).toBe('phone');
+  });
+
+  it('기기 종류를 주지 않으면 unknown이다', async () => {
+    await create('s-1');
+    const [entry] = await repo.listForUser('u-1');
+    expect(entry?.device).toBe('unknown');
+  });
+
+  it('이 필드가 생기기 전 세션도 목록에서 사라지지 않는다', async () => {
+    // 배포 순간에 살아 있던 세션에는 device가 없다 — 거부하면 그 사용자의 목록이
+    // 통째로 비어 버린다. unknown으로 접고 계속 그린다.
+    await create('s-1');
+    const key = 'prism:session:s-1';
+    const stored = redis.dump(key);
+    expect(stored).not.toBeNull(); // 키 이름이 어긋나면 아래 조작이 조용히 없던 일이 된다
+    // 레코드는 문자열·숫자 필드만 담는다 — 프로젝트 방침상 unknown을 쓰지 않는다.
+    const raw = JSON.parse(stored ?? '{}') as Record<string, string | number>;
+    delete raw.device;
+    redis.load(key, JSON.stringify(raw));
+
+    const [entry] = await repo.listForUser('u-1');
+    expect(entry?.id).toBe('s-1');
+    expect(entry?.device).toBe('unknown');
   });
 
   // ──────────────── 소유권 ────────────────

@@ -52,6 +52,11 @@ export const messages: Messages = {
   'dashboard.col_status': '상태',
   'dashboard.status_current': '현재',
   'dashboard.status_active': '활성',
+  // 세션을 만든 기기의 종류(계약의 DeviceKind와 1:1). 기기명·위치는 담지 않는다
+  'dashboard.device_phone': '휴대폰',
+  'dashboard.device_tablet': '태블릿',
+  'dashboard.device_desktop': '데스크톱',
+  'dashboard.device_unknown': '알 수 없는 기기',
   'dashboard.this_session': '현재 세션',
   'dashboard.a_session': '로그인된 세션',
   'dashboard.revoke': '해제',

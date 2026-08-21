@@ -22,6 +22,12 @@
     <string name="dashboard_col_status">ステータス</string>
     <string name="dashboard_status_current">現在</string>
     <string name="dashboard_status_active">アクティブ</string>
+
+    <!-- 세션을 만든 기기의 종류(계약의 DeviceKind와 1:1). 기기명·위치는 담지 않는다 -->
+    <string name="dashboard_device_phone">スマートフォン</string>
+    <string name="dashboard_device_tablet">タブレット</string>
+    <string name="dashboard_device_desktop">デスクトップ</string>
+    <string name="dashboard_device_unknown">不明な端末</string>
     <string name="dashboard_this_session">このセッション</string>
     <string name="dashboard_a_session">サインイン中のセッション</string>
     <string name="dashboard_revoke">解除</string>

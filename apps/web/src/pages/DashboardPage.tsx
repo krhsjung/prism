@@ -6,17 +6,45 @@ import { ThemeSwitcher } from '../components/ThemeSwitcher';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/auth-context';
 import { useI18n } from '../lib/i18n/i18n-context';
-import type { SessionListItem } from '../lib/contracts.gen';
+import type { DeviceKind, SessionListItem } from '../lib/contracts.gen';
+import type { MessageKey } from '../lib/i18n/messages.gen';
 
-function DeviceIcon() {
+/**
+ * 기기 종류별 아이콘. 계약이 주는 것은 네 갈래뿐이라 그림도 네 개다 — 기기명을 모르니
+ * 실루엣으로만 구분한다(모니터 · 태블릿 · 폰). `unknown`은 모니터를 재사용한다: 모르는
+ * 것에 특별한 그림을 주면 그 자체가 하나의 상태처럼 읽힌다.
+ */
+function DeviceIcon({ device }: { device: DeviceKind }) {
   return (
     <svg className="icon session__glyph" viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M4 4h16a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1" />
-      <path d="M12 16v4" />
-      <path d="M8 20h8" />
+      {device === 'phone' ? (
+        <>
+          <rect x="7" y="2" width="10" height="20" rx="2" />
+          <path d="M11 18h2" />
+        </>
+      ) : device === 'tablet' ? (
+        <>
+          <rect x="4" y="2" width="16" height="20" rx="2" />
+          <path d="M11 18h2" />
+        </>
+      ) : (
+        <>
+          <path d="M4 4h16a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1" />
+          <path d="M12 16v4" />
+          <path d="M8 20h8" />
+        </>
+      )}
     </svg>
   );
 }
+
+/** 계약의 기기 종류 → 번역 키. 계약이 유니온이라 갈래가 늘면 컴파일에서 걸린다. */
+const DEVICE_LABELS: Record<DeviceKind, MessageKey> = {
+  phone: 'dashboard.device_phone',
+  tablet: 'dashboard.device_tablet',
+  desktop: 'dashboard.device_desktop',
+  unknown: 'dashboard.device_unknown',
+};
 
 export function DashboardPage() {
   const navigate = useNavigate();
@@ -292,14 +320,17 @@ export function DashboardPage() {
                     <li key={s.id} className="sessions__row session">
                       <div className="session__id">
                         <span className="session__icon">
-                          <DeviceIcon />
+                          <DeviceIcon device={s.device} />
                         </span>
                         <span className="session__label">
-                          {s.isCurrent
-                            ? t('dashboard.this_session')
-                            : t('dashboard.a_session')}
+                          {t(DEVICE_LABELS[s.device])}
+                          {/* 기기명·브라우저·위치는 저장하지 않으므로(§5) 시안의 부제
+                              자리에는 이 세션이 무엇인지와 짧은 id만 둔다. */}
                           <span className="session__code">
-                            #{s.id.slice(0, 8)}
+                            {s.isCurrent
+                              ? t('dashboard.this_session')
+                              : t('dashboard.a_session')}
+                            {' · '}#{s.id.slice(0, 8)}
                           </span>
                         </span>
                       </div>

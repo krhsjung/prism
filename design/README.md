@@ -84,10 +84,12 @@ Figma 파일은 `Assets`(섹션: `Foundations` · `Atoms` · `Molecules` · `Org
 > 구조). `Auth`의 `Dark` 프레임은 다크에서의 **선택 상태**(트리거가 `Dark`를 가리킴)를
 > 보여주기 위한 예외입니다.
 >
-> ⚠️ Dashboard 시안은 세션 행에 `MacBook Pro · Chrome · Seoul, KR` 같은 **기기 라벨**을
-> 보여주지만 구현은 그리지 않습니다 — 계약이 UA·IP를 담지 않기 때문입니다(개인정보
-> 미저장, [../plan/dashboard.md](../plan/dashboard.md)). 시안의 라벨은 시각적 밀도를
-> 잡기 위한 자리표시로 읽습니다.
+> ⚠️ Dashboard 시안의 `MacBook Pro · Chrome · Seoul, KR`은 **그대로 구현되지 않습니다.**
+> 계약이 담는 것은 기기 **종류**(폰·태블릿·데스크톱·모름)뿐이라, 제목 줄에는 종류 라벨이
+> 오고 부제에는 현재/로그인된 세션 + 짧은 세션 id가 옵니다. 기기명·브라우저·위치를 그리려면
+> User-Agent 원문과 IP를 저장해야 하고, 그러면 개인정보 미저장 원칙이 깨집니다
+> ([../plan/dashboard.md](../plan/dashboard.md) §5). 시안의 그 줄은 시각적 밀도를 잡기
+> 위한 자리표시로 읽습니다.
 
 테마·언어 선택은 화면 아래 `Preferences` 줄에 8px 간격으로 나란히 놓습니다(웹의
 `.auth__prefs`와 같은 배치). 다크 프레임의 트리거는 `Dark`를 가리킵니다 — 화면이

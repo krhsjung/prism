@@ -52,6 +52,11 @@ export const messages: Messages = {
   'dashboard.col_status': 'ステータス',
   'dashboard.status_current': '現在',
   'dashboard.status_active': 'アクティブ',
+  // 세션을 만든 기기의 종류(계약의 DeviceKind와 1:1). 기기명·위치는 담지 않는다
+  'dashboard.device_phone': 'スマートフォン',
+  'dashboard.device_tablet': 'タブレット',
+  'dashboard.device_desktop': 'デスクトップ',
+  'dashboard.device_unknown': '不明な端末',
   'dashboard.this_session': 'このセッション',
   'dashboard.a_session': 'サインイン中のセッション',
   'dashboard.revoke': '解除',

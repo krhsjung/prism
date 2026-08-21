@@ -22,6 +22,12 @@
     <string name="dashboard_col_status">Status</string>
     <string name="dashboard_status_current">Current</string>
     <string name="dashboard_status_active">Active</string>
+
+    <!-- 세션을 만든 기기의 종류(계약의 DeviceKind와 1:1). 기기명·위치는 담지 않는다 -->
+    <string name="dashboard_device_phone">Phone</string>
+    <string name="dashboard_device_tablet">Tablet</string>
+    <string name="dashboard_device_desktop">Desktop</string>
+    <string name="dashboard_device_unknown">Unknown device</string>
     <string name="dashboard_this_session">This session</string>
     <string name="dashboard_a_session">Signed-in session</string>
     <string name="dashboard_revoke">Revoke</string>

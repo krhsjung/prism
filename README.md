@@ -43,8 +43,9 @@
   세션 행을 지우면 발급된 토큰이 **즉시** 무효가 됩니다.
 - **세션 관리**: 대시보드에서 내 활성 세션을 보고 개별·전체로 원격 폐기합니다
   (`GET /auth/sessions` · `POST /auth/sessions/:id/revoke` · `.../revoke-all`).
-  목록에 기기·위치 라벨을 두지 않습니다 — 보기 좋자고 UA/IP를 저장하면 개인정보 미저장
-  원칙이 깨집니다([plan/dashboard.md](plan/dashboard.md)).
+  목록에는 기기 **종류**(폰·태블릿·데스크톱·모름)만 둡니다 — User-Agent는 로그인 시점에
+  그 enum 하나로 접고 버리며, IP는 읽지 않습니다. 기기명·브라우저·위치를 담으려면 그것을
+  저장해야 하고, 그러면 개인정보 미저장 원칙이 깨집니다([plan/dashboard.md](plan/dashboard.md)).
 - **보안**: 리프레시 **재사용 탐지**(유예 창 밖의 재제시는 탈취로 보고 세션 폐기) ·
   login-CSRF 방어(흐름별 nonce 쿠키 ↔ 서명된 state 바인딩, 콜백에서 일회 소진) ·
   쿠키를 심고 지우는 요청의 출처 검증 · OAuth 종료 페이지의 CSP nonce ·
@@ -66,7 +67,7 @@
 - **운영**: `/healthz`(liveness) · `/readyz`(DB·세션 저장소 인지 readiness),
   Docker + Helm(kind) 배포, nginx 경로 라우팅.
 - **품질**: TypeScript `unknown`/`any` 키워드 금지(lint 강제) · strict +
-  `noUncheckedIndexedAccess` · 자동 테스트 **서버 219 · 웹 90 · iOS 48 · Android 35**
+  `noUncheckedIndexedAccess` · 자동 테스트 **서버 226 · 웹 91 · iOS 48 · Android 35**
   (그 밖에 실제 Redis를 요구하는 통합 스펙 17개는 `PRISM_REDIS_URL`이 있을 때만 실행).
 
 ## 구조

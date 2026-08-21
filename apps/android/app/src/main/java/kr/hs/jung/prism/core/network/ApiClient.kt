@@ -25,7 +25,17 @@ import kotlinx.coroutines.suspendCancellableCoroutine
  *
  * OkHttp의 enqueue(콜백)를 코루틴으로 감싸, 취소되면 요청도 취소되게 한다.
  */
-class ApiClient {
+class ApiClient(
+    /**
+     * 이 앱이 자기를 소개하는 문자열. 기본값(`okhttp/4.x`)으로는 서버가 기기 종류를
+     * 알아볼 수 없어 세션 목록에 "알 수 없는 기기"로만 뜬다.
+     *
+     * 브라우저와 **같은 토큰**을 쓴다(`Android` + 폰이면 `Mobile`) — 서버가 UA 하나를
+     * 네 갈래로 접는 규칙 하나만 갖게 하려는 것이다(plan/dashboard.md §5). 서버는 이
+     * 문자열을 저장하지 않고 접은 결과만 남긴다.
+     */
+    private val userAgent: String = "Prism (Android; Mobile)",
+) {
     private val client = OkHttpClient.Builder()
         .connectTimeout(CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
         .readTimeout(READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
@@ -53,6 +63,7 @@ class ApiClient {
         val request = Request.Builder()
             .url(BuildConfig.PRISM_API_URL + path)
             .method(method, requestBody)
+            .header("User-Agent", userAgent)
             .apply { if (accessToken != null) header("Authorization", "Bearer $accessToken") }
             .build()
 

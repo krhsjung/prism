@@ -38,12 +38,21 @@ export interface AuthSession {
   user: User;
 }
 
-// 내 세션 하나의 요약(GET /auth/sessions). 기기·위치를 알 수 있는 값은 담지 않는다 —
-// 목록을 보기 좋게 만들자고 User-Agent나 IP를 저장하면 개인정보 미저장 원칙이 깨진다.
+// 세션을 만든 기기의 **종류**. 세 갈래 + 모름뿐이고, 그 이상은 담지 않는다.
+//
+// 목록에서 "어느 기기의 세션인가"를 알아보려면 최소한의 단서가 필요하지만, 기기명·
+// 브라우저·위치까지 가면 저장하는 것이 곧 개인정보가 된다. User-Agent 원문도 IP도
+// 저장하지 않고, 로그인 시점에 이 **enum 하나로 줄여서만** 남긴다(plan/dashboard.md §5).
+export const DEVICE_KINDS = ['phone', 'tablet', 'desktop', 'unknown'] as const;
+export type DeviceKind = (typeof DEVICE_KINDS)[number];
+
+// 내 세션 하나의 요약(GET /auth/sessions). 기기 종류 외에 기기를 특정할 수 있는 값은
+// 담지 않는다 — User-Agent 원문이나 IP를 저장하면 개인정보 미저장 원칙이 깨진다.
 export interface SessionInfo {
   id: string;
   startedAt: string;
   expiresAt: string;
+  device: DeviceKind;
 }
 
 // 서버가 "지금 이 요청의 세션"을 표시해 돌려준다 — 클라이언트가 자기 세션 id를
@@ -64,7 +73,14 @@ export function decodeSessionListItem(
     startedAt: decodeString(obj.startedAt, 'SessionListItem.startedAt'),
     expiresAt: decodeString(obj.expiresAt, 'SessionListItem.expiresAt'),
     isCurrent: obj.isCurrent,
+    device: decodeDeviceKind(obj.device),
   };
+}
+
+// 모르는 값은 거부하지 않고 `unknown`으로 접는다 — 기기 종류는 화면의 라벨일 뿐이라,
+// 나중에 갈래가 하나 늘었다고 예전 클라이언트에서 목록 전체가 실패하면 손해가 더 크다.
+export function decodeDeviceKind(v: JsonValue | undefined): DeviceKind {
+  return DEVICE_KINDS.find((kind) => kind === v) ?? 'unknown';
 }
 
 export function decodeSessionList(v: JsonValue): SessionListItem[] {

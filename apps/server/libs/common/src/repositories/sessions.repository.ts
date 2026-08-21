@@ -3,10 +3,12 @@ import { createHash, randomBytes } from 'crypto';
 import { REDIS, type RedisClient } from '@app/redis';
 import {
   AUTH_PROVIDERS,
+  decodeDeviceKind,
   decodeObject,
   decodeString,
   parseJsonValue,
   type AuthProvider,
+  type DeviceKind,
   type SessionInfo,
   type User,
 } from '../types/contracts';
@@ -18,6 +20,8 @@ interface SessionRecord {
   displayName: string;
   createdAt: string; // 사용자 가입 시각(User.createdAt)
   startedAt: number; // epoch(ms) — 이 세션이 시작된 시각(로그인 시점)
+  // 기기 종류(enum). UA 원문이 아니다 — 로그인 시점에 네 갈래로 접어 이 값만 남긴다.
+  device: DeviceKind;
   absoluteExpiresAt: number; // epoch(ms) — 리프레시로도 넘을 수 없는 상한
 }
 
@@ -93,6 +97,9 @@ export class SessionsRepository {
     user: User,
     idleTtlMs: number,
     absoluteTtlMs: number,
+    // 세션을 만든 기기의 **종류**. 호출부가 이미 UA를 접어서 넘긴다 — 여기까지 원문이
+    // 내려오지 않으므로, 저장소에 UA가 새어 들어갈 경로 자체가 없다.
+    device: DeviceKind = 'unknown',
   ): Promise<IssuedSession> {
     const record: SessionRecord = {
       userId: user.id,
@@ -101,6 +108,7 @@ export class SessionsRepository {
       createdAt: user.createdAt,
       startedAt: Date.now(),
       absoluteExpiresAt: Date.now() + absoluteTtlMs,
+      device,
     };
     const secret = randomBytes(SECRET_BYTES).toString('base64url');
     const ttlSeconds = Math.ceil(idleTtlMs / 1000);
@@ -245,6 +253,7 @@ export class SessionsRepository {
         id: member,
         startedAt: new Date(record.startedAt).toISOString(),
         expiresAt: new Date(score).toISOString(),
+        device: record.device,
       });
     }
     return sessions;
@@ -314,6 +323,9 @@ export class SessionsRepository {
             : FALLBACK_DISPLAY_NAME,
         createdAt: decodeString(obj.createdAt, 'SessionRecord.createdAt'),
         startedAt: obj.startedAt,
+        // 이 필드가 생기기 전에 만들어진 세션은 값이 없다 — 거부하지 않고 unknown으로
+        // 접는다. 배포 순간에 살아 있던 세션이 목록에서 통째로 사라지면 안 된다.
+        device: decodeDeviceKind(obj.device),
         absoluteExpiresAt: obj.absoluteExpiresAt,
       };
     } catch {

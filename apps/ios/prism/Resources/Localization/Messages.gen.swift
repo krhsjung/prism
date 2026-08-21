@@ -62,6 +62,10 @@ enum MessageKey: String, CaseIterable, Sendable {
     case dashboardColStatus = "dashboard.col_status"
     case dashboardStatusCurrent = "dashboard.status_current"
     case dashboardStatusActive = "dashboard.status_active"
+    case dashboardDevicePhone = "dashboard.device_phone"
+    case dashboardDeviceTablet = "dashboard.device_tablet"
+    case dashboardDeviceDesktop = "dashboard.device_desktop"
+    case dashboardDeviceUnknown = "dashboard.device_unknown"
     case dashboardThisSession = "dashboard.this_session"
     case dashboardASession = "dashboard.a_session"
     case dashboardRevoke = "dashboard.revoke"
@@ -119,6 +123,10 @@ enum MessageKey: String, CaseIterable, Sendable {
              .dashboardColStatus,
              .dashboardStatusCurrent,
              .dashboardStatusActive,
+             .dashboardDevicePhone,
+             .dashboardDeviceTablet,
+             .dashboardDeviceDesktop,
+             .dashboardDeviceUnknown,
              .dashboardThisSession,
              .dashboardASession,
              .dashboardRevoke,

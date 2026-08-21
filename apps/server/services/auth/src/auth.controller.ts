@@ -23,6 +23,8 @@ import {
   type SocialState,
 } from './session/auth-token.service';
 import { NativeAuthCodeStore } from './session/native-auth-code.service';
+import { classifyDevice } from './session/device';
+import type { DeviceKind } from '@app/common';
 import {
   joinPersonName,
   parseAppleUserName,
@@ -106,11 +108,14 @@ export class AuthController {
   // 쿠키를 심는 요청이라 login-CSRF 대상 — 출처를 검증한다(WebOriginGuard 참고).
   @Post('demo')
   @UseGuards(ThrottlerGuard, WebOriginGuard)
-  async demo(@Res({ passthrough: true }) res: Response): Promise<SessionUser> {
+  async demo(
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<SessionUser> {
     if (!this.config.demoEnabled) {
       throw new HttpException({ error: AUTH_ERROR_CODES.DEMO_DISABLED }, 503);
     }
-    const session = await this.auth.issueDemoSession();
+    const session = await this.auth.issueDemoSession(this.deviceOf(req));
     this.setSession(res, session);
     return {
       user: session.user,
@@ -124,11 +129,11 @@ export class AuthController {
   // 쿠키를 심지 않으므로 login-CSRF 대상이 아니라 WebOriginGuard는 두지 않는다.
   @Post('demo/native')
   @UseGuards(ThrottlerGuard)
-  async demoNative(): Promise<AuthSession> {
+  async demoNative(@Req() req: Request): Promise<AuthSession> {
     if (!this.config.demoEnabled) {
       throw new HttpException({ error: AUTH_ERROR_CODES.DEMO_DISABLED }, 503);
     }
-    return this.auth.issueDemoSession();
+    return this.auth.issueDemoSession(this.deviceOf(req));
   }
 
   // ──────────────────── 콜백 (provider별 프로토콜이 달라 통합하지 않음) ────────────────────
@@ -156,7 +161,12 @@ export class AuthController {
     }
 
     try {
-      const session = await this.auth.loginWithSocial('google', code);
+      const session = await this.auth.loginWithSocial(
+        'google',
+        code,
+        undefined,
+        this.deviceOf(req),
+      );
       await this.completeSocialSuccess(req, res, consumed.flow, session);
     } catch (e) {
       this.logFailure(`[google] callback failed`, e);
@@ -187,7 +197,12 @@ export class AuthController {
     }
 
     try {
-      const session = await this.auth.loginWithSocial('kakao', code);
+      const session = await this.auth.loginWithSocial(
+        'kakao',
+        code,
+        undefined,
+        this.deviceOf(req),
+      );
       await this.completeSocialSuccess(req, res, consumed.flow, session);
     } catch (e) {
       this.logFailure(`[kakao] callback failed`, e);
@@ -224,6 +239,7 @@ export class AuthController {
         'apple',
         code,
         this.appleNameOf(user),
+        this.deviceOf(req),
       );
       await this.completeSocialSuccess(req, res, consumed.flow, session);
     } catch (e) {
@@ -239,6 +255,7 @@ export class AuthController {
   @Post('apple/native')
   @UseGuards(ThrottlerGuard)
   async appleNative(
+    @Req() req: Request,
     @Body('identityToken') identityToken?: string,
     @Body('nonce') nonce?: string,
     @Body('user') user?: { name?: AppleUserName },
@@ -247,7 +264,12 @@ export class AuthController {
       throw new HttpException({ error: AUTH_ERROR_CODES.INVALID_TOKEN }, 401);
     }
     try {
-      return await this.auth.loginWithAppleNative(identityToken, nonce, user);
+      return await this.auth.loginWithAppleNative(
+        identityToken,
+        nonce,
+        user,
+        this.deviceOf(req),
+      );
     } catch (e) {
       this.logFailure(`[apple/native] login failed`, e);
       throw new HttpException({ error: AUTH_ERROR_CODES.INVALID_TOKEN }, 401);
@@ -259,13 +281,14 @@ export class AuthController {
   @Post('google/native')
   @UseGuards(ThrottlerGuard)
   async googleNative(
+    @Req() req: Request,
     @Body('idToken') idToken?: string,
   ): Promise<AuthSession> {
     if (!idToken) {
       throw new HttpException({ error: AUTH_ERROR_CODES.INVALID_TOKEN }, 401);
     }
     try {
-      return await this.auth.loginWithGoogleNative(idToken);
+      return await this.auth.loginWithGoogleNative(idToken, this.deviceOf(req));
     } catch (e) {
       this.logFailure(`[google/native] login failed`, e);
       throw new HttpException({ error: AUTH_ERROR_CODES.INVALID_TOKEN }, 401);
@@ -278,13 +301,17 @@ export class AuthController {
   @Post('kakao/native')
   @UseGuards(ThrottlerGuard)
   async kakaoNative(
+    @Req() req: Request,
     @Body('accessToken') accessToken?: string,
   ): Promise<AuthSession> {
     if (!accessToken) {
       throw new HttpException({ error: AUTH_ERROR_CODES.INVALID_TOKEN }, 401);
     }
     try {
-      return await this.auth.loginWithKakaoNative(accessToken);
+      return await this.auth.loginWithKakaoNative(
+        accessToken,
+        this.deviceOf(req),
+      );
     } catch (e) {
       this.logFailure(`[kakao/native] login failed`, e);
       throw new HttpException({ error: AUTH_ERROR_CODES.INVALID_TOKEN }, 401);
@@ -296,14 +323,18 @@ export class AuthController {
   // 코드는 1회용(GETDEL)이라 두 번째 교환은 실패한다.
   @Post('native/exchange')
   @UseGuards(ThrottlerGuard)
-  async nativeExchange(
-    @Body('code') code?: string,
-  ): Promise<AuthSession> {
+  async nativeExchange(@Body('code') code?: string): Promise<AuthSession> {
     const session = code ? await this.nativeCodes.redeem(code) : null;
     if (!session) {
       throw new HttpException({ error: AUTH_ERROR_CODES.INVALID_TOKEN }, 401);
     }
     return session;
+  }
+
+  // 요청의 User-Agent를 **기기 종류로 접는다.** 원문은 여기서 끝이고 아래로 내려가지
+  // 않는다 — 저장소에 남는 것은 enum 하나뿐이다(plan/dashboard.md §5).
+  private deviceOf(req: Request): DeviceKind {
+    return classifyDevice(req.headers['user-agent']);
   }
 
   // ──────────────────────── 세션 ────────────────────────

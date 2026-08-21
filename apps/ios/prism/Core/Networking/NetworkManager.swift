@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import UIKit
 
 /// HTTP 호출 한 겹.
 ///
@@ -60,6 +61,17 @@ final class NetworkManager: Sendable {
 
     // MARK: - Private
 
+    /// 이 앱이 자기를 소개하는 문자열.
+    ///
+    /// URLSession 기본값(`prism/1 CFNetwork/… Darwin/…`)에는 기기 단서가 없어 서버가
+    /// 세션 목록에 "알 수 없는 기기"로만 그린다. 브라우저와 **같은 토큰**(`iPhone`/`iPad`)을
+    /// 써서, 서버가 UA를 네 갈래로 접는 규칙 하나만 갖게 한다(plan/dashboard.md §5).
+    /// 서버는 이 문자열을 저장하지 않고 접은 결과만 남긴다.
+    private static let userAgent: String = {
+        let idiom = UIDevice.current.userInterfaceIdiom == .pad ? "iPad" : "iPhone"
+        return "Prism (\(idiom))"
+    }()
+
     private func perform(
         _ endpoint: APIEndpoint,
         body: Data?,
@@ -67,6 +79,7 @@ final class NetworkManager: Sendable {
     ) async throws -> Data {
         var request = URLRequest(url: endpoint.url)
         request.httpMethod = endpoint.method
+        request.setValue(NetworkManager.userAgent, forHTTPHeaderField: "User-Agent")
         request.httpBody = body
         if body != nil {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")

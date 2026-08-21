@@ -94,11 +94,16 @@ describe('AuthController', () => {
     return { fns, res: fns as object as Response };
   };
 
-  const reqWith = (cookieHeader?: string, acceptLanguage?: string) =>
+  const reqWith = (
+    cookieHeader?: string,
+    acceptLanguage?: string,
+    userAgent?: string,
+  ) =>
     ({
       headers: {
         ...(cookieHeader ? { cookie: cookieHeader } : {}),
         ...(acceptLanguage ? { 'accept-language': acceptLanguage } : {}),
+        ...(userAgent ? { 'user-agent': userAgent } : {}),
       },
     }) as object as Request;
 
@@ -227,7 +232,12 @@ describe('AuthController', () => {
       undefined,
     );
 
-    expect(loginWithSocial).toHaveBeenCalledWith('google', 'code-1');
+    expect(loginWithSocial).toHaveBeenCalledWith(
+      'google',
+      'code-1',
+      undefined,
+      'unknown',
+    );
     expect(fns.clearCookie).toHaveBeenCalledWith(
       issued,
       expect.objectContaining({ secure: true, path: '/' }),
@@ -421,7 +431,12 @@ describe('AuthController', () => {
       undefined,
     );
 
-    expect(loginWithSocial).toHaveBeenCalledWith('google', 'code-1');
+    expect(loginWithSocial).toHaveBeenCalledWith(
+      'google',
+      'code-1',
+      undefined,
+      'unknown',
+    );
     expect(sessionCookieOf(fns)).toEqual([
       'prism_session',
       'token-1',
@@ -609,7 +624,7 @@ describe('AuthController', () => {
   // XSS가 fetch 한 번으로 자격증명을 가져가므로 HttpOnly가 무의미해진다.
   it('demo: 세션은 쿠키로만 주고 body에는 사용자·수명만 담는다', async () => {
     const { fns, res } = makeRes();
-    await expect(controller.demo(res)).resolves.toEqual({
+    await expect(controller.demo(reqWith(), res)).resolves.toEqual({
       user: session.user,
       accessTokenTtlMs: 15 * 60 * 1000,
     });
@@ -629,12 +644,12 @@ describe('AuthController', () => {
       nativeCodes,
     );
     const { res } = makeRes();
-    await expect(disabled.demo(res)).rejects.toThrow();
+    await expect(disabled.demo(reqWith(), res)).rejects.toThrow();
   });
 
   it('demo/native: 토큰(AuthSession)을 body로 준다 — 쿠키를 심지 않는다', async () => {
     // 쿠키 흐름과 같은 세션을 발급하되(issueDemoSession) 전달만 body다.
-    await expect(controller.demoNative()).resolves.toBe(session);
+    await expect(controller.demoNative(reqWith())).resolves.toBe(session);
     expect(issueDemoSession).toHaveBeenCalled();
   });
 
@@ -646,7 +661,7 @@ describe('AuthController', () => {
       makeConfig(false),
       nativeCodes,
     );
-    await expect(disabled.demoNative()).rejects.toThrow();
+    await expect(disabled.demoNative(reqWith())).rejects.toThrow();
   });
 
   // ──────────────── 네이티브(모바일 SDK) 로그인 ────────────────
@@ -656,18 +671,24 @@ describe('AuthController', () => {
 
   it('google/native: idToken을 검증해 세션(AuthSession)을 body로 반환한다', async () => {
     loginWithGoogleNative.mockResolvedValueOnce(session);
-    await expect(controller.googleNative('id-tok-1')).resolves.toBe(session);
-    expect(loginWithGoogleNative).toHaveBeenCalledWith('id-tok-1');
+    await expect(controller.googleNative(reqWith(), 'id-tok-1')).resolves.toBe(
+      session,
+    );
+    expect(loginWithGoogleNative).toHaveBeenCalledWith('id-tok-1', 'unknown');
   });
 
   it('google/native: idToken이 없으면 401 INVALID_TOKEN (검증 호출 안 함)', async () => {
-    await expect(controller.googleNative(undefined)).rejects.toThrow();
+    await expect(
+      controller.googleNative(reqWith(), undefined),
+    ).rejects.toThrow();
     expect(loginWithGoogleNative).not.toHaveBeenCalled();
   });
 
   it('google/native: 검증 실패는 401 INVALID_TOKEN으로 뭉갠다(원인 미노출)', async () => {
     loginWithGoogleNative.mockRejectedValueOnce(new Error('aud mismatch'));
-    await expect(controller.googleNative('bad')).rejects.toMatchObject({
+    await expect(
+      controller.googleNative(reqWith(), 'bad'),
+    ).rejects.toMatchObject({
       status: 401,
       response: { error: 'INVALID_TOKEN' },
     });
@@ -675,18 +696,24 @@ describe('AuthController', () => {
 
   it('kakao/native: accessToken을 검증해 세션(AuthSession)을 body로 반환한다', async () => {
     loginWithKakaoNative.mockResolvedValueOnce(session);
-    await expect(controller.kakaoNative('acc-tok-1')).resolves.toBe(session);
-    expect(loginWithKakaoNative).toHaveBeenCalledWith('acc-tok-1');
+    await expect(controller.kakaoNative(reqWith(), 'acc-tok-1')).resolves.toBe(
+      session,
+    );
+    expect(loginWithKakaoNative).toHaveBeenCalledWith('acc-tok-1', 'unknown');
   });
 
   it('kakao/native: accessToken이 없으면 401 INVALID_TOKEN (검증 호출 안 함)', async () => {
-    await expect(controller.kakaoNative(undefined)).rejects.toThrow();
+    await expect(
+      controller.kakaoNative(reqWith(), undefined),
+    ).rejects.toThrow();
     expect(loginWithKakaoNative).not.toHaveBeenCalled();
   });
 
   it('kakao/native: 검증 실패는 401 INVALID_TOKEN으로 뭉갠다(원인 미노출)', async () => {
     loginWithKakaoNative.mockRejectedValueOnce(new Error('app_id mismatch'));
-    await expect(controller.kakaoNative('bad')).rejects.toMatchObject({
+    await expect(
+      controller.kakaoNative(reqWith(), 'bad'),
+    ).rejects.toMatchObject({
       status: 401,
       response: { error: 'INVALID_TOKEN' },
     });
@@ -717,7 +744,7 @@ describe('AuthController', () => {
     );
     const { fns, res } = makeRes();
 
-    await prod.demo(res);
+    await prod.demo(reqWith(), res);
     expect(fns.cookie).toHaveBeenCalledWith(
       '__Host-prism_session',
       'token-1',

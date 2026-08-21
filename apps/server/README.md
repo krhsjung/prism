@@ -22,7 +22,7 @@ pnpm build:auth       # auth 프로덕션 빌드
 ## 테스트
 
 ```bash
-pnpm test         # 유닛 (Jest) — 219개
+pnpm test         # 유닛 (Jest) — 226개
 pnpm test:e2e     # E2E
 ```
 

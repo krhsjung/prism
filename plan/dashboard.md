@@ -33,6 +33,18 @@
 
 <!-- ▼ 최신 항목을 이 아래에 쌓는다 ▼ -->
 
+### 세션 기기 종류 — 구현 (server · web)
+
+- 요약: 목록에서 "이 세션이 어떤 기기인가"를 알 수 있게 기기 **종류**(폰·태블릿·
+  데스크톱·모름)를 표시한다. 기기명·브라우저·위치는 담지 않는다 — UA 원문과 IP를
+  저장하지 않고 로그인 시점에 enum 하나로 접는다(§5).
+- 화면: `Dashboard / Desktop · Mobile` — SessionRow의 제목 줄
+- 데이터/API: `SessionInfo.device` 추가(`GET /auth/sessions`)
+- 구현: `services/auth/src/session/device.ts`(UA → enum) · 세션 레코드에 enum 저장 ·
+  `apps/web` 행 라벨/아이콘 · iOS·Android는 자기 기기가 보이도록 표준 토큰이 든
+  User-Agent를 보낸다
+- 추가: 2026-08-21
+
 ### 활성 세션 관리 — 구현 (web)
 
 - 요약: 내 계정의 활성 세션을 조회하고, 개별/전체로 원격 폐기한다(다른 기기에서
@@ -42,8 +54,8 @@
 - 데이터/API: `GET /auth/sessions` · `POST /auth/sessions/:id/revoke` ·
   `POST /auth/sessions/revoke-all` · `POST /auth/logout`
 - 구현: `apps/web` — 앱 셸(사이드바 + 상단 바) + 세션 목록 · Revoke · Sign out all ·
-  Log out, 로딩·빈·오류 상태. **기기 라벨은 쓰지 않는다**(계약이 UA/IP를 담지 않음 —
-  PII 미저장): 각 행은 "현재 세션/로그인된 세션 + 짧은 세션 id + 시작·만료 시각"으로 표시.
+  Log out, 로딩·빈·오류 상태. 각 행은 "기기 종류 + 현재/로그인된 세션 + 짧은 세션 id +
+  시작·만료 시각"으로 표시한다 — 기기명·브라우저·위치는 담지 않는다(§5).
 - 관련: `feat(web)` 세션 관리 구현 · i18n 문자열 추가(`i18n/client.csv`)
 - 추가: 2026-08-03
 
@@ -111,7 +123,7 @@
 
 각 행(row)의 구성:
 
-- **Session** — 현재/로그인된 세션 + 짧은 id + 아이콘 (기기 라벨 아님 — §5)
+- **Session** — 기기 종류 라벨 + 아이콘, 부제에 현재/로그인된 세션 + 짧은 id (§5)
 - **Started** — 세션 시작 시각 (`startedAt`)
 - **Expires** — 만료 시각 (`expiresAt`)
 - **Status** — `Current`(Success) / `Active`(Info) 배지
@@ -173,15 +185,30 @@ interface SessionListItem extends SessionInfo {
 > `sessions/:id/revoke`보다 **먼저** 둔다. 아니면 `revoke-all`이 `:id`에 흡수된다.
 > `/auth/sessions`도 `/auth/:provider`보다 뒤에 두면 provider로 먹힌다.
 
-### 결정됨: 기기/브라우저/위치 메타 → 표시 축소
+### 결정됨: 기기 **종류만** — 기기명·브라우저·위치는 담지 않는다
 
-Figma 시안은 `MacBook Pro · Chrome · Seoul, KR` 같은 **기기 라벨**을 보여주지만,
-계약(`SessionListItem`)은 **의도적으로 그 필드를 담지 않는다** — 주석에 명시돼 있듯
-UA/IP를 저장하면 개인정보 미저장 원칙이 깨지기 때문이다(`id/startedAt/expiresAt/isCurrent`뿐).
+Figma 시안은 `MacBook Pro · Chrome · Seoul, KR`을 보여준다. 그대로 담으려면 UA 원문과
+IP를 저장해야 하는데, 그러면 개인정보 미저장 원칙이 깨진다. 그렇다고 아무것도 주지
+않으면 "이 세션이 내 폰인지 회사 PC인지"를 알 수 없어, 목록의 본래 목적(모르는 세션을
+찾아 끊기)이 흐려진다.
 
-→ **표시 축소로 확정.** 웹 UI는 기기 라벨 없이 "현재 세션/로그인된 세션 + 짧은 세션
-id + 시작·만료 시각 + Current/Active 배지"로 그린다. Figma의 기기 라벨은 시각적
-예시일 뿐 실제 데이터가 아니다(컨트랙트 확장안은 PII 원칙과 충돌해 보류).
+→ **가운데를 택한다.** 계약에 `device: 'phone' | 'tablet' | 'desktop' | 'unknown'`
+하나만 더한다.
+
+- **원문은 저장하지 않는다.** 로그인 요청의 User-Agent를 그 자리에서 네 갈래로 접고
+  버린다(`services/auth/src/session/device.ts`). 저장소에 남는 것은 enum 하나뿐이라,
+  저장소가 통째로 유출돼도 브라우저·OS 버전·기기 모델이 새어 나가지 않는다.
+- **IP는 읽지도 않는다.** 위치는 이 슬라이스에서 다루지 않는다 — 국가만 담아도 geo-IP
+  의존이 생기고, 로그인 화면의 "개인정보를 저장하지 않습니다"와 부딪힌다.
+- **모르면 좁히지 않는다.** UA가 없거나 알아볼 수 없으면 `unknown`이다. 라벨이 조금 덜
+  친절한 것이, 없는 정보를 지어내는 것보다 낫다.
+- **앱도 같은 규칙으로 읽힌다.** iOS·Android가 브라우저와 같은 토큰(`iPhone`/`iPad`/
+  `Android`+`Mobile`)이 든 User-Agent를 보내, 서버는 분류 규칙 하나만 갖는다.
+- **예전 세션은 목록에서 사라지지 않는다.** 이 필드가 생기기 전에 만들어진 세션은
+  값이 없다 — 거부하지 않고 `unknown`으로 접는다.
+
+> 시안의 `Chrome · Seoul, KR` 자리에는 "현재 세션/로그인된 세션 + 짧은 세션 id"를 둔다.
+> 기기명 대신 종류 라벨(휴대폰·태블릿·데스크톱)이 제목 줄에 온다.
 
 ---
 
@@ -190,7 +217,7 @@ id + 시작·만료 시각 + Current/Active 배지"로 그린다. Figma의 기�
 - 테마(라이트/다크/시스템) · 언어 스위처는 로그인 화면과 동일 컴포넌트 재사용
 - 다크 대비: 위 §4 보정으로 텍스트/아이콘/버튼 모두 대비 확보
 - `Revoke`/`Sign out all`은 파괴적 액션 — 키보드 포커스 가시성 + 스크린리더 라벨
-  (예: "Revoke session on iPhone 15") 필요. 라벨은 기기 메타 결정(§5)에 의존한다.
+  (예: "Revoke session on phone") 필요. 라벨의 기기 부분은 §5의 종류 enum을 쓴다.
 
 ---
 
@@ -198,7 +225,7 @@ id + 시작·만료 시각 + Current/Active 배지"로 그린다. Figma의 기�
 
 1. ✅ Figma 시안 (Desktop/Mobile · 테마 변수 대응, 별도 다크 시안 없음)
 2. ✅ 디자인 토큰 sync — 다크 `Primary` 보정 + `Text Strong` 토큰 도입 (web 반영/배포)
-3. ✅ 기기 메타 컨트랙트 결정 (§5) — 표시 축소(계약이 PII 미포함)
+3. ✅ 기기 메타 컨트랙트 결정 (§5) — **기기 종류만** 담는다(UA 원문·IP 미저장)
 4. ✅ `apps/web` Dashboard UI — 셸 + 세션 목록 · Revoke · Sign out all
 5. ✅ 서버 연동 (`GET /auth/sessions`, `POST .../revoke`, `.../revoke-all`, `logout`)
 6. ✅ 상태 처리 (Loading · Empty · Error)
@@ -209,8 +236,8 @@ id + 시작·만료 시각 + Current/Active 배지"로 그린다. Figma의 기�
 
 ## 8. 오픈 이슈
 
-- ~~기기/브라우저/위치 표기~~ — **해결(§5)**: 계약이 PII를 담지 않아 표시 축소로 확정.
-  웹은 세션 id + 시작·만료 + Current/Active로 표시한다.
+- ~~기기/브라우저/위치 표기~~ — **해결(§5)**: 기기 **종류**(폰·태블릿·데스크톱·모름)만
+  계약에 담는다. UA 원문·IP는 저장하지 않으므로 기기명·브라우저·위치는 표시하지 않는다.
 - **현재 세션의 Revoke** — 현재 세션 행은 `Revoke` 대신 상단 바 `Log out`으로 처리
   (자기 세션을 표에서 끊는 동작이 로그아웃과 중복되지 않게). v1 확정.
 - **Sign out all 확인** — 즉시 실행 vs 확인 모달(`Organism/Modal`). 파괴적·비가역이므로

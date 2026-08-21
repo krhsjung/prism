@@ -32,12 +32,14 @@ const currentSession: SessionListItem = {
   startedAt: '2026-01-01T09:00:00.000Z',
   expiresAt: '2026-01-01T17:00:00.000Z',
   isCurrent: true,
+  device: 'desktop',
 };
 const otherSession: SessionListItem = {
   id: 'sess-other-2',
   startedAt: '2026-01-02T09:00:00.000Z',
   expiresAt: '2026-01-03T09:00:00.000Z',
   isCurrent: false,
+  device: 'phone',
 };
 
 function renderDashboard(
@@ -110,12 +112,20 @@ describe('DashboardPage', () => {
 
   // ── 활성 세션 ──
 
+  it('세션 종류를 라벨로 보여준다', async () => {
+    renderDashboard();
+
+    // 기기명·위치는 저장하지 않으므로(§5) 표시는 종류 하나로 끝난다.
+    expect(await screen.findByText('Desktop')).toBeTruthy();
+    expect(screen.getByText('Phone')).toBeTruthy();
+  });
+
   it('세션 목록을 불러와 현재/다른 세션을 구분해 보여준다', async () => {
     renderDashboard();
 
-    await waitFor(() => expect(screen.getByText('This session')).toBeDefined());
+    await waitFor(() => expect(screen.getByText(/This session/)).toBeDefined());
     expect(screen.getByText('Current')).toBeDefined();
-    expect(screen.getByText('Signed-in session')).toBeDefined();
+    expect(screen.getByText(/Signed-in session/)).toBeDefined();
     expect(screen.getByText('Active')).toBeDefined();
     // Revoke는 현재 세션이 아닌 행에만 있다(현재 세션은 상단 바 Log out으로 끊는다).
     expect(
@@ -125,7 +135,7 @@ describe('DashboardPage', () => {
 
   it('세션을 Revoke하면 목록에서 사라진다', async () => {
     renderDashboard();
-    await waitFor(() => expect(screen.getByText('Signed-in session')).toBeDefined());
+    await waitFor(() => expect(screen.getByText(/Signed-in session/)).toBeDefined());
 
     fireEvent.click(screen.getByRole('button', { name: 'Revoke' }));
 
@@ -133,7 +143,7 @@ describe('DashboardPage', () => {
       expect(vi.mocked(api.revokeSession)).toHaveBeenCalledWith('sess-other-2'),
     );
     await waitFor(() =>
-      expect(screen.queryByText('Signed-in session')).toBeNull(),
+      expect(screen.queryByText(/Signed-in session/)).toBeNull(),
     );
   });
 
@@ -146,7 +156,7 @@ describe('DashboardPage', () => {
     );
     // 재시도하면 다시 불러온다.
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
-    await waitFor(() => expect(screen.getByText('This session')).toBeDefined());
+    await waitFor(() => expect(screen.getByText(/This session/)).toBeDefined());
   });
 
   // ── 모바일 네비 드로어 ──
@@ -154,7 +164,7 @@ describe('DashboardPage', () => {
 
   it('햄버거로 네비 드로어를 열고 Esc로 닫는다', async () => {
     renderDashboard();
-    await waitFor(() => expect(screen.getByText('This session')).toBeDefined());
+    await waitFor(() => expect(screen.getByText(/This session/)).toBeDefined());
 
     const menu = screen.getByRole('button', { name: 'Open menu' });
     expect(menu.getAttribute('aria-expanded')).toBe('false');
@@ -174,7 +184,7 @@ describe('DashboardPage', () => {
 
   it('스크림을 누르면 드로어가 닫힌다', async () => {
     renderDashboard();
-    await waitFor(() => expect(screen.getByText('This session')).toBeDefined());
+    await waitFor(() => expect(screen.getByText(/This session/)).toBeDefined());
 
     fireEvent.click(screen.getByRole('button', { name: 'Open menu' }));
     const scrim = document.querySelector('.scrim');
