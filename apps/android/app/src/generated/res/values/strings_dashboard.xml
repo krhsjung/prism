@@ -16,22 +16,32 @@
     <string name="dashboard_active_sessions_desc">Where your account is signed in</string>
     <string name="dashboard_sign_out_all">Sign out all</string>
     <string name="dashboard_signing_out_all">Signing out…</string>
-    <string name="dashboard_col_session">Session</string>
+
+    <!-- 전체 로그아웃은 되돌릴 수 없다 — 누르기 전에 무엇이 끊기는지 적는다 -->
+    <string name="dashboard_sign_out_all_confirm_title">Sign out of all devices?</string>
+    <string name="dashboard_sign_out_all_confirm_body">Every session ends, including this one. You’ll need to sign in again.</string>
+    <string name="dashboard_col_device">Device</string>
     <string name="dashboard_col_started">Started</string>
     <string name="dashboard_col_expires">Expires</string>
     <string name="dashboard_col_status">Status</string>
     <string name="dashboard_status_current">Current</string>
     <string name="dashboard_status_active">Active</string>
 
-    <!-- 세션을 만든 기기의 종류(계약의 DeviceKind와 1:1). 기기명·위치는 담지 않는다 -->
-    <string name="dashboard_device_phone">Phone</string>
-    <string name="dashboard_device_tablet">Tablet</string>
+    <!-- 세션을 만든 기기의 종류(계약의 DeviceKind와 1:1). 모델·버전·위치는 담지 않는다 -->
+
+    <!-- 브랜드명은 고유명사라 옮기지 않는다 — 옮길 것은 device_desktop·device_unknown뿐이다 -->
+    <string name="dashboard_device_iphone">iPhone</string>
+    <string name="dashboard_device_ipad">iPad</string>
+    <string name="dashboard_device_galaxy">Galaxy</string>
+    <string name="dashboard_device_pixel">Pixel</string>
+    <string name="dashboard_device_android">Android</string>
+    <string name="dashboard_device_mac">Mac</string>
+    <string name="dashboard_device_windows">Windows</string>
     <string name="dashboard_device_desktop">Desktop</string>
     <string name="dashboard_device_unknown">Unknown device</string>
     <string name="dashboard_this_session">This session</string>
     <string name="dashboard_a_session">Signed-in session</string>
     <string name="dashboard_revoke">Revoke</string>
-    <string name="dashboard_revoking">Revoking…</string>
     <string name="dashboard_only_this_session">You’re only signed in on this device.</string>
     <string name="dashboard_retry">Try again</string>
 </resources>

@@ -27,6 +27,7 @@ enum MessageKey: String, CaseIterable, Sendable {
     case commonLoading = "common.loading"
     case commonLanguage = "common.language"
     case commonTheme = "common.theme"
+    case commonCancel = "common.cancel"
     // Theme
     case themeSystem = "theme.system"
     case themeLight = "theme.light"
@@ -56,20 +57,26 @@ enum MessageKey: String, CaseIterable, Sendable {
     case dashboardActiveSessionsDesc = "dashboard.active_sessions_desc"
     case dashboardSignOutAll = "dashboard.sign_out_all"
     case dashboardSigningOutAll = "dashboard.signing_out_all"
-    case dashboardColSession = "dashboard.col_session"
+    case dashboardSignOutAllConfirmTitle = "dashboard.sign_out_all_confirm_title"
+    case dashboardSignOutAllConfirmBody = "dashboard.sign_out_all_confirm_body"
+    case dashboardColDevice = "dashboard.col_device"
     case dashboardColStarted = "dashboard.col_started"
     case dashboardColExpires = "dashboard.col_expires"
     case dashboardColStatus = "dashboard.col_status"
     case dashboardStatusCurrent = "dashboard.status_current"
     case dashboardStatusActive = "dashboard.status_active"
-    case dashboardDevicePhone = "dashboard.device_phone"
-    case dashboardDeviceTablet = "dashboard.device_tablet"
+    case dashboardDeviceIphone = "dashboard.device_iphone"
+    case dashboardDeviceIpad = "dashboard.device_ipad"
+    case dashboardDeviceGalaxy = "dashboard.device_galaxy"
+    case dashboardDevicePixel = "dashboard.device_pixel"
+    case dashboardDeviceAndroid = "dashboard.device_android"
+    case dashboardDeviceMac = "dashboard.device_mac"
+    case dashboardDeviceWindows = "dashboard.device_windows"
     case dashboardDeviceDesktop = "dashboard.device_desktop"
     case dashboardDeviceUnknown = "dashboard.device_unknown"
     case dashboardThisSession = "dashboard.this_session"
     case dashboardASession = "dashboard.a_session"
     case dashboardRevoke = "dashboard.revoke"
-    case dashboardRevoking = "dashboard.revoking"
     case dashboardOnlyThisSession = "dashboard.only_this_session"
     case dashboardRetry = "dashboard.retry"
     // Error
@@ -87,7 +94,8 @@ enum MessageKey: String, CaseIterable, Sendable {
         switch self {
         case .commonLoading,
              .commonLanguage,
-             .commonTheme:
+             .commonTheme,
+             .commonCancel:
             "Common"
         case .themeSystem,
              .themeLight,
@@ -117,20 +125,26 @@ enum MessageKey: String, CaseIterable, Sendable {
              .dashboardActiveSessionsDesc,
              .dashboardSignOutAll,
              .dashboardSigningOutAll,
-             .dashboardColSession,
+             .dashboardSignOutAllConfirmTitle,
+             .dashboardSignOutAllConfirmBody,
+             .dashboardColDevice,
              .dashboardColStarted,
              .dashboardColExpires,
              .dashboardColStatus,
              .dashboardStatusCurrent,
              .dashboardStatusActive,
-             .dashboardDevicePhone,
-             .dashboardDeviceTablet,
+             .dashboardDeviceIphone,
+             .dashboardDeviceIpad,
+             .dashboardDeviceGalaxy,
+             .dashboardDevicePixel,
+             .dashboardDeviceAndroid,
+             .dashboardDeviceMac,
+             .dashboardDeviceWindows,
              .dashboardDeviceDesktop,
              .dashboardDeviceUnknown,
              .dashboardThisSession,
              .dashboardASession,
              .dashboardRevoke,
-             .dashboardRevoking,
              .dashboardOnlyThisSession,
              .dashboardRetry:
             "Dashboard"

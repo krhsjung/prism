@@ -16,22 +16,32 @@
     <string name="dashboard_active_sessions_desc">계정이 로그인된 위치</string>
     <string name="dashboard_sign_out_all">모두 로그아웃</string>
     <string name="dashboard_signing_out_all">로그아웃하는 중…</string>
-    <string name="dashboard_col_session">세션</string>
+
+    <!-- 전체 로그아웃은 되돌릴 수 없다 — 누르기 전에 무엇이 끊기는지 적는다 -->
+    <string name="dashboard_sign_out_all_confirm_title">모든 기기에서 로그아웃할까요?</string>
+    <string name="dashboard_sign_out_all_confirm_body">지금 이 세션을 포함해 모든 세션이 끊깁니다. 다시 로그인해야 합니다.</string>
+    <string name="dashboard_col_device">기기</string>
     <string name="dashboard_col_started">시작</string>
     <string name="dashboard_col_expires">만료</string>
     <string name="dashboard_col_status">상태</string>
     <string name="dashboard_status_current">현재</string>
     <string name="dashboard_status_active">활성</string>
 
-    <!-- 세션을 만든 기기의 종류(계약의 DeviceKind와 1:1). 기기명·위치는 담지 않는다 -->
-    <string name="dashboard_device_phone">휴대폰</string>
-    <string name="dashboard_device_tablet">태블릿</string>
+    <!-- 세션을 만든 기기의 종류(계약의 DeviceKind와 1:1). 모델·버전·위치는 담지 않는다 -->
+
+    <!-- 브랜드명은 고유명사라 옮기지 않는다 — 옮길 것은 device_desktop·device_unknown뿐이다 -->
+    <string name="dashboard_device_iphone">iPhone</string>
+    <string name="dashboard_device_ipad">iPad</string>
+    <string name="dashboard_device_galaxy">Galaxy</string>
+    <string name="dashboard_device_pixel">Pixel</string>
+    <string name="dashboard_device_android">Android</string>
+    <string name="dashboard_device_mac">Mac</string>
+    <string name="dashboard_device_windows">Windows</string>
     <string name="dashboard_device_desktop">데스크톱</string>
     <string name="dashboard_device_unknown">알 수 없는 기기</string>
     <string name="dashboard_this_session">현재 세션</string>
     <string name="dashboard_a_session">로그인된 세션</string>
     <string name="dashboard_revoke">해제</string>
-    <string name="dashboard_revoking">해제하는 중…</string>
     <string name="dashboard_only_this_session">이 기기에서만 로그인되어 있습니다.</string>
     <string name="dashboard_retry">다시 시도</string>
 </resources>

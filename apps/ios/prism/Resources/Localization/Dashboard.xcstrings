@@ -323,25 +323,71 @@
         }
       }
     },
-    "dashboard.col_session": {
+    "dashboard.sign_out_all_confirm_title": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Session"
+            "value": "Sign out of all devices?"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "세션"
+            "value": "모든 기기에서 로그아웃할까요?"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "セッション"
+            "value": "すべての端末からサインアウトしますか？"
+          }
+        }
+      }
+    },
+    "dashboard.sign_out_all_confirm_body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Every session ends, including this one. You’ll need to sign in again."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "지금 이 세션을 포함해 모든 세션이 끊깁니다. 다시 로그인해야 합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このセッションを含むすべてのセッションが終了します。もう一度サインインが必要です。"
+          }
+        }
+      }
+    },
+    "dashboard.col_device": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Device"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기기"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デバイス"
           }
         }
       }
@@ -461,48 +507,163 @@
         }
       }
     },
-    "dashboard.device_phone": {
+    "dashboard.device_iphone": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Phone"
+            "value": "iPhone"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "휴대폰"
+            "value": "iPhone"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "スマートフォン"
+            "value": "iPhone"
           }
         }
       }
     },
-    "dashboard.device_tablet": {
+    "dashboard.device_ipad": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tablet"
+            "value": "iPad"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "태블릿"
+            "value": "iPad"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "タブレット"
+            "value": "iPad"
+          }
+        }
+      }
+    },
+    "dashboard.device_galaxy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Galaxy"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Galaxy"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Galaxy"
+          }
+        }
+      }
+    },
+    "dashboard.device_pixel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pixel"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pixel"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pixel"
+          }
+        }
+      }
+    },
+    "dashboard.device_android": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Android"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Android"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Android"
+          }
+        }
+      }
+    },
+    "dashboard.device_mac": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac"
+          }
+        }
+      }
+    },
+    "dashboard.device_windows": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Windows"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Windows"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Windows"
           }
         }
       }
@@ -618,29 +779,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "解除"
-          }
-        }
-      }
-    },
-    "dashboard.revoking": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Revoking…"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "해제하는 중…"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "解除しています…"
           }
         }
       }

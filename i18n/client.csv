@@ -3,6 +3,7 @@ common,# 화면 공통,,,
 common,loading,Loading…,불러오는 중…,読み込み中…
 common,language,Language,언어,言語
 common,theme,Theme,테마,テーマ
+common,cancel,Cancel,취소,キャンセル
 theme,"# 테마 선택 — System은 ""고르지 않음""이자 기기 설정을 따르겠다는 선택이다",,,
 theme,system,System,시스템,システム
 theme,light,Light,라이트,ライト
@@ -33,21 +34,29 @@ dashboard,active_sessions,Active sessions,활성 세션,アクティブなセッ
 dashboard,active_sessions_desc,Where your account is signed in,계정이 로그인된 위치,アカウントがサインインしている場所
 dashboard,sign_out_all,Sign out all,모두 로그아웃,すべてサインアウト
 dashboard,signing_out_all,Signing out…,로그아웃하는 중…,サインアウトしています…
-dashboard,col_session,Session,세션,セッション
+dashboard,# 전체 로그아웃은 되돌릴 수 없다 — 누르기 전에 무엇이 끊기는지 적는다,,,
+dashboard,sign_out_all_confirm_title,Sign out of all devices?,모든 기기에서 로그아웃할까요?,すべての端末からサインアウトしますか？
+dashboard,sign_out_all_confirm_body,"Every session ends, including this one. You’ll need to sign in again.",지금 이 세션을 포함해 모든 세션이 끊깁니다. 다시 로그인해야 합니다.,このセッションを含むすべてのセッションが終了します。もう一度サインインが必要です。
+dashboard,col_device,Device,기기,デバイス
 dashboard,col_started,Started,시작,開始
 dashboard,col_expires,Expires,만료,有効期限
 dashboard,col_status,Status,상태,ステータス
 dashboard,status_current,Current,현재,現在
 dashboard,status_active,Active,활성,アクティブ
-dashboard,# 세션을 만든 기기의 종류(계약의 DeviceKind와 1:1). 기기명·위치는 담지 않는다,,,
-dashboard,device_phone,Phone,휴대폰,スマートフォン
-dashboard,device_tablet,Tablet,태블릿,タブレット
+dashboard,# 세션을 만든 기기의 종류(계약의 DeviceKind와 1:1). 모델·버전·위치는 담지 않는다,,,
+dashboard,# 브랜드명은 고유명사라 옮기지 않는다 — 옮길 것은 device_desktop·device_unknown뿐이다,,,
+dashboard,device_iphone,iPhone,iPhone,iPhone
+dashboard,device_ipad,iPad,iPad,iPad
+dashboard,device_galaxy,Galaxy,Galaxy,Galaxy
+dashboard,device_pixel,Pixel,Pixel,Pixel
+dashboard,device_android,Android,Android,Android
+dashboard,device_mac,Mac,Mac,Mac
+dashboard,device_windows,Windows,Windows,Windows
 dashboard,device_desktop,Desktop,데스크톱,デスクトップ
 dashboard,device_unknown,Unknown device,알 수 없는 기기,不明な端末
 dashboard,this_session,This session,현재 세션,このセッション
 dashboard,a_session,Signed-in session,로그인된 세션,サインイン中のセッション
 dashboard,revoke,Revoke,해제,解除
-dashboard,revoking,Revoking…,해제하는 중…,解除しています…
 dashboard,only_this_session,You’re only signed in on this device.,이 기기에서만 로그인되어 있습니다.,この端末でのみサインインしています。
 dashboard,retry,Try again,다시 시도,もう一度試す
 error,# 오류 메시지 — 키는 계약의 오류 코드와 1:1로 대응한다 (contracts.ts),,,

@@ -10,6 +10,7 @@ export const messages: Messages = {
   'common.loading': '読み込み中…',
   'common.language': '言語',
   'common.theme': 'テーマ',
+  'common.cancel': 'キャンセル',
 
   // ── theme ──
   // 테마 선택 — System은 "고르지 않음"이자 기기 설정을 따르겠다는 선택이다
@@ -46,21 +47,29 @@ export const messages: Messages = {
   'dashboard.active_sessions_desc': 'アカウントがサインインしている場所',
   'dashboard.sign_out_all': 'すべてサインアウト',
   'dashboard.signing_out_all': 'サインアウトしています…',
-  'dashboard.col_session': 'セッション',
+  // 전체 로그아웃은 되돌릴 수 없다 — 누르기 전에 무엇이 끊기는지 적는다
+  'dashboard.sign_out_all_confirm_title': 'すべての端末からサインアウトしますか？',
+  'dashboard.sign_out_all_confirm_body': 'このセッションを含むすべてのセッションが終了します。もう一度サインインが必要です。',
+  'dashboard.col_device': 'デバイス',
   'dashboard.col_started': '開始',
   'dashboard.col_expires': '有効期限',
   'dashboard.col_status': 'ステータス',
   'dashboard.status_current': '現在',
   'dashboard.status_active': 'アクティブ',
-  // 세션을 만든 기기의 종류(계약의 DeviceKind와 1:1). 기기명·위치는 담지 않는다
-  'dashboard.device_phone': 'スマートフォン',
-  'dashboard.device_tablet': 'タブレット',
+  // 세션을 만든 기기의 종류(계약의 DeviceKind와 1:1). 모델·버전·위치는 담지 않는다
+  // 브랜드명은 고유명사라 옮기지 않는다 — 옮길 것은 device_desktop·device_unknown뿐이다
+  'dashboard.device_iphone': 'iPhone',
+  'dashboard.device_ipad': 'iPad',
+  'dashboard.device_galaxy': 'Galaxy',
+  'dashboard.device_pixel': 'Pixel',
+  'dashboard.device_android': 'Android',
+  'dashboard.device_mac': 'Mac',
+  'dashboard.device_windows': 'Windows',
   'dashboard.device_desktop': 'デスクトップ',
   'dashboard.device_unknown': '不明な端末',
   'dashboard.this_session': 'このセッション',
   'dashboard.a_session': 'サインイン中のセッション',
   'dashboard.revoke': '解除',
-  'dashboard.revoking': '解除しています…',
   'dashboard.only_this_session': 'この端末でのみサインインしています。',
   'dashboard.retry': 'もう一度試す',
 

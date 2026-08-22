@@ -16,22 +16,32 @@
     <string name="dashboard_active_sessions_desc">アカウントがサインインしている場所</string>
     <string name="dashboard_sign_out_all">すべてサインアウト</string>
     <string name="dashboard_signing_out_all">サインアウトしています…</string>
-    <string name="dashboard_col_session">セッション</string>
+
+    <!-- 전체 로그아웃은 되돌릴 수 없다 — 누르기 전에 무엇이 끊기는지 적는다 -->
+    <string name="dashboard_sign_out_all_confirm_title">すべての端末からサインアウトしますか？</string>
+    <string name="dashboard_sign_out_all_confirm_body">このセッションを含むすべてのセッションが終了します。もう一度サインインが必要です。</string>
+    <string name="dashboard_col_device">デバイス</string>
     <string name="dashboard_col_started">開始</string>
     <string name="dashboard_col_expires">有効期限</string>
     <string name="dashboard_col_status">ステータス</string>
     <string name="dashboard_status_current">現在</string>
     <string name="dashboard_status_active">アクティブ</string>
 
-    <!-- 세션을 만든 기기의 종류(계약의 DeviceKind와 1:1). 기기명·위치는 담지 않는다 -->
-    <string name="dashboard_device_phone">スマートフォン</string>
-    <string name="dashboard_device_tablet">タブレット</string>
+    <!-- 세션을 만든 기기의 종류(계약의 DeviceKind와 1:1). 모델·버전·위치는 담지 않는다 -->
+
+    <!-- 브랜드명은 고유명사라 옮기지 않는다 — 옮길 것은 device_desktop·device_unknown뿐이다 -->
+    <string name="dashboard_device_iphone">iPhone</string>
+    <string name="dashboard_device_ipad">iPad</string>
+    <string name="dashboard_device_galaxy">Galaxy</string>
+    <string name="dashboard_device_pixel">Pixel</string>
+    <string name="dashboard_device_android">Android</string>
+    <string name="dashboard_device_mac">Mac</string>
+    <string name="dashboard_device_windows">Windows</string>
     <string name="dashboard_device_desktop">デスクトップ</string>
     <string name="dashboard_device_unknown">不明な端末</string>
     <string name="dashboard_this_session">このセッション</string>
     <string name="dashboard_a_session">サインイン中のセッション</string>
     <string name="dashboard_revoke">解除</string>
-    <string name="dashboard_revoking">解除しています…</string>
     <string name="dashboard_only_this_session">この端末でのみサインインしています。</string>
     <string name="dashboard_retry">もう一度試す</string>
 </resources>
