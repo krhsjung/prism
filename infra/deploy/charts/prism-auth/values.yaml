@@ -1,6 +1,10 @@
 # 값은 install.sh가 환경변수로 치환한다(${VAR:-default}). 시크릿은 env에서만 주입.
 replicaCount: 1
 
+# 배포 리비전(커밋 해시). 파드 템플릿 애노테이션에 들어가 롤아웃을 트리거한다 —
+# `latest` 태그는 값이 바뀌어도 스펙이 그대로라 쿠버네티스가 재배포하지 않는다.
+deployRevision: "${PRISM_DEPLOY_REVISION:-unset}"
+
 image:
   repository: ${PRISM_REGISTRY:?set PRISM_REGISTRY}/prism-auth
   tag: "${PRISM_IMAGE_TAG:-latest}"

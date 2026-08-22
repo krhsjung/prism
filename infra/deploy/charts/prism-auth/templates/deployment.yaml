@@ -11,6 +11,10 @@ spec:
       {{- include "prism-auth.selectorLabels" . | nindent 6 }}
   template:
     metadata:
+      annotations:
+        # 이 값이 바뀌면 파드 템플릿이 바뀐 것이므로 쿠버네티스가 롤아웃한다.
+        # (`latest` 태그만으로는 새 이미지를 밀어 넣어도 스펙이 그대로다)
+        prism.dev/revision: {{ .Values.deployRevision | quote }}
       labels:
         {{- include "prism-auth.selectorLabels" . | nindent 8 }}
     spec:

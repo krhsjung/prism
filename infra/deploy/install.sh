@@ -23,6 +23,29 @@ fi
 
 : "${PRISM_SERVICE_DOMAIN:?set PRISM_SERVICE_DOMAIN}"
 
+# 배포 리비전 — 파드 템플릿 애노테이션으로 들어가 롤아웃을 **트리거하는 역할**을 한다.
+#
+# 이미지 태그가 `latest`로 고정이라, 새 이미지를 밀어 넣어도 Deployment 스펙이 그대로면
+# 쿠버네티스는 "바뀐 게 없다"고 보고 파드를 그대로 둔다 — helm이 "Upgrade complete"를
+# 내는데도 예전 코드가 계속 도는 상태가 된다(실제로 겪었다).
+#
+# 시각이 아니라 **커밋 해시**를 쓴다: 시각으로 찍으면 코드가 그대로여도 upgrade마다
+# 파드가 죽었다 살아난다. 해시면 바뀌었을 때만 돌고, `kubectl describe`만 봐도 지금
+# 무엇이 도는지 알 수 있다(`latest`만으로는 알 수 없는 정보다).
+# 커밋되지 않은 변경이 섞인 빌드는 해시가 같아도 내용이 다르므로 `-dirty`를 붙여 구분한다.
+if [ -z "${PRISM_DEPLOY_REVISION:-}" ]; then
+  if git -C "$HERE" rev-parse --git-dir >/dev/null 2>&1; then
+    PRISM_DEPLOY_REVISION="$(git -C "$HERE" rev-parse --short HEAD)"
+    git -C "$HERE" diff --quiet HEAD -- 2>/dev/null ||
+      PRISM_DEPLOY_REVISION="$PRISM_DEPLOY_REVISION-dirty-$(date +%s)"
+  else
+    # 저장소 밖에서 돌린 경우 — 되돌릴 근거가 없으니 매번 새로 띄운다.
+    PRISM_DEPLOY_REVISION="unknown-$(date +%s)"
+  fi
+fi
+export PRISM_DEPLOY_REVISION
+echo "==> revision $PRISM_DEPLOY_REVISION"
+
 # env 치환된 values 생성 (사용 후 삭제 → 시크릿 비영속).
 # trap을 생성 전에 걸어, 치환 실패 시에도 잔여 파일이 남지 않게 한다.
 GEN="$CHART_PATH/values.generated.yaml"

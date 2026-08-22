@@ -123,6 +123,33 @@ DB 옵션: `PRISM_DATABASE_URL`(기본 `postgres://prism@host.docker.internal:54
 ./infra/deploy/deploy-web.sh                  # 웹만
 ```
 
+### 배포해도 안 바뀌는 함정 — 이미지 태그와 롤아웃
+
+이미지 태그는 `latest`로 고정이다(`PRISM_IMAGE_TAG` 기본값). 그래서 **새 이미지를 밀어
+넣어도 Deployment 스펙은 그대로**이고, 쿠버네티스는 바뀐 게 없다고 보아 파드를 두 채로
+둔다 — `helm upgrade`가 "Upgrade complete"를 내는데도 예전 코드가 계속 도는 상태가 된다.
+실제로 겪었고, `kubectl get pods`의 AGE가 며칠 전인 것으로 드러났다.
+
+`install.sh`가 배포 리비전을 계산해 파드 템플릿 애노테이션으로 심어 이 문제를 없앤다:
+
+```yaml
+template:
+  metadata:
+    annotations:
+      prism.dev/revision: "a1b2c3d"   # install.sh가 채운다
+```
+
+- **시각이 아니라 커밋 해시다.** 시각으로 찍으면 코드가 그대로여도 `upgrade`마다 파드가
+  죽었다 살아난다. 해시면 바뀌었을 때만 돌고, `kubectl describe`만으로 지금 무엇이 도는지
+  알 수 있다 — `latest` 태그만으로는 알 수 없는 정보다.
+- 커밋되지 않은 변경이 섞인 빌드는 해시가 같아도 내용이 다르므로 `-dirty-<epoch>`가 붙는다.
+- `PRISM_DEPLOY_REVISION`으로 직접 줄 수도 있다(CI에서 빌드 번호 등).
+
+> **한계 — 이건 롤백이 아니다.** 애노테이션은 "배포가 조용히 무시되는 것"만 막는다.
+> `latest`는 여전히 움직이는 태그라 `helm rollback`을 해도 **이미지는 되돌아가지 않는다**
+> (애노테이션만 예전 값이 되고 컨테이너는 그때의 `latest`를 받는다). 진짜 롤백이 필요하면
+> `PRISM_IMAGE_TAG`에 커밋 해시를 넣어 이미지를 불변으로 만들어야 한다.
+
 ## 사전 준비
 
 - kind 클러스터 가동 (`infra/docker/kind/create-cluster.sh`)
@@ -146,3 +173,32 @@ location /auth { proxy_pass http://localhost:30000; ... }
 ```
 
 > 웹에 `/auth` 하위 라우트를 새로 추가하면 같은 예외가 하나씩 더 필요하다.
+
+### nginx: `index.html`은 캐시하지 않는다
+
+자산은 파일명에 내용 해시가 붙으므로(`index-oq1YHm-B.css`) 영구 캐시가 안전하다. 반면
+`index.html`은 **어느 해시의 번들을 쓸지 가리키는 파일**이라, 캐시되면 새로 배포해도
+브라우저가 예전 번들을 계속 불러 배포가 반영되지 않는다. 기본 설정에는 `Cache-Control`이
+없어 브라우저가 휴리스틱으로 캐시한다:
+
+```nginx
+location /assets/ {
+    root <web-root>;              # PRISM_WEB_DEPLOYMENT_PATH
+    add_header Cache-Control "public, max-age=31536000, immutable";
+    try_files $uri =404;
+}
+
+location = /index.html {
+    root <web-root>;
+    add_header Cache-Control "no-cache";
+}
+```
+
+- `no-store`가 아니라 `no-cache`다 — 받아 두되 쓸 때마다 ETag로 재검증한다.
+- SPA 폴백(`try_files $uri $uri/ /index.html`)의 마지막 인자는 **내부 리다이렉트**라
+  `location = /index.html`을 다시 탄다. 그래서 `/dashboard` 같은 경로도 헤더를 받는다.
+- 반면 `location = /auth/callback`의 `try_files /index.html =404`는 리다이렉트 없이
+  파일을 바로 내보내므로 그 위치에는 **같은 헤더를 따로 둬야 한다.**
+
+> ⚠️ 백업 파일을 `servers/` 안에 두지 말 것 — `include servers/*`에 걸려 nginx가
+> 중복 upstream으로 부팅에 실패한다(`nginx -t`로 먼저 확인).
