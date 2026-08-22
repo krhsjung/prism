@@ -42,8 +42,19 @@ class AuthManager(
         /** 저장된 토큰으로 세션을 확인하는 중(앱 시작 직후). */
         data object Checking : State
         data object SignedOut : State
-        data class SignedIn(val user: User) : State
+
+        /**
+         * @param generation 이 세션이 **몇 번째로 발급된 것인지**. 로그아웃 뒤 다시
+         *   로그인하면 같은 사용자라도 값이 달라진다 — 화면이 세션에 묶여 있음을
+         *   표현하는 유일한 수단이다(서버의 세션 id는 토큰 안에만 있어 앱이 모른다).
+         *   복원·갱신은 **같은 세션을 잇는 것이므로 값을 바꾸지 않는다.**
+         */
+        data class SignedIn(val user: User, val generation: Long) : State
     }
+
+    // 새 세션이 채택될 때마다 하나씩 오른다. 앞 세션의 화면 상태가 다음 세션으로
+    // 넘어가지 않게 하는 것이 전부다 — 값 자체에는 의미가 없다.
+    private var generation = 0L
 
     private val _state = MutableStateFlow<State>(State.Checking)
     val state: StateFlow<State> = _state.asStateFlow()
@@ -62,7 +73,7 @@ class AuthManager(
             return@withLock
         }
         try {
-            _state.value = State.SignedIn(nativeApi.meBearer(access).user)
+            _state.value = State.SignedIn(nativeApi.meBearer(access).user, generation)
             AppLog.d("session restored")
         } catch (e: ApiError) {
             when {
@@ -182,10 +193,11 @@ class AuthManager(
         }
     }
 
-    /** 세션 채택 — Bearer 토큰을 저장하고 상태를 전환한다. */
+    /** 세션 채택 — Bearer 토큰을 저장하고 상태를 전환한다. 여기가 **새 세션의 시작**이다. */
     private fun adopt(session: AuthSession) {
         tokens.save(session.accessToken, session.refreshToken)
-        _state.value = State.SignedIn(session.user)
+        generation += 1
+        _state.value = State.SignedIn(session.user, generation)
     }
 
     /** 갱신 성공이면 새 토큰으로 세션을 잇고, 확정 실패면 토큰을 지운다. 일시적 실패면 보존한다. */
@@ -198,7 +210,9 @@ class AuthManager(
         try {
             val session = nativeApi.refreshBearer(refresh)
             tokens.save(session.accessToken, session.refreshToken)
-            _state.value = State.SignedIn(session.user)
+            // 토큰만 갈렸을 뿐 세션은 그대로다 — generation을 올리면 화면이 통째로
+            // 다시 만들어져, 갱신이 일어날 때마다 목록이 깜빡인다.
+            _state.value = State.SignedIn(session.user, generation)
             AppLog.d("session refreshed")
         } catch (e: ApiError) {
             if (e.isDefinitiveAuthFailure) {

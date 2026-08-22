@@ -99,8 +99,52 @@ class AuthManagerTest {
         val manager = manager(native, FakeTokens(acc = "a", ref = "r"))
 
         manager.restoreSession()
-        assertEquals(AuthManager.State.SignedIn(user()), manager.state.value)
+        assertEquals(user(), (manager.state.value as AuthManager.State.SignedIn).user)
         assertEquals(1, native.meCount)
+    }
+
+
+    // 로그아웃하고 다시 로그인하면 **같은 사용자라도 다른 세션**이다. 화면(ViewModel)이
+    // 이 값에 묶여 있어, 값이 그대로면 앞 세션의 목록이 새 세션 화면에 그대로 남는다.
+    @Test
+    fun `signing in again starts a new session generation`() = runTest {
+        val native = FakeNative().apply {
+            demoResult = Result.success(AuthSession("dacc", "dref", user()))
+            meResult = Result.success(session())
+        }
+        val manager = manager(native, FakeTokens())
+
+        manager.signIn(AuthProvider.DEMO)
+        val first = (manager.state.value as AuthManager.State.SignedIn).generation
+
+        manager.signOut()
+        manager.signIn(AuthProvider.DEMO)
+        val second = (manager.state.value as AuthManager.State.SignedIn).generation
+
+        assertTrue("다시 로그인했는데 같은 세션으로 읽힌다", second > first)
+    }
+
+    // 복원·갱신은 **같은 세션을 잇는 것**이다. 여기서 값이 바뀌면 포그라운드로 돌아올
+    // 때마다 화면이 통째로 새로 만들어져 목록이 깜빡인다.
+    @Test
+    fun `restoring and refreshing keep the same session generation`() = runTest {
+        val native = FakeNative().apply {
+            demoResult = Result.success(AuthSession("dacc", "dref", user()))
+            meResult = Result.success(session())
+        }
+        val manager = manager(native, FakeTokens())
+
+        manager.signIn(AuthProvider.DEMO)
+        val issued = (manager.state.value as AuthManager.State.SignedIn).generation
+
+        manager.restoreSession()
+        assertEquals(issued, (manager.state.value as AuthManager.State.SignedIn).generation)
+
+        // 만료 → 갱신으로 토큰만 갈린 경우도 같은 세션이다.
+        native.meResult = Result.failure(ApiError(401, AuthErrorCode.SESSION_EXPIRED))
+        native.refreshResult = Result.success(AuthSession("acc2", "ref2", user()))
+        manager.restoreSession()
+        assertEquals(issued, (manager.state.value as AuthManager.State.SignedIn).generation)
     }
 
     @Test
@@ -182,7 +226,7 @@ class AuthManagerTest {
         val manager = manager(native, tokens)
 
         manager.signIn(AuthProvider.DEMO)
-        assertEquals(AuthManager.State.SignedIn(user()), manager.state.value)
+        assertEquals(user(), (manager.state.value as AuthManager.State.SignedIn).user)
         assertEquals("dacc", tokens.acc)
         assertEquals("dref", tokens.ref)
     }
@@ -210,7 +254,7 @@ class AuthManagerTest {
         val manager = AuthManager(native, tokens, webAuth = web)
 
         manager.signIn(AuthProvider.GOOGLE, AuthMethod.REDIRECT, activity = null)
-        assertEquals(AuthManager.State.SignedIn(user()), manager.state.value)
+        assertEquals(user(), (manager.state.value as AuthManager.State.SignedIn).user)
         assertEquals("racc", tokens.acc)
         assertEquals("rref", tokens.ref)
     }
@@ -293,6 +337,6 @@ class AuthManagerTest {
         second.join()
         // 직렬화됐으므로 두 번째가 그제서야 두 번째 me를 부른다(겹치지 않음).
         assertEquals(2, native.meCount)
-        assertEquals(AuthManager.State.SignedIn(user()), manager.state.value)
+        assertEquals(user(), (manager.state.value as AuthManager.State.SignedIn).user)
     }
 }

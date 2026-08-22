@@ -13,6 +13,7 @@ import kr.hs.jung.prism.feature.auth.HttpAuthApi
 import kr.hs.jung.prism.feature.auth.social.AndroidSocialSignIn
 import kr.hs.jung.prism.feature.auth.social.GoogleSignInClient
 import kr.hs.jung.prism.feature.auth.social.KakaoSignInClient
+import kr.hs.jung.prism.feature.dashboard.HttpSessionsApi
 
 /**
  * 앱의 의존성을 한 번만 만들고 이어 주는 곳.
@@ -28,12 +29,22 @@ import kr.hs.jung.prism.feature.auth.social.KakaoSignInClient
  */
 class ServiceContainer(context: Context) {
     private val secureStore = SecureStore(context)
-    private val sessionTokens = SecureSessionTokens(secureStore)
-    // 태블릿은 `Mobile` 토큰을 빼서 알린다 — 브라우저가 쓰는 구분과 같다.
-    // 600dp는 Android가 태블릿 레이아웃을 가르는 관례적 경계다.
+    // 대시보드도 같은 Bearer 토큰으로 세션 API를 부르므로 밖에서 읽을 수 있어야 한다.
+    val sessionTokens = SecureSessionTokens(secureStore)
+    // 브라우저와 **같은 토큰**을 실어 보낸다 — 서버가 UA를 접는 규칙 하나만 갖게 하려는
+    // 것이다. 모델(Build.MODEL, 예: SM-G988N)을 실으면 브랜드까지 잡히고, 서버는 그것을
+    // 즉시 enum으로 접어 버리므로 원문이 저장되지 않는다(plan/dashboard.md §5).
+    // 태블릿은 `Mobile` 토큰을 빼서 알린다 — 600dp는 Android의 관례적 경계다.
     private val isTablet = context.resources.configuration.smallestScreenWidthDp >= 600
     private val apiClient = ApiClient(
-        userAgent = if (isTablet) "Prism (Android)" else "Prism (Android; Mobile)",
+        userAgent = buildString {
+            append("Prism (Linux; Android ")
+            append(android.os.Build.VERSION.RELEASE)
+            append("; ")
+            append(android.os.Build.MODEL)
+            if (!isTablet) append("; Mobile")
+            append(")")
+        },
     )
     private val authApi = HttpAuthApi(apiClient)
 
@@ -51,6 +62,8 @@ class ServiceContainer(context: Context) {
         // 웹 redirect(flow=native)를 브라우저 탭으로 연다. base URL은 API 주소와 같다.
         webAuth = CustomTabsWebAuth(BuildConfig.PRISM_API_URL),
     )
+    /** 활성 세션 조회·폐기(`/auth/sessions*`). 인증은 AuthManager가 담은 Bearer로 한다. */
+    val sessionsApi = HttpSessionsApi(apiClient)
     val themeStore = ThemeStore(context)
     val localeStore = LocaleStore(context)
 }

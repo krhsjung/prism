@@ -2,8 +2,11 @@ package kr.hs.jung.prism.core.network
 
 import kr.hs.jung.prism.domain.model.AUTH_PROVIDERS
 import kr.hs.jung.prism.domain.model.AuthSession
+import kr.hs.jung.prism.domain.model.DeviceKind
+import kr.hs.jung.prism.domain.model.SessionListItem
 import kr.hs.jung.prism.domain.model.SessionUser
 import kr.hs.jung.prism.domain.model.User
+import org.json.JSONArray
 import org.json.JSONObject
 
 /** JS `Number.MAX_SAFE_INTEGER`(2^53-1). 서버 계약과 같은 정수 상한. */
@@ -70,6 +73,36 @@ fun decodeAuthSession(body: String): AuthSession {
         refreshToken = json.requireString("refreshToken"),
         user = decodeUser(userJson),
     )
+}
+
+/**
+ * `[{ id, startedAt, expiresAt, isCurrent }, …]` — `GET /auth/sessions`.
+ *
+ * 배열이 통째로 응답 본문이다. 한 항목이라도 형식이 어긋나면 목록 전체를 거부한다 —
+ * 일부만 살려 그리면 "해제했는데 목록에 남아 있는" 것과 구분되지 않는다.
+ */
+fun decodeSessionList(body: String): List<SessionListItem> {
+    val array = try {
+        JSONArray(body)
+    } catch (e: Exception) {
+        throw ApiError.invalidResponse
+    }
+    return (0 until array.length()).map { i ->
+        val item = array.opt(i)
+        if (item !is JSONObject) throw ApiError.invalidResponse
+        // isCurrent는 optBoolean처럼 문자열·숫자를 강제 변환하지 않는다 — 실제 Boolean만.
+        val current = item.opt("isCurrent")
+        if (current !is Boolean) throw ApiError.invalidResponse
+        SessionListItem(
+            id = item.requireString("id"),
+            startedAt = item.requireString("startedAt"),
+            expiresAt = item.requireString("expiresAt"),
+            isCurrent = current,
+            // 모르는 값은 거부하지 않고 UNKNOWN으로 접는다 — 갈래가 늘었다고 예전 앱에서
+            // 목록 전체가 실패하면 손해가 더 크다(웹 decodeDeviceKind와 같은 규칙).
+            device = DeviceKind.from(item.opt("device") as? String),
+        )
+    }
 }
 
 /** 오류 응답 body(`{ "error": "<코드>" }`)에서 코드만 꺼낸다. 없으면 null. */

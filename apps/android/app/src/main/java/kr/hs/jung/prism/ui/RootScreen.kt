@@ -16,7 +16,7 @@ import kr.hs.jung.prism.core.di.ServiceContainer
 import kr.hs.jung.prism.core.theme.PrismTheme
 import kr.hs.jung.prism.feature.auth.AuthManager
 import kr.hs.jung.prism.feature.auth.LoginScreen
-import kr.hs.jung.prism.ui.main.SignedInScreen
+import kr.hs.jung.prism.feature.dashboard.DashboardScreen
 import androidx.compose.runtime.rememberCoroutineScope
 
 /**
@@ -43,12 +43,19 @@ fun RootScreen(container: ServiceContainer) {
             is AuthManager.State.SignedOut ->
                 LoginScreen(auth, container.themeStore, container.localeStore)
             is AuthManager.State.SignedIn ->
-                SignedInScreen(
-                    user = current.user,
-                    themeStore = container.themeStore,
-                    localeStore = container.localeStore,
-                    onSignOut = { scope.launch { auth.signOut() } },
-                )
+                // 로그인 뒤의 화면 상태는 **이 세션의 것**이다. 세션이 끝나면 함께 버리고,
+                // 다시 로그인하면 새로 만든다 — 그러지 않으면 앞 세션의 목록이 그대로
+                // 그려진다(ui/SessionScope.kt).
+                SessionScope(current.generation) {
+                    DashboardScreen(
+                        user = current.user,
+                        themeStore = container.themeStore,
+                        localeStore = container.localeStore,
+                        sessionsApi = container.sessionsApi,
+                        tokens = container.sessionTokens,
+                        onSignOut = { scope.launch { auth.signOut() } },
+                    )
+                }
         }
     }
 }

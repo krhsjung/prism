@@ -8,7 +8,7 @@ Android Studio로 열거나 명령줄로:
 
 ```bash
 ./gradlew :app:assembleDebug          # 디버그 APK
-./gradlew :app:testDebugUnitTest      # JVM 유닛 테스트 (35개)
+./gradlew :app:testDebugUnitTest      # JVM 유닛 테스트 (55개)
 ./gradlew :app:installDebug           # 실행 중인 기기/에뮬레이터에 설치
 ```
 
@@ -28,6 +28,10 @@ app/src/main/java/kr/hs/jung/prism/
 │       │                       #   LoginViewModel · LoginScreen · AuthOption — 화면
 │       │                       #   social/ — SocialSignIn 추상 + Google·Kakao 네이티브 SDK
 │       │                       #   WebAuth · WebAuthActivity — Custom Tabs redirect(flow=native)
+│   └── dashboard/              # 대시보드 피처
+│       │                       #   SessionsApi — /auth/sessions* 전송
+│       │                       #   DashboardViewModel · DashboardScreen — 셸 + 활성 세션 카드
+│       │                       #   Timestamps — 화면 언어의 시각 표기
 ├── core/                       # 공유 인프라
 │   ├── di/ServiceContainer.kt  # 의존성 조립
 │   ├── i18n/                   # 언어 선택 + 협상
@@ -37,8 +41,7 @@ app/src/main/java/kr/hs/jung/prism/
 │   └── util/AppLog.kt
 ├── domain/model/               # 공유 API 계약 (Contracts + Contracts.gen)
 └── ui/                         # 공유 UI + 앱 셸
-    ├── component/              # PrismButton · PrismCard · 스위처 (디자인시스템)
-    ├── main/SignedInScreen.kt  # 로그인 후 셸
+    ├── component/              # PrismButton · PrismCard · PrismBadge · PrismAvatar · 스위처
     └── RootScreen.kt           # 인증 상태가 화면을 고른다(라우팅)
 ```
 
@@ -93,6 +96,40 @@ Text(stringResource(R.string.auth_welcome_back))
   물론 **팝업·드롭다운까지** 그 언어를 따른다(Compose의 `CompositionLocal` 덮어쓰기는
   별도 윈도우인 팝업에 닿지 않는다). 그래서 언어를 바꾸면 `recreate()`로 이 경로를
   다시 탄다 — 세션 상태는 Application 컨테이너에 있어 사라지지 않는다.
+
+### 당겨서 새로고침은 `refresh()`를 탄다
+
+`PullToRefreshBox`가 도는 동안 알리는 것은 `DashboardUiState.refreshing` 하나이고, 목록은
+건드리지 않는다 — 인디케이터가 이미 "받았다"를 말하고 있어 목록까지 비우면 화면만 흔들린다.
+실패해도 `finally`에서 인디케이터를 멈춘다. 기본 인디케이터 색은 material 기본 팔레트를
+쓰므로(우리는 몇 개 역할만 덮어썼다) `PullToRefreshDefaults.Indicator`에 우리 색을 준다.
+
+### 로그인 뒤 화면의 ViewModel은 **세션**에 붙는다
+
+`viewModel()`의 기본 소유자는 Activity다. 로그아웃해서 화면이 사라져도 인스턴스는 남고,
+다시 로그인하면 팩토리를 부르지 않은 채 그것을 돌려준다 — `init`의 최초 로드도 다시 돌지
+않아 **앞 세션의 목록이 새 세션 화면에 그대로 그려진다.** 실제로 그렇게 보였다.
+
+그래서 `ui/SessionScope.kt`가 세션마다 `ViewModelStore`를 갈아 끼우고, 갈아 끼울 때 앞
+저장소를 비운다(각 ViewModel의 `onCleared()`까지 불린다). 세션의 경계는
+`AuthManager.State.SignedIn.generation`이 정한다 — **새 로그인에서만 오르고, 복원·토큰
+갱신에서는 그대로**다. 복원마다 올리면 포그라운드로 돌아올 때마다 목록이 깜빡인다.
+
+> iOS·웹에는 이 문제가 없다. iOS는 `signedOut`을 지나며 뷰가 파괴돼 `@State`가 새로
+> 만들어지고, 웹은 라우트가 언마운트된다. 화면 상태를 화면보다 오래 살리는 것은 Android의
+> `ViewModel`뿐이다.
+
+### 선택 메뉴는 `DropdownMenu`가 아니라 `Popup`이다
+
+테마·언어 스위처(`ui/component/PreferenceSwitchers.kt`)는 material3의 `DropdownMenu`를
+쓰지 않는다. 그쪽 배치 규칙은 "트리거 아래 아니면 트리거 위"뿐이라, 드로어처럼 **옆으로**
+펴야 하는 자리를 표현할 수 없다 — 세로 여백이 조금만 모자라면(실기기에서 9px) 메뉴가
+트리거에서 떨어져 위로 날아갔다.
+
+그래서 `Popup` + `PreferenceMenuPosition`으로 배치를 직접 정한다. 껍데기(모서리·테두리·
+그림자)는 `MenuDefaults`와 같은 값을 써서 생김새는 그대로다. 규칙은 축마다 다르다 —
+**펴는 축**은 자리가 없으면 반대쪽으로 뒤집고, **트리거에 걸어 두는 축**은 뒤집지 않고
+화면 안으로 당긴다(웹의 `min()` 클램프·iOS `.popover`와 같다).
 
 ## 디자인 토큰
 
