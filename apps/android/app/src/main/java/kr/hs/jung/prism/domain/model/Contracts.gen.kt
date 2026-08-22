@@ -24,3 +24,26 @@ object ClientErrorCode {
 
 /** 서버 `User.provider`가 취하는 값. 디코딩 경계에서 이 집합으로 검증한다. */
 val AUTH_PROVIDERS: Set<String> = setOf("google", "apple", "kakao", "demo")
+
+/** 세션을 만든 기기의 종류(`SessionInfo.device`). */
+enum class DeviceKind(val wire: String) {
+    IPHONE("iphone"),
+    IPAD("ipad"),
+    GALAXY("galaxy"),
+    PIXEL("pixel"),
+    ANDROID("android"),
+    MAC("mac"),
+    WINDOWS("windows"),
+    DESKTOP("desktop"),
+    UNKNOWN("unknown"),
+    ;
+
+    companion object {
+        /**
+         * 모르는 값은 거부하지 않고 [UNKNOWN]으로 접는다 — 기기 종류는 화면의 라벨일
+         * 뿐이라, 갈래가 늘었다고 예전 앱에서 목록 전체가 실패하면 손해가 더 크다.
+         */
+        fun from(wire: String?): DeviceKind =
+            entries.firstOrNull { it.wire == wire } ?: UNKNOWN
+    }
+}

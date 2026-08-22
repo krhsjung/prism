@@ -22,3 +22,22 @@ enum ClientErrorCode {
 
 /// 서버 `User.provider`가 취하는 값. 디코딩 경계에서 이 집합으로 검증한다.
 let AUTH_PROVIDERS: Set<String> = ["google", "apple", "kakao", "demo"]
+
+/// 세션을 만든 기기의 종류(`SessionInfo.device`). 모르는 값은 `unknown`으로 접는다 —
+/// 갈래가 늘었다고 예전 앱에서 목록 전체가 실패하면 손해가 더 크다.
+enum DeviceKind: String, Codable, Sendable {
+    case iphone
+    case ipad
+    case galaxy
+    case pixel
+    case android
+    case mac
+    case windows
+    case desktop
+    case unknown
+
+    init(from decoder: Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode(String.self)
+        self = DeviceKind(rawValue: raw) ?? .unknown
+    }
+}

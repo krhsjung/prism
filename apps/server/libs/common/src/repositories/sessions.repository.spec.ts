@@ -275,9 +275,9 @@ describe('SessionsRepository (Redis)', () => {
   // ──────────────── 기기 종류 ────────────────
 
   it('로그인 시점의 기기 종류를 그대로 돌려준다', async () => {
-    await repo.create('s-1', user, HOUR, WEEK, 'phone');
+    await repo.create('s-1', user, HOUR, WEEK, 'iphone');
     const [entry] = await repo.listForUser('u-1');
-    expect(entry?.device).toBe('phone');
+    expect(entry?.device).toBe('iphone');
   });
 
   it('기기 종류를 주지 않으면 unknown이다', async () => {

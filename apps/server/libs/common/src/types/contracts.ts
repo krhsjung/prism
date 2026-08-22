@@ -38,12 +38,27 @@ export interface AuthSession {
   user: User;
 }
 
-// 세션을 만든 기기의 **종류**. 세 갈래 + 모름뿐이고, 그 이상은 담지 않는다.
+// 세션을 만든 기기의 **종류**. 정해진 갈래 + 모름뿐이고, 그 이상은 담지 않는다.
 //
-// 목록에서 "어느 기기의 세션인가"를 알아보려면 최소한의 단서가 필요하지만, 기기명·
-// 브라우저·위치까지 가면 저장하는 것이 곧 개인정보가 된다. User-Agent 원문도 IP도
-// 저장하지 않고, 로그인 시점에 이 **enum 하나로 줄여서만** 남긴다(plan/dashboard.md §5).
-export const DEVICE_KINDS = ['phone', 'tablet', 'desktop', 'unknown'] as const;
+// 목록에서 "어느 기기의 세션인가"를 알아보려면 단서가 필요하다. 알아볼 수 있는 만큼은
+// 브랜드까지 좁히되(iPhone·iPad·Galaxy·Pixel), 모르면 넓은 쪽으로 둔다 — 없는 정보를
+// 지어내지 않는 것이 이 목록의 규칙이다.
+//
+// **갈래가 늘어도 저장하는 성질은 그대로다.** User-Agent 원문도 IP도 저장하지 않고,
+// 로그인 시점에 이 enum 하나로 줄여서만 남긴다(plan/dashboard.md §5). 'iPhone'은 수억
+// 대가 공유하는 값이라 그 자체로 누군가를 가리키지 않는다 — 식별로 이어지는 것은 모델·
+// 버전·IP처럼 **좁은** 값이고, 그것들은 여기서 접혀 사라진다.
+export const DEVICE_KINDS = [
+  'iphone',
+  'ipad',
+  'galaxy',
+  'pixel',
+  'android',
+  'mac',
+  'windows',
+  'desktop',
+  'unknown',
+] as const;
 export type DeviceKind = (typeof DEVICE_KINDS)[number];
 
 // 내 세션 하나의 요약(GET /auth/sessions). 기기 종류 외에 기기를 특정할 수 있는 값은
