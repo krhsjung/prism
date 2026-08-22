@@ -53,6 +53,37 @@ Figma 파일은 `Assets`(섹션: `Foundations` · `Atoms` · `Molecules` · `Org
 공유하므로 웹 구현도 하나의 [SelectMenu](../apps/web/src/components/SelectMenu.tsx)를
 나눠 씁니다([ThemeSwitcher](../apps/web/src/components/ThemeSwitcher.tsx)).
 
+목록 안의 인라인 액션(`Revoke`)은 **입력 방식에 따라 갈립니다.** 포인터(데스크톱 웹)에서는
+`Ghost`(판 없이 글자만) — 표가 가벼워지고, 눌리는 것이라는 신호는 hover가 줍니다.
+**터치에는 hover가 없으므로**(앱과 좁은 폭의 웹) `Secondary`(채운 판)를 씁니다. 신호를
+hover에 기대는 변형은 손가락 앞에서 그냥 글자가 됩니다.
+
+시안도 같은 규칙입니다 — `Dashboard / Mobile` 두 프레임의 `Revoke`는 `Variant=Secondary`,
+`Dashboard / Desktop / Default`는 `Ghost`입니다. 고르는 자리에서 이유가 보이도록
+`Atom/Button` 컴포넌트 설명에도 적어 두었습니다.
+
+`Ghost` 변형은 세 플랫폼에 모두 있습니다(웹 `.btn--ghost` · iOS `.ghost` ·
+Android `PrismButtonVariant.GHOST`). 확인 창의 `취소`가 그것을 씁니다 — 옆의 채운
+확인 버튼과 무게 차이를 만드는 것이 목적입니다.
+
+트리거의 셰브런도 `Atom/Icon`입니다(`Chevron Down` · `Chevron Right`). **가리키는 쪽이 곧
+메뉴가 펴지는 쪽**이라, 상단 바에서는 `Down`, 좁고 긴 드로어에서는 `Right`를 씁니다 —
+드로어의 스위처는 패널 바닥에 붙어 있어 아래로 펼 자리가 없습니다(plan/dashboard.md §4).
+
+> **아이콘은 SF Symbol을 쓰지 않습니다.** 이름이 같아도 그림이 달라(`desktopcomputer`는
+> 면으로 채운 모니터) 세 화면을 나란히 놓으면 그 차이가 그대로 보입니다. iOS도 웹의 SVG
+> 패스를 옮긴 [PrismGlyph](../apps/ios/prism/Presentation/Views/Components/PrismGlyph.swift)로
+> 그립니다 — Android의 `res/drawable/ic_*.xml`과 같은 24 그리드·stroke 2입니다.
+>
+> **배지는 높이를 고정합니다**(시안 `Atom/Badge` = 23). 패딩만 주면 플랫폼마다 글자 상자
+> 여백이 달라 같은 배지가 서로 다른 높이로 나옵니다(Compose는 폰트 패딩을 더하고 SwiftUI는
+> 더하지 않습니다).
+>
+> **날짜·시각은 CLDR의 medium·short로 씁니다.** 세 플랫폼이 같은 문자열을 내야 하므로
+> iOS도 `Date.formatted(date: .abbreviated…)`가 아니라 `DateFormatter`를 씁니다 — 전자는
+> 한국어를 `2026년 8월 20일`로 내어 웹·Android의 `2026. 8. 20.`과 갈라집니다. 표기 언어는
+> 기기가 아니라 **앱에서 고른 언어**를 따릅니다.
+
 앱도 같은 구성입니다 — [iOS](../apps/ios/prism/Presentation/Views/Components/PreferenceSwitchers.swift) ·
 [Android](../apps/android/app/src/main/java/kr/hs/jung/prism/ui/component/PreferenceSwitchers.kt)
 각각 트리거 + 팝오버 한 벌을 두 스위처가 나눠 씁니다. **높이만 시안과 다릅니다** —
@@ -76,20 +107,34 @@ Figma 파일은 `Assets`(섹션: `Foundations` · `Atoms` · `Molecules` · `Org
 | 프레임 | 보여주는 것 |
 | --- | --- |
 | `Desktop / Default` | 앱 셸(사이드바 + 상단 바) + Active sessions 카드 |
-| `Mobile / Default` | 사이드바가 접힌 모바일 배치 |
-| `Mobile / Drawer (open)` | 햄버거로 연 네비 드로어(슬라이드인 + 스크림) |
+| — | 상단 바에는 페이지 이름만 둡니다. `OVERVIEW` 눈썹은 뺐습니다 — 목적지가 하나뿐이라 묶음 이름이 가리킬 것이 없고, 넣으려면 뜻 없는 낱말 하나를 세 언어로 번역해야 합니다 |
+| `Mobile / Default` | 사이드바가 접힌 모바일 배치. 카드 머리는 제목·부제만 두고 `Sign out all`은 그 아래 오른쪽 — 나란히 두면 영어·일본어에서 둘 다 줄바꿈됩니다 |
+| `Mobile / Drawer (open)` | 햄버거로 연 네비 드로어(슬라이드인 + 스크림) — 바닥에 테마·언어·로그아웃 |
 
 > **별도 다크 시안을 두지 않습니다** — 색이 전부 `Colors` 컬렉션 변수에 묶여 있어
 > 프레임의 적용 모드만 `Dark`로 바꾸면 다크가 나옵니다(웹의 `<html data-theme>`와 같은
 > 구조). `Auth`의 `Dark` 프레임은 다크에서의 **선택 상태**(트리거가 `Dark`를 가리킴)를
 > 보여주기 위한 예외입니다.
 >
-> ⚠️ Dashboard 시안의 `MacBook Pro · Chrome · Seoul, KR`은 **그대로 구현되지 않습니다.**
-> 계약이 담는 것은 기기 **종류**(폰·태블릿·데스크톱·모름)뿐이라, 제목 줄에는 종류 라벨이
-> 오고 부제에는 현재/로그인된 세션 + 짧은 세션 id가 옵니다. 기기명·브라우저·위치를 그리려면
+> **문구는 Figma가 아니라 i18n 마스터가 원천입니다.** 시안의 텍스트는 마스터
+> ([../i18n/client.csv](../i18n/client.csv))와 같아야 합니다 — 실제로 카드 부제가 데스크톱
+> (`Devices currently signed in to your account`)과 모바일(`3 devices signed in`)에서 서로
+> 달라, 마스터 값(`Where your account is signed in`)으로 통일했습니다. 표 헤더처럼 CSS가
+> 대문자로 바꾸는 자리는 시안이 대문자로, 마스터는 문장형으로 둡니다(`DEVICE` ↔ `Device`).
+>
+> **사이드바와 모바일 드로어는 같은 컴포넌트입니다**(`Organism/Sidebar`). 불리언 속성
+> `Preferences`로 가릅니다 — 기본 `false`(데스크톱: 이 컨트롤이 상단 바에 있음), 모바일
+> 드로어 인스턴스만 `true`(바닥에 구분선 + 테마·언어·로그아웃). 컴포넌트를 둘로 쪼개면
+> 내비게이션 항목이 늘 때마다 두 곳을 고쳐야 하고, 언젠가 한쪽만 고쳐집니다.
+>
+> **세션 행은 기기 종류 + 짧은 세션 id입니다.** 제목 줄에 `Mac`·`iPhone`·`Windows`,
+> 부제에 `#a3f1c204`. 기기명·브라우저·위치(`MacBook Pro · Chrome · Seoul, KR`)를 그리려면
 > User-Agent 원문과 IP를 저장해야 하고, 그러면 개인정보 미저장 원칙이 깨집니다
-> ([../plan/dashboard.md](../plan/dashboard.md) §5). 시안의 그 줄은 시각적 밀도를 잡기
-> 위한 자리표시로 읽습니다.
+> ([../plan/dashboard.md](../plan/dashboard.md) §5). 시안도 그 값으로 맞춰 두었습니다 —
+> 계약에 없는 값을 시안이 계속 보여주면 다음 사람이 그것을 구현하려 듭니다.
+>
+> 부제에 "현재 세션/로그인된 세션"을 겹쳐 적지 않습니다. 바로 옆 배지(`Current`/`Active`)가
+> 이미 그 말을 하고, 좁은 폭에서는 줄바꿈까지 만듭니다.
 
 테마·언어 선택은 화면 아래 `Preferences` 줄에 8px 간격으로 나란히 놓습니다(웹의
 `.auth__prefs`와 같은 배치). 다크 프레임의 트리거는 `Dark`를 가리킵니다 — 화면이
