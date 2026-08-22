@@ -31,6 +31,10 @@ enum AppDimension {
     }
 
     enum FontSize {
+        /// 보조 라벨(세션 id · 시각 · 배지). 웹 13px.
+        static let label: CGFloat = 13
+        /// 카드 섹션 제목. 웹 20px.
+        static let sectionTitle: CGFloat = 20
         /// 워드마크·카드 제목.
         static let title: CGFloat = 28
         static let body: CGFloat = 14
@@ -79,6 +83,35 @@ enum AppDimension {
         static let optionPadding: CGFloat = 12
         static let optionSpacing: CGFloat = 2
         static let borderWidth: CGFloat = 1
+    }
+
+    /// 대시보드 셸 — 시안 `Dashboard / Mobile`(375 폭)의 수치를 그대로 쓴다.
+    /// 예외는 터치 표적뿐이다: 햄버거를 24로 그리되 누르는 영역은 44(HIG)까지 넓힌다.
+    enum Dashboard {
+        static let topBarHeight: CGFloat = 59
+        static let horizontalPadding: CGFloat = 20
+        static let iconSize: CGFloat = 24
+        static let touchTarget: CGFloat = 44
+        static let avatarSize: CGFloat = 32
+        static let drawerWidth: CGFloat = 280
+        static let navItemHeight: CGFloat = 44
+        static let navItemPadding: CGFloat = 16
+        /// 카드 제목과 부제 사이(웹 `.sessions__desc { margin-top: 2px }`).
+        static let headSpacing: CGFloat = 2
+        /// 확인 창의 최대 너비(웹 `.confirm { width: min(360px, 100%) }`).
+        static let dialogWidth: CGFloat = 360
+        /// 세션 행 — 아이콘 타일 36 안에 18짜리 글리프(시안 SessionRow).
+        static let sessionIconTile: CGFloat = 36
+        static let sessionIconGlyph: CGFloat = 18
+        /// 신원 줄과 날짜 덩어리 사이(시안 10).
+        static let blockSpacing: CGFloat = 10
+        /// 시작↔만료 사이. 시안은 거의 붙어 있다(17pt 줄 사이 1pt).
+        static let whenSpacing: CGFloat = 1
+        static let badgeHorizontalPadding: CGFloat = 10
+        /// 시안 `Atom/Badge`의 높이. 패딩이 아니라 높이를 고정해 플랫폼별 글자 상자
+        /// 여백 차이가 배지 크기로 새어 나오지 않게 한다.
+        static let badgeHeight: CGFloat = 23
+        static let badgeFontSize: CGFloat = 12
     }
 
     enum Alert {

@@ -13,7 +13,17 @@ xcodebuild test -project prism.xcodeproj -scheme prism \
   -destination 'platform=iOS Simulator,name=iPhone 17' -only-testing:prismTests
 ```
 
-유닛 테스트는 `prismTests`에 48개(계약 디코딩 · Keychain · AuthManager 상태 전이)입니다.
+유닛 테스트는 `prismTests`에 65개(계약 디코딩 · Keychain · AuthManager 상태 전이 ·
+대시보드 세션 상태)입니다.
+
+`prismUITests/DashboardUITests`는 데모 로그인부터 대시보드가 실제로 그려지는지까지 보는
+연기 테스트라 **서버가 떠 있어야** 통과합니다 — 기본 실행에 섞지 않고 필요할 때만 부릅니다:
+
+```bash
+xcodebuild test -project prism.xcodeproj -scheme prism \
+  -destination 'platform=iOS Simulator,name=iPhone 17' \
+  -only-testing:prismUITests/DashboardUITests
+```
 
 프로젝트는 **파일 시스템 동기화 그룹**(objectVersion 77)을 씁니다 — `prism/` 아래에
 파일을 놓으면 `.xcodeproj`를 건드리지 않아도 타깃에 들어갑니다.
@@ -34,6 +44,9 @@ prism/
 │       │                   #   SocialSignIn · SocialSDK — provider 공통 추상 + SDK 부트스트랩
 │       │                   #   {Apple,Google,Kakao}SignInController — 네이티브 SDK 경로
 │       │                   #   WebAuthController — 웹 redirect(flow=native) 경로
+│   └── Dashboard/           # 대시보드 피처
+│       │                   #   SessionsService — /auth/sessions* 전송
+│       │                   #   DashboardViewModel · DashboardView — 셸 + 활성 세션 카드
 ├── Core/                   # 공유 인프라
 │   ├── DI/                 # ServiceContainer — 의존성 조립
 │   ├── Localization/       # 언어 선택 + 문구 조회

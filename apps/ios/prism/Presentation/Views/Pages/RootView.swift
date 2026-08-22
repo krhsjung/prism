@@ -42,7 +42,13 @@ struct RootView: View {
         case .signedOut:
             LoginView(authManager: auth)
         case .signedIn(let user):
-            SignedInView(user: user) {
+            DashboardView(
+                user: user,
+                sessions: ServiceContainer.shared.sessionsService,
+                // 세션 API도 로그인과 같은 Bearer를 쓴다 — 토큰의 보관 위치는
+                // Keychain 하나뿐이라 여기서 그때그때 읽는다(사본을 두지 않는다).
+                accessToken: { ServiceContainer.shared.keychain.load().credentials?.accessToken },
+            ) {
                 await auth.signOut()
             }
         }

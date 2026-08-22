@@ -57,6 +57,12 @@ enum APIEndpoint {
     /// 세션 확인 + 사용자 정보.
     case me
     case logout
+    /// 내 활성 세션 목록(대시보드).
+    case sessions
+    /// 세션 하나를 원격 폐기. id는 서버가 준 값을 그대로 되돌려 보낸다.
+    case revokeSession(id: String)
+    /// 내 모든 세션을 폐기 — 현재 세션까지 포함한다.
+    case revokeAllSessions
 
     var path: String {
         switch self {
@@ -68,14 +74,17 @@ enum APIEndpoint {
         case .refresh: "/auth/refresh"
         case .me: "/auth/me"
         case .logout: "/auth/logout"
+        case .sessions: "/auth/sessions"
+        case .revokeSession(let id): "/auth/sessions/\(id)/revoke"
+        case .revokeAllSessions: "/auth/sessions/revoke-all"
         }
     }
 
     var method: String {
         switch self {
-        case .me: "GET"
+        case .me, .sessions: "GET"
         case .appleNative, .googleNative, .kakaoNative, .demoNative, .nativeExchange,
-            .refresh, .logout: "POST"
+            .refresh, .logout, .revokeSession, .revokeAllSessions: "POST"
         }
     }
 
@@ -84,7 +93,7 @@ enum APIEndpoint {
     /// 토큰을 실어야 한다.
     var requiresAuth: Bool {
         switch self {
-        case .me, .logout: true
+        case .me, .logout, .sessions, .revokeSession, .revokeAllSessions: true
         case .appleNative, .googleNative, .kakaoNative, .demoNative, .nativeExchange,
             .refresh:
             false

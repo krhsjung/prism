@@ -101,6 +101,37 @@ struct AuthSession: Codable, Equatable, Sendable {
 }
 
 /// 쿠키 흐름(웹)의 로그인·세션 확인 응답. 토큰을 담지 않는다.
+/// 내 세션 하나의 요약(`GET /auth/sessions`).
+///
+/// **기기·위치를 알 수 있는 값이 없다.** 목록을 보기 좋게 만들자고 User-Agent나 IP를
+/// 저장하면 개인정보 미저장 원칙이 깨진다(plan/dashboard.md §5) — 그래서 시안의
+/// "MacBook Pro · Chrome · Seoul, KR" 자리에 화면은 짧은 세션 id를 그린다.
+///
+/// `isCurrent`는 **서버가** 표시해 준다. 앱은 자기 세션 id를 알 방법이 없다 —
+/// 세션 id는 액세스 토큰 안에만 있고 앱은 그 토큰을 열어 보지 않는다.
+struct SessionListItem: Codable, Equatable, Sendable, Identifiable {
+    let id: String
+    let startedAt: String
+    let expiresAt: String
+    let isCurrent: Bool
+    /// 이 세션을 만든 기기의 종류. 기기명·브라우저·위치는 계약에 없다(plan/dashboard.md §5).
+    let device: DeviceKind
+
+    init(
+        id: String,
+        startedAt: String,
+        expiresAt: String,
+        isCurrent: Bool,
+        device: DeviceKind = .unknown,
+    ) {
+        self.id = id
+        self.startedAt = startedAt
+        self.expiresAt = expiresAt
+        self.isCurrent = isCurrent
+        self.device = device
+    }
+}
+
 struct SessionUser: Codable, Equatable, Sendable {
     let user: User
     let accessTokenTtlMs: Int

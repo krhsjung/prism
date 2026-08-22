@@ -7,6 +7,23 @@
 
 import SwiftUI
 
+/// 메뉴가 트리거의 어느 쪽으로 열리는지. 상단 바에서는 아래가 자연스럽지만, 좁고 긴
+/// 드로어에서는 트리거가 바닥 가까이 앉아 아래로 열 자리가 없다 — 그 자리에서는 옆으로
+/// 편다(웹 `.sidebar__footer .select__menu` · Android `PreferenceMenuPlacement`와 같은 값).
+enum PreferenceMenuPlacement {
+    /// 트리거 아래. 셰브런은 `∨`.
+    case below
+    /// 트리거 오른쪽, 윗변을 맞춘다. 셰브런은 `>` — 펼침 방향을 그대로 가리킨다.
+    case trailing
+
+    var chevron: String { self == .below ? "chevron.down" : "chevron.right" }
+
+    /// 화살표가 붙는 **팝오버 쪽** 변이라 뜻이 뒤집혀 읽히기 쉽다: `.top`은 위가 아니라
+    /// **아래로 여는 값**이다(화살표가 팝오버 위에 달리므로). `.leading`도 마찬가지로
+    /// 오른쪽으로 여는 값이다.
+    var arrowEdge: Edge { self == .below ? .top : .leading }
+}
+
 /// 테마 선택. 고르기 전에는 기기 설정을 따르고(system), 한 번 고르면 그 값이 저장되어
 /// 기기 설정과 무관하게 유지된다.
 ///
@@ -15,6 +32,8 @@ import SwiftUI
 ///
 /// 줄마다 아이콘이 붙는 것이 언어 선택과 다른 점이다(디자인의 `ThemeMenu`).
 struct ThemeSwitcher: View {
+    var placement: PreferenceMenuPlacement = .below
+
     @Environment(ThemeStore.self) private var store
     @Environment(LocalizationStore.self) private var t
     @State private var isOpen = false
@@ -24,6 +43,7 @@ struct ThemeSwitcher: View {
             symbol: store.theme.symbol,
             current: t(store.theme.messageKey),
             label: t(.commonTheme),
+            placement: placement,
             isOpen: $isOpen,
         ) {
             ForEach(AppTheme.allCases, id: \.self) { theme in
@@ -43,6 +63,8 @@ struct ThemeSwitcher: View {
 /// 언어 선택. 기기 설정과 다른 언어로 보고 싶은 경우를 위한 탈출구이며,
 /// 고른 값은 저장되어 다음 실행에도 유지된다.
 struct LocaleSwitcher: View {
+    var placement: PreferenceMenuPlacement = .below
+
     @Environment(LocalizationStore.self) private var t
     @State private var isOpen = false
 
@@ -51,6 +73,7 @@ struct LocaleSwitcher: View {
             symbol: "globe",
             current: t.locale.label,
             label: t(.commonLanguage),
+            placement: placement,
             isOpen: $isOpen,
         ) {
             // 각 언어 이름은 그 언어로 적는다(`AppLocale.label`) — 지금 화면 언어를
@@ -84,6 +107,7 @@ private struct PreferenceMenu<Options: View>: View {
     /// 이름으로만 쓰인다 — 트리거에 보이는 것은 지금 고른 값뿐이라, 이 설명이 없으면
     /// 스크린 리더로는 그 버튼이 무엇을 하는지 알 수 없다.
     let label: String
+    let placement: PreferenceMenuPlacement
     @Binding var isOpen: Bool
     @ViewBuilder let options: () -> Options
 
@@ -92,7 +116,7 @@ private struct PreferenceMenu<Options: View>: View {
             HStack(spacing: AppDimension.Spacing.sm) {
                 Image(systemName: symbol)
                 Text(current)
-                Image(systemName: "chevron.down")
+                Image(systemName: placement.chevron)
             }
             .font(.system(size: AppDimension.FontSize.body, weight: .semibold))
             .foregroundStyle(isOpen ? AppColor.text : AppColor.muted)
@@ -115,7 +139,13 @@ private struct PreferenceMenu<Options: View>: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(label)
-        .popover(isPresented: $isOpen) {
+        // 여는 방향은 웹·Android와 같아야 한다 — 셋을 나란히 놓고 보는 프로젝트다.
+        // (자리가 모자라면 시스템이 알아서 뒤집는다 — Compose의 DropdownMenu도 같다)
+        .popover(
+            isPresented: $isOpen,
+            attachmentAnchor: .rect(.bounds),
+            arrowEdge: placement.arrowEdge,
+        ) {
             VStack(spacing: AppDimension.Select.optionSpacing) {
                 options()
             }

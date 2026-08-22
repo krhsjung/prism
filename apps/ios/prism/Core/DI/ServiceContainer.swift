@@ -26,6 +26,8 @@ final class ServiceContainer {
     let network: NetworkManager
     let authService: AuthService
     let authManager: AuthManager
+    /// 활성 세션 조회·폐기(`/auth/sessions*`). 인증은 Keychain의 Bearer로 한다.
+    let sessionsService: SessionsService
 
     let localization: LocalizationStore
     let theme: ThemeStore
@@ -34,6 +36,7 @@ final class ServiceContainer {
         keychain = KeychainManager()
         network = NetworkManager()
         authService = AuthService(network: network)
+        sessionsService = SessionsService(network: network)
         // 네이티브 소셜 로그인(Google/Kakao) 토큰 획득. 키 미설정 시 각 SDK가 실패로
         // 막으므로(데모·Apple은 그대로), 키 없는 빌드도 부팅에는 문제가 없다.
         let social = SocialSignInController(
