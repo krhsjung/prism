@@ -80,15 +80,21 @@ struct AuthSession: Codable, Equatable, Sendable {
     /// 액세스 토큰이 만료됐을 때 세션을 잇는 자격증명(1회용 — 쓰면 회전된다).
     let refreshToken: String
     let user: User
+    /// 액세스 토큰이 만료되기까지 남은 시간(ms).
+    ///
+    /// **선제 갱신을 언제 걸지** 정하는 데 쓴다. 앱은 토큰을 열어 보지 않으므로 만료
+    /// 시각을 알 방법이 이것뿐이다. 토큰이 아니라 수명값이라 body에 실려 온다.
+    let accessTokenTtlMs: Int
 
-    init(accessToken: String, refreshToken: String, user: User) {
+    init(accessToken: String, refreshToken: String, user: User, accessTokenTtlMs: Int) {
         self.accessToken = accessToken
         self.refreshToken = refreshToken
         self.user = user
+        self.accessTokenTtlMs = accessTokenTtlMs
     }
 
     enum CodingKeys: String, CodingKey {
-        case accessToken, refreshToken, user
+        case accessToken, refreshToken, user, accessTokenTtlMs
     }
 
     init(from decoder: Decoder) throws {
@@ -97,6 +103,16 @@ struct AuthSession: Codable, Equatable, Sendable {
         accessToken = try c.decodeNonEmptyString(forKey: .accessToken)
         refreshToken = try c.decodeNonEmptyString(forKey: .refreshToken)
         user = try c.decode(User.self, forKey: .user)
+        // 서버 계약의 decodePositiveInt와 같게 양수만 받는다(수명값이 0·음수일 수 없다).
+        let ttl = try c.decode(Int.self, forKey: .accessTokenTtlMs)
+        guard ttl > 0 else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .accessTokenTtlMs,
+                in: c,
+                debugDescription: "expected positive integer",
+            )
+        }
+        accessTokenTtlMs = ttl
     }
 }
 

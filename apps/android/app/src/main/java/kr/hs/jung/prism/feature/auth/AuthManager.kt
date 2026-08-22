@@ -1,6 +1,12 @@
 package kr.hs.jung.prism.feature.auth
 
 import android.app.Activity
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -37,6 +43,11 @@ class AuthManager(
     private val social: SocialSignIn = SocialSignIn.Unavailable,
     // 웹 redirect 로그인(Custom Tabs). 기본값은 "미설정"이라 native·데모만 동작한다.
     private val webAuth: WebAuth = WebAuth.Unavailable,
+    /**
+     * 선제 갱신 타이머가 사는 곳. AuthManager는 화면보다 오래 살아야 하므로(세션의 주인)
+     * 기본값은 화면과 무관한 스코프다. 테스트가 가상 시계를 꽂을 수 있도록 열어 둔다.
+     */
+    private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
 ) {
     sealed interface State {
         /** 저장된 토큰으로 세션을 확인하는 중(앱 시작 직후). */
@@ -51,6 +62,12 @@ class AuthManager(
          */
         data class SignedIn(val user: User, val generation: Long) : State
     }
+
+    private var proactiveRefresh: Job? = null
+
+    // 마지막으로 서버가 알려 준 액세스 토큰 수명. 회전 응답에도 실려 오므로 갱신할 때마다
+    // 갱신된다.
+    private var accessTokenTtlMs: Long = 0
 
     // 새 세션이 채택될 때마다 하나씩 오른다. 앞 세션의 화면 상태가 다음 세션으로
     // 넘어가지 않게 하는 것이 전부다 — 값 자체에는 의미가 없다.
@@ -69,11 +86,15 @@ class AuthManager(
     suspend fun restoreSession() = mutex.withLock {
         val access = tokens.access()
         if (access == null) {
+            cancelProactiveRefresh()
             _state.value = State.SignedOut
             return@withLock
         }
         try {
-            _state.value = State.SignedIn(nativeApi.meBearer(access).user, generation)
+            val session = nativeApi.meBearer(access)
+            accessTokenTtlMs = session.accessTokenTtlMs
+            _state.value = State.SignedIn(session.user, generation)
+            scheduleProactiveRefresh()
             AppLog.d("session restored")
         } catch (e: ApiError) {
             when {
@@ -87,6 +108,7 @@ class AuthManager(
                     // 일시적 실패(오프라인·타임아웃·5xx·형식 오류) — 토큰은 **보존**한다.
                     // 지금은 확인이 안 되니 로그인 화면을 보이되, 다음 시도에서 복구될 수 있게 둔다.
                     AppLog.d("session check inconclusive — keeping tokens for retry")
+                    cancelProactiveRefresh()
                     _state.value = State.SignedOut
                 }
             }
@@ -197,7 +219,41 @@ class AuthManager(
     private fun adopt(session: AuthSession) {
         tokens.save(session.accessToken, session.refreshToken)
         generation += 1
+        accessTokenTtlMs = session.accessTokenTtlMs
         _state.value = State.SignedIn(session.user, generation)
+        // 로그인 직후부터 세션이 밀리게 한다 — 다음 `/auth/me`까지 기다리지 않는다.
+        scheduleProactiveRefresh()
+    }
+
+    /**
+     * 액세스 토큰이 만료되기 **전에** 미리 세션을 회전한다.
+     *
+     * 401을 만나고 나서 갱신하는 것만으로는 부족하다: 요청이 없는 채로 놔둔 화면은 401을
+     * 만날 일도 없어, idle 창이 지나면 세션이 조용히 죽는다. 화면을 열어 둔 동안 세션이
+     * 밀리도록 수명의 [REFRESH_LEAD_RATIO] 지점에서 미리 돌린다(웹과 같은 규칙).
+     *
+     * 앱이 백그라운드에 있는 동안 타이머가 밀려도 손해가 없다 — 포그라운드로 돌아오면
+     * `restoreSession()`이 다시 확인하고 여기를 새로 건다.
+     */
+    private fun scheduleProactiveRefresh() {
+        proactiveRefresh?.cancel()
+        val ttl = accessTokenTtlMs
+        if (ttl <= 0) return
+        val delayMs = maxOf((ttl * REFRESH_LEAD_RATIO).toLong(), MIN_REFRESH_DELAY_MS)
+        proactiveRefresh = scope.launch {
+            delay(delayMs)
+            val current = tokens.access() ?: return@launch
+            // 반응형 경로와 같은 문을 쓴다 — 그사이 401이 먼저 갱신했다면 여기서는 아무
+            // 요청도 나가지 않는다.
+            refreshForRetry(current)
+        }
+    }
+
+    /** 세션이 끝났다 — 예약된 회전도 함께 거둔다. */
+    private fun cancelProactiveRefresh() {
+        proactiveRefresh?.cancel()
+        proactiveRefresh = null
+        accessTokenTtlMs = 0
     }
 
     /**
@@ -228,6 +284,8 @@ class AuthManager(
         try {
             val session = nativeApi.refreshBearer(refresh)
             tokens.save(session.accessToken, session.refreshToken)
+            accessTokenTtlMs = session.accessTokenTtlMs
+            scheduleProactiveRefresh()
             // 토큰만 갈렸을 뿐 세션은 그대로다 — generation을 올리면 화면이 통째로
             // 다시 만들어져, 갱신이 일어날 때마다 목록이 깜빡인다.
             _state.value = State.SignedIn(session.user, generation)
@@ -238,6 +296,7 @@ class AuthManager(
                 clearTokensAndSignOut()
             } else {
                 AppLog.d("refresh inconclusive — keeping tokens for retry")
+                cancelProactiveRefresh()
                 _state.value = State.SignedOut
             }
         }
@@ -245,6 +304,16 @@ class AuthManager(
 
     private fun clearTokensAndSignOut() {
         tokens.clear()
+        cancelProactiveRefresh()
         _state.value = State.SignedOut
+    }
+
+    private companion object {
+        // 남은 수명의 이 비율에서 미리 회전한다. 0.75면 15분 토큰을 ~11분에 갱신해,
+        // 네트워크 지연·시계 오차가 있어도 만료 전에 여유가 있다(웹과 같은 값).
+        const val REFRESH_LEAD_RATIO = 0.75
+
+        // 아주 짧은 수명·시계 튐에 스케줄이 과도하게 촘촘해지지 않게 하는 하한.
+        const val MIN_REFRESH_DELAY_MS = 30_000L
     }
 }

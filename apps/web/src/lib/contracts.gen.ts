@@ -40,6 +40,13 @@ export interface AuthSession {
   // 저장소(Keychain/EncryptedSharedPreferences)에 보관하고 POST /auth/refresh에 쓴다.
   refreshToken: string;
   user: User;
+  // 액세스 토큰이 만료되기까지 남은 시간(ms) — `SessionUser`가 담는 것과 같은 값이다.
+  //
+  // 네이티브 클라이언트가 **선제 갱신을 언제 걸지** 정하는 데 쓴다. 앱은 토큰을 열어
+  // 보지 않으므로(그럴 이유도 없다) 만료 시각을 알 방법이 이것뿐이고, 이 값이 없으면
+  // 로그인 직후부터 다음 `/auth/me`까지는 스케줄을 걸 수 없다.
+  // 토큰·비밀이 아니라 수명값이라 body에 실어도 잃을 것이 없다.
+  accessTokenTtlMs: number;
 }
 
 // 세션을 만든 기기의 **종류**. 정해진 갈래 + 모름뿐이고, 그 이상은 담지 않는다.
@@ -283,5 +290,9 @@ export function decodeAuthSession(v: JsonValue): AuthSession {
     accessToken: decodeString(obj.accessToken, 'AuthSession.accessToken'),
     refreshToken: decodeString(obj.refreshToken, 'AuthSession.refreshToken'),
     user: decodeUser(obj.user),
+    accessTokenTtlMs: decodePositiveInt(
+      obj.accessTokenTtlMs,
+      'AuthSession.accessTokenTtlMs',
+    ),
   };
 }

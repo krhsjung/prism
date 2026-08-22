@@ -45,6 +45,13 @@ data class AuthSession(
     val accessToken: String,
     val refreshToken: String,
     val user: User,
+    /**
+     * 액세스 토큰이 만료되기까지 남은 시간(ms).
+     *
+     * **선제 갱신을 언제 걸지** 정하는 데 쓴다. 앱은 토큰을 열어 보지 않으므로 만료
+     * 시각을 알 방법이 이것뿐이다. 토큰이 아니라 수명값이라 body에 실려 온다.
+     */
+    val accessTokenTtlMs: Long,
 )
 
 /**

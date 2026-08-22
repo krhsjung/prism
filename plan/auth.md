@@ -271,10 +271,11 @@ id_token과 달리) 서명이 없는 불투명 문자열이라 로컬 검증이 
 **Response 200**: `SessionUser` = `{ user, accessTokenTtlMs }`
 **Response 401**: `{ error: 'SESSION_EXPIRED' | 'INVALID_TOKEN' | 'UNAUTHORIZED' }`
 
-> `accessTokenTtlMs`는 액세스 토큰 서명 수명(비밀·PII 아님)으로, 웹이 만료 전에 선제
-> 갱신을 스케줄하는 데 쓴다(HttpOnly라 exp를 못 읽는다 — §6). 데모 로그인·쿠키 흐름
-> 갱신 응답(`SessionUser`)에도 같은 필드가 실린다. 네이티브 갱신(`AuthSession`)은 토큰
-> 자체를 받아 exp를 직접 읽으므로 이 필드가 없다.
+> `accessTokenTtlMs`는 액세스 토큰 서명 수명(비밀·PII 아님)으로, 클라이언트가 만료 전에
+> 선제 갱신을 스케줄하는 데 쓴다(§6). 웹은 HttpOnly라 exp를 못 읽고, **네이티브는 토큰을
+> 열어 보지 않는다** — 앱이 토큰을 파싱하기 시작하면 서명 검증 없이 클레임을 믿는 경로가
+> 생긴다. 그래서 쿠키 흐름의 `SessionUser`와 네이티브의 `AuthSession` **둘 다** 이 필드를
+> 싣는다. 로그인·복원·회전 응답 모두에 실려, 로그인 직후부터 스케줄을 걸 수 있다.
 >
 > 401은 세 가지로 나뉜다. 클라이언트가 `POST /auth/refresh`를 시도할지 판단하는
 > 근거이기 때문이다 — 세션 쿠키가 HttpOnly라 그 판단을 서버만 내릴 수 있다.

@@ -218,7 +218,8 @@ struct AuthManagerTests {
         let service = FakeService()
         let demoUser = user("demo1", .demo)
         service.loginDemoResult = .success(AuthSession(
-            accessToken: "da", refreshToken: "dr", user: demoUser,
+            accessToken: "da", refreshToken: "dr",
+            user: demoUser, accessTokenTtlMs: 900_000,
         ))
         let store = FakeStore(nil)
         let manager = makeManager(service, store)
@@ -236,7 +237,8 @@ struct AuthManagerTests {
     func refreshForRetryRotates() async {
         let service = FakeService()
         service.refreshResult = .success(AuthSession(
-            accessToken: "a2", refreshToken: "r2", user: user(),
+            accessToken: "a2", refreshToken: "r2",
+            user: user(), accessTokenTtlMs: 900_000,
         ))
         let store = FakeStore(creds("a", "r"))
         let manager = makeManager(service, store)
@@ -253,7 +255,8 @@ struct AuthManagerTests {
     func refreshForRetryReusesAnotherRotation() async {
         let service = FakeService()
         service.refreshResult = .success(AuthSession(
-            accessToken: "a3", refreshToken: "r3", user: user(),
+            accessToken: "a3", refreshToken: "r3",
+            user: user(), accessTokenTtlMs: 900_000,
         ))
         // 저장된 값이 이미 갈려 있다 — 내가 실패시킨 토큰은 옛것이다.
         let store = FakeStore(creds("a2", "r2"))
@@ -289,7 +292,8 @@ struct AuthManagerTests {
         let service = FakeService()
         service.meResult = .failure(APIError(status: 401, code: AuthErrorCode.sessionExpired))
         service.refreshResult = .success(AuthSession(
-            accessToken: "a2", refreshToken: "r2", user: user(),
+            accessToken: "a2", refreshToken: "r2",
+            user: user(), accessTokenTtlMs: 900_000,
         ))
         let store = FakeStore(creds("a", "r"))
         let manager = makeManager(service, store)
@@ -307,7 +311,8 @@ struct AuthManagerTests {
         let service = FakeService()
         service.meResult = .failure(APIError(status: 401, code: AuthErrorCode.sessionExpired))
         service.refreshResult = .success(AuthSession(
-            accessToken: "a2", refreshToken: "r2", user: user(),
+            accessToken: "a2", refreshToken: "r2",
+            user: user(), accessTokenTtlMs: 900_000,
         ))
         let store = FakeStore(creds("a", "r"))
         store.failSave = true
@@ -366,7 +371,8 @@ struct AuthManagerTests {
     @Test("refresh in-flight 중 로그아웃하면 회전 토큰을 되살리지 않는다")
     func refreshInFlightThenSignOutDoesNotResurrect() async {
         let service = GatedService(refreshResult: .success(AuthSession(
-            accessToken: "a2", refreshToken: "r2", user: user(),
+            accessToken: "a2", refreshToken: "r2",
+            user: user(), accessTokenTtlMs: 900_000,
         )))
         let store = FakeStore(creds("a", "r"))
         let manager = makeManager(service, store)

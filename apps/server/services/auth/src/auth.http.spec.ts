@@ -54,6 +54,7 @@ describe('auth HTTP 경계', () => {
             accessToken: tokens.signSession(user.id, 'sess-1'),
             refreshToken: 'sess-1.secret-1',
             user,
+            accessTokenTtlMs: 15 * 60 * 1000,
           }),
       ),
       revokeSession: jest.fn(() => Promise.resolve()),
@@ -160,6 +161,9 @@ describe('auth HTTP 경계', () => {
       accessToken: expect.any(String),
       refreshToken: 'sess-1.secret-1',
       user,
+      // 네이티브는 이 값으로 선제 갱신을 스케줄한다 — 토큰을 열어 보지 않으므로
+      // 만료 시각을 알 방법이 이것뿐이다.
+      accessTokenTtlMs: 15 * 60 * 1000,
     });
     // Bearer 흐름이라 세션 쿠키가 실리면 안 된다.
     const setCookie = res.get('Set-Cookie') ?? [];

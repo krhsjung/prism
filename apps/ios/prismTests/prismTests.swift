@@ -169,7 +169,7 @@ struct ContractDecodingTests {
     func decodesValidSession() throws {
         let session = try decodeSession("""
         {"accessToken":"a.b.c","refreshToken":"sid.secret","user":
-         {"id":"u1","provider":"apple","displayName":"Member","createdAt":"2026-01-01T00:00:00Z"}}
+         {"id":"u1","provider":"apple","displayName":"Member","createdAt":"2026-01-01T00:00:00Z"},"accessTokenTtlMs":900000}
         """)
         #expect(session.accessToken == "a.b.c")
         #expect(session.user.provider == .apple)
@@ -180,7 +180,7 @@ struct ContractDecodingTests {
         #expect(throws: (any Error).self) {
             try decodeSession("""
             {"accessToken":"","refreshToken":"sid.secret","user":
-             {"id":"u1","provider":"apple","displayName":"Member","createdAt":"2026-01-01T00:00:00Z"}}
+             {"id":"u1","provider":"apple","displayName":"Member","createdAt":"2026-01-01T00:00:00Z"},"accessTokenTtlMs":900000}
             """)
         }
     }
@@ -190,7 +190,7 @@ struct ContractDecodingTests {
         #expect(throws: (any Error).self) {
             try decodeSession("""
             {"accessToken":"a.b.c","refreshToken":"sid.secret","user":
-             {"id":"","provider":"apple","displayName":"Member","createdAt":"2026-01-01T00:00:00Z"}}
+             {"id":"","provider":"apple","displayName":"Member","createdAt":"2026-01-01T00:00:00Z"},"accessTokenTtlMs":900000}
             """)
         }
     }
@@ -200,7 +200,19 @@ struct ContractDecodingTests {
         #expect(throws: (any Error).self) {
             try decodeSession("""
             {"accessToken":"a.b.c","refreshToken":"sid.secret","user":
-             {"id":"u1","provider":"facebook","displayName":"Member","createdAt":"2026-01-01T00:00:00Z"}}
+             {"id":"u1","provider":"facebook","displayName":"Member","createdAt":"2026-01-01T00:00:00Z"},"accessTokenTtlMs":900000}
+            """)
+        }
+    }
+
+    @Test("AuthSession도 비양수 accessTokenTtlMs를 거부한다")
+    func rejectsNonPositiveSessionTtl() {
+        // 수명이 0이면 선제 갱신 스케줄이 즉시(하한으로) 돌아 요청만 낭비된다.
+        #expect(throws: (any Error).self) {
+            try decodeSession("""
+            {"accessToken":"a.b.c","refreshToken":"sid.secret","user":
+             {"id":"u1","provider":"apple","displayName":"Member","createdAt":"2026-01-01T00:00:00Z"},
+             "accessTokenTtlMs":0}
             """)
         }
     }

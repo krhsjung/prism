@@ -26,6 +26,22 @@ private fun JSONObject.requireString(key: String): String {
     return value
 }
 
+/**
+ * 양의 정수 수명값. 서버 `decodePositiveInt`와 같은 규칙이다.
+ *
+ * `optLong`의 문자열·소수 강제 변환에 기대지 않고 실제 숫자 타입인지·정수인지·양수인지
+ * 직접 본다. 범위는 JS 안전 정수(2^53-1)까지 — 그 밖은 플랫폼마다 해석이 갈린다.
+ */
+private fun JSONObject.requirePositiveLong(key: String): Long {
+    val value = opt(key)
+    if (value !is Number) throw ApiError.invalidResponse
+    val number = value.toLong()
+    if (number <= 0 || value.toDouble() != number.toDouble() || number > MAX_SAFE_INTEGER) {
+        throw ApiError.invalidResponse
+    }
+    return number
+}
+
 fun decodeUser(json: JSONObject): User {
     val provider = json.requireString("provider")
     // 서버 계약은 provider를 google|apple|demo로 제한한다 — 임의 문자열을 통과시키지 않는다.
@@ -46,18 +62,11 @@ fun decodeSessionUser(body: String): SessionUser {
         throw ApiError.invalidResponse
     }
     val userJson = json.optJSONObject("user") ?: throw ApiError.invalidResponse
-    // ttl은 토큰이 아니라 수명값이라 body에 실려 온다(HttpOnly라 클라이언트가 exp를 못 읽는다).
-    // 서버 decodePositiveInt와 같게 **양의 정수**만 받는다 — optLong의 문자열·소수 강제
-    // 변환에 기대지 않고, 실제 숫자 타입인지·정수인지·양수인지 직접 검사한다.
-    val ttlValue = json.opt("accessTokenTtlMs")
-    if (ttlValue !is Number) throw ApiError.invalidResponse
-    val ttl = ttlValue.toLong()
-    // 양의 정수 + JS 안전 정수 범위(2^53-1). 서버 decodePositiveInt(Number.isSafeInteger)와
-    // 맞춘다 — 소수·범위 밖 값은 플랫폼마다 해석이 갈린다.
-    if (ttl <= 0 || ttlValue.toDouble() != ttl.toDouble() || ttl > MAX_SAFE_INTEGER) {
-        throw ApiError.invalidResponse
-    }
-    return SessionUser(user = decodeUser(userJson), accessTokenTtlMs = ttl)
+    // ttl은 토큰이 아니라 수명값이라 body에 실려 온다(클라이언트가 exp를 읽지 않는다).
+    return SessionUser(
+        user = decodeUser(userJson),
+        accessTokenTtlMs = json.requirePositiveLong("accessTokenTtlMs"),
+    )
 }
 
 /** `{ accessToken, refreshToken, user }` — 네이티브(Bearer) 흐름의 로그인·갱신 응답. */
@@ -72,6 +81,7 @@ fun decodeAuthSession(body: String): AuthSession {
         accessToken = json.requireString("accessToken"),
         refreshToken = json.requireString("refreshToken"),
         user = decodeUser(userJson),
+        accessTokenTtlMs = json.requirePositiveLong("accessTokenTtlMs"),
     )
 }
 

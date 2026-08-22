@@ -71,11 +71,17 @@ describe('contract decoders', () => {
 
   it('decodeAuthSession: 중첩 user까지 검증한다', () => {
     expect(
-      decodeAuthSession({ accessToken: 't', refreshToken: 'r', user }),
+      decodeAuthSession({
+        accessToken: 't',
+        refreshToken: 'r',
+        user,
+        accessTokenTtlMs: 900_000,
+      }),
     ).toEqual({
       accessToken: 't',
       refreshToken: 'r',
       user,
+      accessTokenTtlMs: 900_000,
     });
     expect(() =>
       decodeAuthSession({ accessToken: 't', refreshToken: 'r', user: null }),

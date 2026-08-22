@@ -4,6 +4,8 @@ import android.app.Activity
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runTest
 import kr.hs.jung.prism.core.network.ApiError
 import kr.hs.jung.prism.core.security.SessionTokens
@@ -25,6 +27,9 @@ import org.junit.Test
 class AuthManagerTest {
 
     private fun user() = User("u1", "demo", "Demo User", "2026-01-01T00:00:00Z")
+
+    /** 서버가 알려 주는 액세스 토큰 수명. 선제 갱신 스케줄이 이 값으로 걸린다. */
+    private val ACCESS_TTL_MS = 900_000L
     private fun session() = SessionUser(user(), 900_000L)
 
     /** 인메모리 Bearer 토큰 저장소. clear 호출 수를 센다. */
@@ -91,7 +96,12 @@ class AuthManagerTest {
             result.getOrThrow()
     }
 
-    private fun manager(native: FakeNative, tokens: FakeTokens) = AuthManager(native, tokens)
+    /**
+     * 선제 갱신 타이머를 **가상 시계** 위에 올린다 — 실제 디스패처면 `advanceTimeBy`가
+     * 닿지 않아 예약이 영영 돌지 않는다.
+     */
+    private fun TestScope.manager(native: FakeNative, tokens: FakeTokens) =
+        AuthManager(native, tokens, scope = backgroundScope)
 
     @Test
     fun `restores signed-in session from tokens`() = runTest {
@@ -109,7 +119,7 @@ class AuthManagerTest {
     @Test
     fun `signing in again starts a new session generation`() = runTest {
         val native = FakeNative().apply {
-            demoResult = Result.success(AuthSession("dacc", "dref", user()))
+            demoResult = Result.success(AuthSession("dacc", "dref", user(), ACCESS_TTL_MS))
             meResult = Result.success(session())
         }
         val manager = manager(native, FakeTokens())
@@ -129,7 +139,7 @@ class AuthManagerTest {
     @Test
     fun `restoring and refreshing keep the same session generation`() = runTest {
         val native = FakeNative().apply {
-            demoResult = Result.success(AuthSession("dacc", "dref", user()))
+            demoResult = Result.success(AuthSession("dacc", "dref", user(), ACCESS_TTL_MS))
             meResult = Result.success(session())
         }
         val manager = manager(native, FakeTokens())
@@ -142,9 +152,67 @@ class AuthManagerTest {
 
         // 만료 → 갱신으로 토큰만 갈린 경우도 같은 세션이다.
         native.meResult = Result.failure(ApiError(401, AuthErrorCode.SESSION_EXPIRED))
-        native.refreshResult = Result.success(AuthSession("acc2", "ref2", user()))
+        native.refreshResult = Result.success(AuthSession("acc2", "ref2", user(), ACCESS_TTL_MS))
         manager.restoreSession()
         assertEquals(issued, (manager.state.value as AuthManager.State.SignedIn).generation)
+    }
+
+
+    // 요청이 없는 채로 놔둔 화면은 401을 만날 일이 없어, 반응형 갱신만으로는 idle 창이
+    // 지나면 세션이 조용히 죽는다. 수명의 75% 지점에서 미리 돌린다.
+    @Test
+    fun `수명의 75% 지점에서 세션을 미리 회전한다`() = runTest {
+        val native = FakeNative().apply {
+            demoResult = Result.success(AuthSession("a1", "r1", user(), ACCESS_TTL_MS))
+            refreshResult = Result.success(AuthSession("a2", "r2", user(), ACCESS_TTL_MS))
+        }
+        val tokens = FakeTokens()
+        val manager = manager(native, tokens)
+
+        manager.signIn(AuthProvider.DEMO)
+        assertEquals(0, native.refreshCount)
+
+        // 75% 직전에는 아직 돌지 않는다.
+        advanceTimeBy((ACCESS_TTL_MS * 0.75).toLong() - 1)
+        assertEquals(0, native.refreshCount)
+
+        advanceTimeBy(2)
+        assertEquals(1, native.refreshCount)
+        assertEquals("a2", tokens.acc)
+    }
+
+    // 로그아웃한 뒤에도 타이머가 남아 있으면, 이미 끝난 세션을 되살리려는 요청이 나간다.
+    @Test
+    fun `로그아웃하면 예약된 회전도 거둔다`() = runTest {
+        val native = FakeNative().apply {
+            demoResult = Result.success(AuthSession("a1", "r1", user(), ACCESS_TTL_MS))
+            refreshResult = Result.success(AuthSession("a2", "r2", user(), ACCESS_TTL_MS))
+        }
+        val manager = manager(native, FakeTokens())
+
+        manager.signIn(AuthProvider.DEMO)
+        manager.signOut()
+        advanceTimeBy(ACCESS_TTL_MS)
+
+        assertEquals(0, native.refreshCount)
+    }
+
+    // 회전할 때마다 다음 회전을 다시 건다 — 한 번 돌고 마는 스케줄은 두 번째 만료를 못 막는다.
+    @Test
+    fun `회전한 뒤에도 다음 회전을 다시 건다`() = runTest {
+        val native = FakeNative().apply {
+            demoResult = Result.success(AuthSession("a1", "r1", user(), ACCESS_TTL_MS))
+            refreshResult = Result.success(AuthSession("a2", "r2", user(), ACCESS_TTL_MS))
+        }
+        val manager = manager(native, FakeTokens())
+
+        manager.signIn(AuthProvider.DEMO)
+        advanceTimeBy((ACCESS_TTL_MS * 0.75).toLong() + 1)
+        assertEquals(1, native.refreshCount)
+
+        native.refreshResult = Result.success(AuthSession("a3", "r3", user(), ACCESS_TTL_MS))
+        advanceTimeBy((ACCESS_TTL_MS * 0.75).toLong() + 1)
+        assertEquals(2, native.refreshCount)
     }
 
     @Test
@@ -184,7 +252,7 @@ class AuthManagerTest {
     fun `expired session refreshes and keeps signed-in with rotated tokens`() = runTest {
         val native = FakeNative().apply {
             meResult = Result.failure(ApiError(401, AuthErrorCode.SESSION_EXPIRED))
-            refreshResult = Result.success(AuthSession("acc2", "ref2", user()))
+            refreshResult = Result.success(AuthSession("acc2", "ref2", user(), ACCESS_TTL_MS))
         }
         val tokens = FakeTokens(acc = "a", ref = "r")
         manager(native, tokens).restoreSession()
@@ -220,7 +288,7 @@ class AuthManagerTest {
     @Test
     fun `demo login issues bearer session`() = runTest {
         val native = FakeNative().apply {
-            demoResult = Result.success(AuthSession("dacc", "dref", user()))
+            demoResult = Result.success(AuthSession("dacc", "dref", user(), ACCESS_TTL_MS))
         }
         val tokens = FakeTokens()
         val manager = manager(native, tokens)
@@ -247,7 +315,7 @@ class AuthManagerTest {
     @Test
     fun `redirect login exchanges the one-time code and adopts the session`() = runTest {
         val native = FakeNative().apply {
-            exchangeResult = Result.success(AuthSession("racc", "rref", user()))
+            exchangeResult = Result.success(AuthSession("racc", "rref", user(), ACCESS_TTL_MS))
         }
         val web = FakeWebAuth(Result.success("one-time-code"))
         val tokens = FakeTokens()

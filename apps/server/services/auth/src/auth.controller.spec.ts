@@ -30,6 +30,7 @@ describe('AuthController', () => {
       displayName: 'Alice',
       createdAt: '2026-01-01T00:00:00.000Z',
     },
+    accessTokenTtlMs: 15 * 60 * 1000,
   };
 
   const getAuthUrl = jest.fn(() => 'https://provider/authorize');

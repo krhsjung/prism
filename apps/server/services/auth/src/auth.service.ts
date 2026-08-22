@@ -219,6 +219,7 @@ export class AuthService {
       accessToken: this.tokens.signSession(userId, issued.sessionId),
       refreshToken: issued.refreshCredential,
       user,
+      accessTokenTtlMs: this.config.accessTokenTtlMs,
     };
   }
 
@@ -249,6 +250,7 @@ export class AuthService {
         accessToken: this.tokens.signSession(rotated.user.id, sessionId),
         refreshToken: rotated.refreshCredential,
         user: rotated.user,
+        accessTokenTtlMs: this.config.accessTokenTtlMs,
       },
     };
   }
