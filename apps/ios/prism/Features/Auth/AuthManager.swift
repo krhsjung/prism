@@ -23,9 +23,27 @@ import Observation
 ///    건드리지 않는다(그 결과가 우선이다).
 ///
 /// 자격증명 저장은 KeychainManager가 한 항목으로 원자 처리하므로 "반쪽만 저장"은 없다.
+/// 선제 갱신 타이머의 지연 규칙.
+///
+/// 값을 밖에서 꽂을 수 있게 둔 이유는 하나다 — **테스트가 가상 시계를 못 쓴다.** 아주 짧은
+/// 지연을 주어 "75% 지점에 회전한다"와 "일시적 실패 뒤 다시 시도한다"를 실제로 돌려 본다
+/// (Android가 `scope`를 주입받는 것과 같은 이음매).
+struct RefreshSchedule {
+    /// 남은 수명의 이 비율에서 미리 회전한다. 0.75면 15분 토큰을 ~11분에 갱신해,
+    /// 네트워크 지연·시계 오차가 있어도 만료 전에 여유가 있다(웹·Android와 같은 값).
+    var leadRatio = 0.75
+    /// 아주 짧은 수명·시계 튐에 스케줄이 과도하게 촘촘해지지 않게 하는 하한.
+    var minDelayMs = 30_000
+    /// 일시적 실패로 회전하지 못했을 때 다시 시도하는 간격(Android와 같은 값). 오프라인이
+    /// 길어져도 분당 한 번이라 부담이 없고, 연결이 돌아오면 그 안에 세션이 다시 밀린다.
+    var retryDelayMs = 60_000
+
+    static let `default` = RefreshSchedule()
+}
+
 @MainActor
 @Observable
-final class AuthManager: SessionRefreshing {
+final class AuthManager: SessionAuthority {
     enum State: Equatable {
         /// 저장된 자격증명으로 세션을 확인하는 중(앱 시작 직후).
         case checking
@@ -53,9 +71,39 @@ final class AuthManager: SessionRefreshing {
     @ObservationIgnored
     private var generation = 0
 
-    /// 지금 도는 갱신. 여러 요청이 동시에 401을 받아도 **한 번만** 나가게 한다 —
-    /// 각자 갱신하면 회전한 refresh token으로 두 번째가 거부되어 멀쩡한 세션이 끊긴다.
-    private var refreshTask: Task<String?, Never>?
+    /// 스스로 로그아웃한 것이 **아닌데** 로그인 화면으로 온 경우.
+    ///
+    /// 이유 없이 대시보드에서 튕기면 무슨 일이 일어난 건지 알 수 없다 — 로그인 화면이 이
+    /// 값을 보고 한 줄 알려 준다.
+    ///
+    /// **원인은 단정하지 않는다.** 서버는 폐기·만료·로그아웃을 모두 `UNAUTHORIZED` 하나로
+    /// 알려주므로(`jwt-auth.guard.ts`의 `findValid`가 null이면 셋 다다), "다른 기기에서
+    /// 해제됐다"고 말하면 단순 만료에도 없는 사실을 지어내게 된다.
+    ///
+    /// 반대로 **앱을 켤 때의 실패는 알리지 않는다.** 그 자리는 자격증명이 아예 없는 첫
+    /// 방문과 구분되지 않고(웹은 쿠키를 읽을 수 없어 원리적으로 그렇다), 처음 온 사람에게
+    /// 엉뚱한 안내가 뜬다. 알리는 것은 **쓰는 도중 세션이 끊긴 경우**뿐이다.
+    private(set) var endedUnexpectedly = false
+
+    /// 지금 도는 회전과, 그 회전이 **어느 세션의 것인지**.
+    ///
+    /// 복원(`/auth/me`가 만료를 만났을 때)과 401 재시도가 **같은 문**을 쓴다. 각자 돌면
+    /// 1회용 리프레시 자격증명을 둘이 동시에 써서 재사용 탐지에 걸리고, 멀쩡한 세션이 끊긴다.
+    ///
+    /// 세대까지 함께 두는 이유: 다른 세션의 회전에 얹히면 **남의 확정 거부가 내 세션을
+    /// 끊는다.** 같은 세대의 회전만 나눠 쓴다.
+    private var rotateTask: Task<RotateOutcome, Never>?
+    private var rotateGeneration: Int?
+
+    /// 이 세대에서 **회전으로 물러난** 액세스 토큰들(최신이 앞)과 그 세대.
+    ///
+    /// 지금 값 하나만 보면, 함께 나간 요청 중 하나가 먼저 회전시켰을 때 나머지가 "남의
+    /// 세션"으로 오인된다 — 되살릴 수 있는 401을 화면이 그냥 실패로 보게 된다. 물러난
+    /// 토큰은 이미 죽었으므로 기억해 둬도 새로 할 수 있는 일이 없고, 세션이 갈리면 버린다.
+    @ObservationIgnored
+    private var supersededTokens: [String] = []
+    @ObservationIgnored
+    private var supersededGeneration = 0
 
     /// 선제 갱신 타이머와, 마지막으로 서버가 알려 준 액세스 토큰 수명.
     private var proactiveRefresh: Task<Void, Never>?
@@ -86,13 +134,18 @@ final class AuthManager: SessionRefreshing {
         // `@MainActor`라 메인 액터 위이므로 여기서 만드는 건 안전하다.
         social: SocialSignInProviding? = nil,
         webAuth: WebAuthController? = nil,
+        schedule: RefreshSchedule = .default,
     ) {
         self.service = service
         self.keychain = keychain
         self.appleSignIn = appleSignIn
         self.social = social ?? UnavailableSocialSignIn()
         self.webAuth = webAuth ?? WebAuthController()
+        self.schedule = schedule
     }
+
+    @ObservationIgnored
+    private let schedule: RefreshSchedule
 
     // MARK: - 세션
 
@@ -204,18 +257,22 @@ final class AuthManager: SessionRefreshing {
         }
         do {
             let session = try await service.me(accessToken: credentials.accessToken)
-            accessTokenTtlMs = session.accessTokenTtlMs
-            applyFromRestore(gen) { self.state = .signedIn(session.user) }
-            scheduleProactiveRefresh()
+            // 수명과 타이머는 **화면 상태와 함께** 간다. 밖에서 걸면, 앞질러진 복원이
+            // 지금 세션의 수명을 덮고 남의 타이머를 심는다.
+            applyFromRestore(gen) {
+                self.accessTokenTtlMs = session.accessTokenTtlMs
+                self.state = .signedIn(session.user)
+                self.scheduleProactiveRefresh()
+            }
             Log.auth("session restored")
         } catch let error as APIError where error.isSessionExpired {
             // 갱신하면 살아나는 401 — 이 판단은 서버만 내릴 수 있어 코드로 받아 본다.
-            await performRefresh(generation: gen, using: credentials.refreshToken)
+            await refreshOrSignOut(generation: gen, using: credentials.refreshToken)
         } catch let error as APIError where error.isDefinitiveAuthFailure {
             // 서버가 "이 자격증명은 못 쓴다"고 확정했다 — 폐기·변조. 지우고 로그인 화면으로.
             // 자격증명 삭제는 "내 값이 아직 현재값일 때만"(generation 무관), 화면은 가드 통과.
             discardIfCurrent(refreshToken: credentials.refreshToken, reason: "session invalidated")
-            applyFromRestore(gen) { self.state = .signedOut }
+            applyFromRestore(gen) { self.publishSignedOut() }
         } catch {
             // 일시적 실패(오프라인·타임아웃·5xx·형식 오류) — 자격증명은 **보존**한다.
             Log.auth("session check inconclusive — keeping credentials for retry")
@@ -227,7 +284,7 @@ final class AuthManager: SessionRefreshing {
     ///
     /// 401을 만나고 나서 갱신하는 것만으로는 부족하다: 요청이 없는 채로 놔둔 화면은 401을
     /// 만날 일도 없어, idle 창이 지나면 세션이 조용히 죽는다. 화면을 열어 둔 동안 세션이
-    /// 밀리도록 수명의 `refreshLeadRatio` 지점에서 미리 돌린다(웹과 같은 규칙).
+    /// 밀리도록 수명의 `RefreshSchedule.leadRatio` 지점에서 미리 돌린다(웹과 같은 규칙).
     ///
     /// 앱이 백그라운드에 있는 동안 타이머가 밀려도 손해가 없다 — 포그라운드로 돌아오면
     /// `restoreSession()`이 다시 확인하고 여기를 새로 건다.
@@ -235,14 +292,30 @@ final class AuthManager: SessionRefreshing {
         proactiveRefresh?.cancel()
         let ttl = accessTokenTtlMs
         guard ttl > 0 else { return }
-        let delayMs = max(Int(Double(ttl) * Self.refreshLeadRatio), Self.minRefreshDelayMs)
+        // 예약을 건 **그 세션**의 표식을 함께 들고 간다 — 깨어났을 때 세션이 갈렸다면
+        // 이 예약은 남의 것이다.
+        let mark = generation
+        var delayMs = max(Int(Double(ttl) * schedule.leadRatio), schedule.minDelayMs)
+        let retryDelayMs = schedule.retryDelayMs
         proactiveRefresh = Task { [weak self] in
-            try? await Task.sleep(for: .milliseconds(delayMs))
-            guard !Task.isCancelled, let self else { return }
-            guard let current = self.keychain.load().credentials?.accessToken else { return }
-            // 반응형 경로와 같은 문을 쓴다 — 그사이 401이 먼저 갱신했다면 여기서는 아무
-            // 요청도 나가지 않는다.
-            _ = await self.refreshForRetry(usedAccessToken: current)
+            while true {
+                try? await Task.sleep(for: .milliseconds(delayMs))
+                guard !Task.isCancelled, let self else { return }
+                guard mark == self.generation else { return }
+                guard let current = self.keychain.load().credentials?.accessToken else {
+                    return
+                }
+                // 반응형 경로와 같은 문을 쓴다 — 그사이 401이 먼저 갱신했다면 여기서는
+                // 아무 요청도 나가지 않는다. 회전에 성공하면 rotate가 이 자리를 새
+                // 예약으로 갈아 끼우므로 여기서 물러난다.
+                if await self.refreshForRetry(
+                    mark: mark, usedAccessToken: current,
+                ) != nil { return }
+                // 오프라인·5xx로 회전하지 못했을 뿐인데 여기서 놓아 버리면, 타이머는 이미
+                // 소모됐고 아무도 다시 걸지 않아 **선제 갱신이 영영 멈춘다.** 세션은 아직
+                // 살아 있으니 짧게 다시 시도한다.
+                delayMs = retryDelayMs
+            }
         }
     }
 
@@ -251,6 +324,45 @@ final class AuthManager: SessionRefreshing {
         proactiveRefresh?.cancel()
         proactiveRefresh = nil
         accessTokenTtlMs = 0
+    }
+
+    /// 서버가 **확정한** 인증 실패를 받았다 — 다른 기기에서 이 세션을 해제한 경우가
+    /// 대표적이다.
+    ///
+    /// 화면이 "불러오지 못했습니다"를 띄우고 마는 대신 여기서 정리한다: 자격증명은 이미
+    /// 죽었으므로 지우고 로그인 화면으로 보낸다. **서버에 로그아웃을 부르지 않는다** —
+    /// 세션은 이미 서버에서 사라졌다.
+    func endSession(mark: Int, usedAccessToken: String) async {
+        // 그사이 새 세션이 들어왔다면 낡은 응답이 그것을 끊어서는 안 된다.
+        guard mark == generation,
+              keychain.load().credentials?.accessToken == usedAccessToken else { return }
+        Log.auth("session rejected by the server — signing out")
+        _ = keychain.clear()
+        cancelProactiveRefresh()
+        // 세션이 끝났으니 표식도 넘긴다 — 아직 떠 있는 옛 요청의 응답이 돌아와도
+        // 다음 세션을 건드리지 못한다.
+        generation += 1
+        publishSignedOut()
+    }
+
+    /// **이 토큰으로** 나가는 요청에 찍을 세션 표식. 이 세션이 발급한 토큰이 아니면 nil.
+    ///
+    /// 이 타입은 `@MainActor`라 아래에는 `await`이 없다 — 자격증명과 세대를 한 덩어리로
+    /// 읽는다. 부르는 쪽이 토큰을 읽은 시점과 여기 사이에는 액터 hop이 하나 있어, 그
+    /// 틈에 로그아웃·재로그인이 끝날 수 있다.
+    func sessionMark(usedAccessToken: String) -> Int? {
+        // 로그인·로그아웃이 도는 동안에는 이 요청이 **어느 세션으로 끝날지 아직 모른다.**
+        // 세대는 액션이 시작될 때 이미 올랐지만 자격증명은 아직 앞 세션의 것이라, 여기서
+        // 표식을 주면 옛 토큰이 곧 채택될 새 세션의 이름표를 달게 된다. 표식을 주지 않으면
+        // 그 401은 되살리지 않고 그냥 실패로 올라간다 — 세션이 바뀌는 중에는 그게 맞다.
+        guard !authActionInFlight else { return nil }
+        if keychain.load().credentials?.accessToken == usedAccessToken { return generation }
+        // 방금 회전으로 물러난 토큰도 **이 세션이 발급한 것**이다.
+        if supersededGeneration == generation,
+           supersededTokens.contains(usedAccessToken) {
+            return generation
+        }
+        return nil
     }
 
     /// 401을 만난 요청을 위해 세션을 갱신한다 — 화면을 쓰는 도중 액세스 토큰이 만료되는
@@ -262,30 +374,94 @@ final class AuthManager: SessionRefreshing {
     ///
     /// - Returns: 재시도에 쓸 **새** 액세스 토큰. 갱신하지 못했으면 nil — 토큰이 그대로면
     ///   같은 401이 한 번 더 날 뿐이라 재시도하지 않는다.
-    func refreshForRetry(usedAccessToken: String) async -> String? {
+    func refreshForRetry(mark: Int, usedAccessToken: String) async -> String? {
+        // 요청을 보낸 그 세션이 아직 살아 있을 때만 손댄다 — 그사이 로그아웃하고 다시
+        // 로그인했다면 이 401은 **남의 세션**의 것이다(토큰 비교만으로는 회전과 구분되지
+        // 않아, 옛 요청이 새 세션의 토큰으로 재생될 수 있었다).
+        guard mark == generation else { return nil }
         if let current = keychain.load().credentials?.accessToken,
            current != usedAccessToken {
             return current
         }
-        // 이미 도는 갱신이 있으면 그 결과를 나눠 쓴다. 여기까지는 `await`이 없어
-        // 메인 액터 위에서 확인과 등록이 한 덩어리로 일어난다 — 그래서 두 요청이 각자
-        // 갱신을 띄우는 틈이 없다.
-        if let inFlight = refreshTask { return await inFlight.value }
+        guard let refreshToken = keychain.load().credentials?.refreshToken else { return nil }
 
-        let task = Task { [weak self] () -> String? in
-            guard let self else { return nil }
-            guard let refreshToken = self.keychain.load().credentials?.refreshToken else {
-                return nil
-            }
-            await self.performRefresh(generation: self.generation, using: refreshToken)
-            let rotated = self.keychain.load().credentials?.accessToken
+        let outcome = await sharedRotate(generation: mark, using: refreshToken)
+        // 회전을 기다리는 사이에 세션이 갈렸다면 이 결과는 **남의 것**이다.
+        guard mark == generation else { return nil }
+        switch outcome {
+        case .rotated, .superseded:
+            // superseded는 "그사이 다른 흐름이 자격증명을 갈아 끼웠다"는 뜻이다. 세대가
+            // 그대로라면 그것은 같은 세션의 회전이므로 그 값으로 재시도한다.
+            let rotated = keychain.load().credentials?.accessToken
             // 회전하지 않았으면 nil이다 — 같은 토큰으로 다시 보내 봐야 같은 401이다.
             return rotated == usedAccessToken ? nil : rotated
+        case .rejected:
+            // 되살릴 수 없는 세션이다 — 자격증명은 rotate가 이미 정리했다.
+            // **쓰는 도중** 끊긴 것이므로 이유도 함께 남긴다: 대시보드를 보고 있다가 아무
+            // 말 없이 로그인 화면으로 돌아가면 이동이 실패한 것처럼 보인다.
+            applyFromRestore(mark) { self.publishSignedOut() }
+            return nil
+        case .inconclusive:
+            // 오프라인·5xx 같은 일시적 실패로 **로그인 화면으로 쫓아내지 않는다.**
+            // 자격증명은 아직 살아 있을 수 있고, 화면은 오류만 보여 주면 된다.
+            return nil
         }
-        refreshTask = task
-        let rotated = await task.value
-        refreshTask = nil
-        return rotated
+    }
+
+    /// 회전을 **한 번만** 내보내는 문. 복원과 401 재시도가 여기서 만난다.
+    ///
+    /// 같은 세대의 회전만 나눠 쓴다 — 남의 세션 결과를 내 답으로 받으면, 그쪽의 확정
+    /// 거부가 멀쩡한 내 세션을 끊는다.
+    private func sharedRotate(
+        generation gen: Int,
+        using refreshToken: String,
+    ) async -> RotateOutcome {
+        // 여기까지는 `await`이 없어 메인 액터 위에서 확인과 등록이 한 덩어리로 일어난다 —
+        // 그래서 두 요청이 각자 회전을 띄우는 틈이 없다.
+        if let inFlight = rotateTask, rotateGeneration == gen {
+            return await inFlight.value
+        }
+        let task = Task { [weak self] () -> RotateOutcome in
+            guard let self else { return .superseded }
+            return await self.rotate(generation: gen, using: refreshToken)
+        }
+        rotateTask = task
+        rotateGeneration = gen
+        let outcome = await task.value
+        // 내가 심은 슬롯일 때만 비운다 — 그사이 다음 세션의 회전이 자리를 차지했을 수 있다.
+        if rotateGeneration == gen {
+            rotateTask = nil
+            rotateGeneration = nil
+        }
+        return outcome
+    }
+
+    /// 갱신 한 번의 결과. 무엇을 할지는 **부르는 쪽**이 정한다 — 자리마다 답이 다르다.
+    private enum RotateOutcome {
+        /// 회전했다. 새 자격증명이 저장돼 있다.
+        case rotated
+        /// 되살릴 수 없다 — 서버가 확정 거부했거나, 회전된 값을 저장하지 못했다.
+        case rejected
+        /// 이번엔 확인이 안 됐다(오프라인·5xx). 자격증명은 아직 살아 있을 수 있다.
+        case inconclusive
+        /// 그사이 자격증명이 갈렸다 — 이 응답은 남의 것이라 아무것도 하지 않는다.
+        case superseded
+    }
+
+    /// 복원 경로의 갱신 — 확인이 안 되면 로그인 화면을 보인다(자격증명은 보존).
+    ///
+    /// 401 재시도와 **같은 문**(`sharedRotate`)을 쓴다. 각자 돌면 포그라운드 복귀의 복원과
+    /// 화면의 401이 1회용 리프레시 자격증명을 동시에 써서 재사용 탐지에 걸린다.
+    private func refreshOrSignOut(generation gen: Int, using refreshToken: String) async {
+        switch await sharedRotate(generation: gen, using: refreshToken) {
+        case .rotated, .superseded:
+            break
+        case .rejected:
+            applyFromRestore(gen) { self.publishSignedOut() }
+        case .inconclusive:
+            // 확인이 안 됐을 뿐이다 — 자격증명은 남기고, 끝났다고 말하지도 않는다.
+            applyFromRestore(gen) { self.state = .signedOut }
+        }
     }
 
     /// 액세스 토큰 갱신.
@@ -301,41 +477,63 @@ final class AuthManager: SessionRefreshing {
     ///   죽은 토큰을 다시 쓰지 않게).
     ///
     /// 화면 상태 반영만 generation·액션 가드(`applyFromRestore`)를 따른다.
-    private func performRefresh(generation gen: Int, using refreshToken: String) async {
+    ///
+    /// **상태를 로그아웃으로 바꾸지 않는다.** 실패를 어떻게 다룰지는 자리마다 다르기
+    /// 때문이다: 앱 시작의 복원은 확인이 안 되면 로그인 화면을 보여야 하지만, 쓰는 도중의
+    /// 갱신은 잠깐 끊긴 것만으로 사용자를 쫓아내면 안 된다.
+    private func rotate(generation gen: Int, using refreshToken: String) async -> RotateOutcome {
         let session: AuthSession
         do {
             session = try await service.refresh(refreshToken: refreshToken)
         } catch let error as APIError where error.isDefinitiveAuthFailure {
             discardIfCurrent(refreshToken: refreshToken, reason: "refresh rejected by server")
-            applyFromRestore(gen) { self.state = .signedOut }
-            return
+            return .rejected
         } catch {
             // 네트워크·5xx로 갱신에 실패한 것뿐이라면 자격증명을 지우지 않는다.
             Log.auth("refresh inconclusive — keeping credentials for retry")
-            applyFromRestore(gen) { self.state = .signedOut }
-            return
+            return .inconclusive
         }
 
         // 아래는 await가 없는 동기 구간이라 load→save/revoke가 원자적이다(TOCTOU 없음).
-        guard keychain.load().credentials?.refreshToken == refreshToken else {
+        let stored = keychain.load().credentials
+        guard stored?.refreshToken == refreshToken else {
             // 그사이 자격증명이 바뀌었다(로그아웃 마커·새 로그인) — 낡은 응답이라 버린다.
             Log.auth("refresh superseded — discarding rotated response")
-            return
+            return .superseded
         }
-        let saved = keychain.save(
+        // 물러나는 토큰을 기억해 둔다 — 같은 세션에서 그 토큰으로 이미 떠난 요청이
+        // 401을 만나도 되살아날 수 있게(위 supersededTokens 설명).
+        //
+        // 기록은 **이 회전이 속한 세대**(gen)의 것이다. 지금 세대에 적으면 안 된다: 회전이
+        // 네트워크에 매달려 있는 사이 새 로그인이 시작돼 세대가 이미 올라갔을 수 있고,
+        // 그러면 **끝난 세션의 토큰이 다음 세션의 이름표를 받는다**(옛 요청이 새 계정에서
+        // 재생된다). 세대가 갈렸으면 이 회전은 이미 남의 것이라 남길 자리가 없다.
+        if gen == generation, let previous = stored?.accessToken {
+            if supersededGeneration != gen {
+                supersededTokens = []
+                supersededGeneration = gen
+            }
+            supersededTokens = Array(
+                ([previous] + supersededTokens).prefix(Self.supersededTokenMemory),
+            )
+        }
+        guard keychain.save(
             .init(accessToken: session.accessToken, refreshToken: session.refreshToken),
-        )
-        if saved {
-            accessTokenTtlMs = session.accessTokenTtlMs
-            applyFromRestore(gen) { self.state = .signedIn(session.user) }
-            scheduleProactiveRefresh()
-            Log.auth("session refreshed")
-        } else {
+        ) else {
             // 회전된 토큰을 저장하지 못하면 세션을 이을 방법이 없다(옛 값은 죽었다).
             // 죽은 옛 값이 아직 현재값이면 제거한다 — generation과 무관하게.
             discardIfCurrent(refreshToken: refreshToken, reason: "failed to persist rotated credentials")
-            applyFromRestore(gen) { self.state = .signedOut }
+            return .rejected
         }
+        // 수명과 타이머는 **화면 상태와 함께** 간다 — 앞질러진 갱신이 남의 타이머를
+        // 심지 않게.
+        applyFromRestore(gen) {
+            self.accessTokenTtlMs = session.accessTokenTtlMs
+            self.state = .signedIn(session.user)
+            self.scheduleProactiveRefresh()
+        }
+        Log.auth("session refreshed")
+        return .rotated
     }
 
     // MARK: - Private (로그인)
@@ -396,12 +594,27 @@ final class AuthManager: SessionRefreshing {
         // 저장(save)이 revoked 마커를 자격증명으로 덮어썼으므로, 지난 로그아웃 의도는
         // 새 세션이 자연히 대체한다(별도 표식 관리가 필요 없다).
         accessTokenTtlMs = session.accessTokenTtlMs
+        endedUnexpectedly = false
         state = .signedIn(session.user)
         // 로그인 직후부터 세션이 밀리게 한다 — 다음 `/auth/me`까지 기다리지 않는다.
         scheduleProactiveRefresh()
     }
 
     // MARK: - Private (가드·정리)
+
+    /// 세션이 **확정적으로** 끝났다 — 로그인 화면으로 보내고, 필요하면 이유를 남긴다.
+    ///
+    /// 알릴지는 **어느 경로가 발견했는지가 아니라 무엇을 보고 있었는지**로 정한다. 같은
+    /// 만료를 복원·예약 타이머·화면 요청이 동시에 발견할 수 있어, 경로로 정하면 누가 먼저
+    /// 처리하느냐에 따라 같은 상황이 조용했다 시끄러웠다 한다(실제로 그랬다). 지금 보고
+    /// 있던 것이 로그인된 화면이었을 때만 설명이 필요하다 — 앱을 켜자마자 실패한 것은
+    /// 자격증명이 아예 없는 첫 방문과 같은 화면이라 알릴 일이 아니다.
+    ///
+    /// **확인이 안 된 것(오프라인·5xx)에는 쓰지 않는다.** 세션이 끝났다고 말할 수 없다.
+    private func publishSignedOut() {
+        if case .signedIn = state { endedUnexpectedly = true }
+        state = .signedOut
+    }
 
     /// 복원/갱신이 **화면 상태**를 바꾸는 유일한 관문. 사용자 액션이 진행 중이거나(그 결과가
     /// 우선), 더 새로운 세대가 있으면(로그아웃/새 로그인이 앞질렀으면) 이 결과는 버린다.
@@ -419,11 +632,19 @@ final class AuthManager: SessionRefreshing {
     /// 부활을 막는다(마커는 지키개로 남고 다음 로그인이 덮는다). revoke가 실패해도 이
     /// 자격증명은 서버가 이미 무효화한 것이라, 남으면 다음 확인이 다시 확정 실패로 정리한다.
     private func discardIfCurrent(refreshToken: String, reason: String) {
-        cancelProactiveRefresh()
+        // **소유권 확인이 먼저다.** 앞서 타이머부터 끄면, 우리 값이 이미 현재값이 아닌
+        // 경우(그사이 새 로그인이 끝난 경우)에 아무것도 버리지 않으면서 **지금 세션의**
+        // 예약만 꺼 버린다 — 멀쩡히 로그인된 채로 선제 갱신만 죽어, 방치된 화면이 idle
+        // 창에서 조용히 만료된다.
         guard keychain.load().credentials?.refreshToken == refreshToken else { return }
         Log.auth("discarding credentials: \(reason)")
+        cancelProactiveRefresh()
         _ = keychain.revoke()
     }
+
+    // 회전으로 물러난 토큰을 몇 개까지 기억할지. 한 번의 401 무리에서 회전은 한 번만
+    // 나가므로(single-flight) 하나면 대개 충분하고, 선제 회전이 겹칠 때를 위해 여유를 둔다.
+    private static let supersededTokenMemory = 3
 
     /// 사용자 액션 시작. 세대를 올리고 소유 토큰을 발급한다.
     /// **restore를 취소하지 않는다** — 진행 중인 refresh의 네트워크 호출이 취소되면 서버가
@@ -444,10 +665,4 @@ final class AuthManager: SessionRefreshing {
         authActionToken = nil
     }
 
-    // 남은 수명의 이 비율에서 미리 회전한다. 0.75면 15분 토큰을 ~11분에 갱신해,
-    // 네트워크 지연·시계 오차가 있어도 만료 전에 여유가 있다(웹·Android와 같은 값).
-    private static let refreshLeadRatio = 0.75
-
-    // 아주 짧은 수명·시계 튐에 스케줄이 과도하게 촘촘해지지 않게 하는 하한.
-    private static let minRefreshDelayMs = 30_000
 }

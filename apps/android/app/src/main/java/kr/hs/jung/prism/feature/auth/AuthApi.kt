@@ -88,15 +88,15 @@ class HttpAuthApi(private val client: ApiClient) : NativeAuthApi {
             client.request("POST", "/auth/native/exchange", body(("code" to code))),
         )
 
-    // 갱신 정책은 AuthManager의 것이다 — 이 두 호출은 그쪽이 **락을 쥔 채로** 하므로,
-    // 여기서 자동 갱신이 걸리면 그 락에서 교착한다.
+    // 401의 뒷일은 AuthManager가 정한다 — 이 두 호출은 그쪽이 **락을 쥔 채로** 하므로,
+    // 여기서 전송 계층이 갱신·종료를 부르면 그 락에서 교착한다.
     override suspend fun meBearer(accessToken: String): SessionUser =
         decodeSessionUser(
             client.request(
                 "GET",
                 "/auth/me",
                 accessToken = accessToken,
-                retryOnExpiredSession = false,
+                recoverSession = false,
             ),
         )
 
@@ -111,7 +111,7 @@ class HttpAuthApi(private val client: ApiClient) : NativeAuthApi {
             "POST",
             "/auth/logout",
             accessToken = accessToken,
-            retryOnExpiredSession = false,
+            recoverSession = false,
         )
     }
 

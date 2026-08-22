@@ -69,3 +69,5 @@ error,provider_unavailable,That sign-in method isn’t available in this app yet
 error,logout_failed,Couldn’t log you out. You’re still signed in — check your connection and try again.,로그아웃하지 못했습니다. 아직 로그인된 상태입니다 — 연결을 확인하고 다시 시도해 주세요.,ログアウトできませんでした。まだサインインしたままです — 接続を確認してもう一度お試しください。
 error,sessions_load_failed,Couldn’t load your sessions. Check your connection and try again.,세션을 불러오지 못했습니다. 연결을 확인하고 다시 시도해 주세요.,セッションを読み込めませんでした。接続を確認してもう一度お試しください。
 error,revoke_failed,Couldn’t sign out that session. Try again.,해당 세션을 로그아웃하지 못했습니다. 다시 시도해 주세요.,そのセッションをサインアウトできませんでした。もう一度お試しください。
+error,"# 스스로 로그아웃한 것이 아닌데 로그인 화면으로 온 경우. 서버는 폐기·만료·로그아웃을 한 코드(UNAUTHORIZED)로만 알려주므로 원인을 단정하지 않는다",,,
+error,session_ended,Your session has ended. Please sign in again.,세션이 종료되었습니다. 다시 로그인해 주세요.,セッションが終了しました。もう一度サインインしてください。

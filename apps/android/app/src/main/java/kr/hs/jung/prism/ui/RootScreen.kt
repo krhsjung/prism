@@ -40,8 +40,12 @@ fun RootScreen(container: ServiceContainer) {
         when (val current = state) {
             is AuthManager.State.Checking ->
                 CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
-            is AuthManager.State.SignedOut ->
+            is AuthManager.State.SignedOut -> {
+                // 세션이 끝났으니 그 세션의 화면 상태도 지금 버린다 — 다음 로그인까지
+                // 들고 있으면 끝난 세션의 ViewModel이 로그인 화면 내내 살아 있다.
+                ClearSessionScope()
                 LoginScreen(auth, container.themeStore, container.localeStore)
+            }
             is AuthManager.State.SignedIn ->
                 // 로그인 뒤의 화면 상태는 **이 세션의 것**이다. 세션이 끝나면 함께 버리고,
                 // 다시 로그인하면 새로 만든다 — 그러지 않으면 앞 세션의 목록이 그대로

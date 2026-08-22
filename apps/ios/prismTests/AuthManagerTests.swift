@@ -60,9 +60,19 @@ private final class FakeService: AuthServicing, @unchecked Sendable {
     var meResult: Result<SessionUser, Error> = .failure(APIError.network)
     var refreshResult: Result<AuthSession, Error> = .failure(APIError.network)
     var loginDemoResult: Result<AuthSession, Error> = .failure(APIError.network)
+    /// 실제로 나간 회전 요청 수.
+    private(set) var refreshCount = 0
+    /// me를 붙잡아 "복원이 네트워크에 매달린" 순간을 재현한다(널이면 통과).
+    var meGate: RefreshGate?
 
-    func me(accessToken: String) async throws -> SessionUser { try meResult.get() }
-    func refresh(refreshToken: String) async throws -> AuthSession { try refreshResult.get() }
+    func me(accessToken: String) async throws -> SessionUser {
+        if let meGate { await meGate.enterAndWait() }
+        return try meResult.get()
+    }
+    func refresh(refreshToken: String) async throws -> AuthSession {
+        refreshCount += 1
+        return try refreshResult.get()
+    }
     func logout(accessToken: String?) async throws {}
     func loginDemo() async throws -> AuthSession { try loginDemoResult.get() }
     func loginWithApple(
@@ -104,6 +114,8 @@ private actor RefreshGate {
 private final class GatedService: AuthServicing, @unchecked Sendable {
     let gate = RefreshGate()
     var refreshResult: Result<AuthSession, Error>
+    /// 실제로 나간 회전 요청 수 — 복원과 401이 같은 문을 쓰는지 세어서 본다.
+    private(set) var refreshCount = 0
 
     init(refreshResult: Result<AuthSession, Error>) {
         self.refreshResult = refreshResult
@@ -114,10 +126,75 @@ private final class GatedService: AuthServicing, @unchecked Sendable {
     }
 
     func refresh(refreshToken: String) async throws -> AuthSession {
+        refreshCount += 1
         await gate.enterAndWait()
         return try refreshResult.get()
     }
 
+    func logout(accessToken: String?) async throws {}
+    func loginWithApple(
+        identityToken: String,
+        nonce: String,
+        name: AppleUserName?,
+    ) async throws -> AuthSession {
+        throw APIError.providerUnavailable
+    }
+}
+
+/// 첫 회전은 네트워크 실패, 그다음부터는 성공. "일시적 실패 뒤에도 다시 시도하는가"를
+/// 실제로 돌려 본다.
+private final class FlakyRefreshService: AuthServicing, @unchecked Sendable {
+    private(set) var refreshCount = 0
+    private let rotated: AuthSession
+
+    init(rotated: AuthSession) { self.rotated = rotated }
+
+    func me(accessToken: String) async throws -> SessionUser { throw APIError.network }
+    func refresh(refreshToken: String) async throws -> AuthSession {
+        refreshCount += 1
+        if refreshCount == 1 { throw APIError.network }
+        return rotated
+    }
+    func logout(accessToken: String?) async throws {}
+    func loginDemo() async throws -> AuthSession {
+        AuthSession(
+            accessToken: "a", refreshToken: "r",
+            user: user(), accessTokenTtlMs: 900_000,
+        )
+    }
+    func loginWithApple(
+        identityToken: String,
+        nonce: String,
+        name: AppleUserName?,
+    ) async throws -> AuthSession {
+        throw APIError.providerUnavailable
+    }
+}
+
+/// 회전과 데모 로그인을 **각각** 게이트로 붙잡는 서비스. "회전이 네트워크에 매달린 사이
+/// 새 로그인이 시작된" 순간을 정확히 재현한다.
+private final class RotateDuringLoginService: AuthServicing, @unchecked Sendable {
+    let refreshGate = RefreshGate()
+    let loginGate = RefreshGate()
+    private let rotated: AuthSession
+    private let issued: AuthSession
+
+    init(rotated: AuthSession, issued: AuthSession) {
+        self.rotated = rotated
+        self.issued = issued
+    }
+
+    func me(accessToken: String) async throws -> SessionUser {
+        throw APIError(status: 401, code: AuthErrorCode.sessionExpired)
+    }
+    func refresh(refreshToken: String) async throws -> AuthSession {
+        await refreshGate.enterAndWait()
+        return rotated
+    }
+    func loginDemo() async throws -> AuthSession {
+        await loginGate.enterAndWait()
+        return issued
+    }
     func logout(accessToken: String?) async throws {}
     func loginWithApple(
         identityToken: String,
@@ -157,8 +234,30 @@ private func creds(_ access: String, _ refresh: String) -> KeychainManager.Crede
 private func makeManager(
     _ service: AuthServicing,
     _ store: FakeStore,
+    schedule: RefreshSchedule = .default,
 ) -> AuthManager {
-    AuthManager(service: service, keychain: store, appleSignIn: AppleSignInController())
+    AuthManager(
+        service: service,
+        keychain: store,
+        appleSignIn: AppleSignInController(),
+        schedule: schedule,
+    )
+}
+
+/// 선제 갱신을 **실제로 돌려 보기 위한** 지연. 가상 시계가 없으므로 값을 아주 짧게 준다.
+private let instantSchedule = RefreshSchedule(
+    leadRatio: 0.000_001,
+    minDelayMs: 1,
+    retryDelayMs: 1,
+)
+
+/// 저장된 액세스 토큰이 기대값이 될 때까지 (상한을 두고) 기다린다.
+@MainActor
+private func waitForAccessToken(_ store: FakeStore, _ expected: String) async {
+    for _ in 0 ..< 200 {
+        if store.load().credentials?.accessToken == expected { return }
+        try? await Task.sleep(for: .milliseconds(10))
+    }
 }
 
 // MARK: - Tests
@@ -233,6 +332,33 @@ struct AuthManagerTests {
 
     // 화면을 쓰는 도중 액세스 토큰이 만료되는 흔한 경우. 앱 시작·복귀에서만 갱신하면
     // 그사이의 401은 그냥 실패로 보이고, 사용자가 할 수 있는 일은 앱을 껐다 켜는 것뿐이다.
+
+    // 다른 기기에서 이 세션을 해제하면 갱신으로는 살아나지 않는다. 화면이 "불러오지
+    // 못했습니다"를 띄우고 마는 대신 세션을 끝내야 로그인 화면으로 돌아간다.
+    @Test("서버가 거부한 세션은 자격증명을 지우고 로그인 화면으로 보낸다")
+    func endSessionSignsOut() async {
+        let store = FakeStore(creds("a", "r"))
+        let manager = makeManager(FakeService(), store)
+
+        await manager.endSession(mark: manager.sessionMark(usedAccessToken: "a")!, usedAccessToken: "a")
+
+        #expect(manager.state == .signedOut)
+        #expect(store.load() == .none)
+    }
+
+    // 그사이 새 세션이 들어왔다면 낡은 응답이 그것을 끊어서는 안 된다.
+    @Test("이미 다른 세션으로 갈렸으면 끝내지 않는다")
+    func endSessionIgnoresStaleToken() async {
+        let store = FakeStore(creds("a2", "r2"))
+        let manager = makeManager(FakeService(), store)
+
+        // 표식은 살아 있지만(같은 세대) 토큰이 이미 갈렸다.
+        let mark = manager.sessionMark(usedAccessToken: "a2")!
+        await manager.endSession(mark: mark, usedAccessToken: "a")
+
+        #expect(store.load() == .credentials(creds("a2", "r2")))
+    }
+
     @Test("401을 만난 요청을 위해 갱신하고 새 토큰을 돌려준다")
     func refreshForRetryRotates() async {
         let service = FakeService()
@@ -243,7 +369,9 @@ struct AuthManagerTests {
         let store = FakeStore(creds("a", "r"))
         let manager = makeManager(service, store)
 
-        let rotated = await manager.refreshForRetry(usedAccessToken: "a")
+        let rotated = await manager.refreshForRetry(
+            mark: manager.sessionMark(usedAccessToken: "a")!, usedAccessToken: "a",
+        )
 
         #expect(rotated == "a2")
         #expect(store.load() == .credentials(creds("a2", "r2")))
@@ -262,7 +390,9 @@ struct AuthManagerTests {
         let store = FakeStore(creds("a2", "r2"))
         let manager = makeManager(service, store)
 
-        let rotated = await manager.refreshForRetry(usedAccessToken: "a")
+        let rotated = await manager.refreshForRetry(
+            mark: manager.sessionMark(usedAccessToken: "a2")!, usedAccessToken: "a",
+        )
 
         #expect(rotated == "a2")
         // 갱신이 나가지 않았으므로 저장된 값도 그대로다.
@@ -277,14 +407,259 @@ struct AuthManagerTests {
         let store = FakeStore(creds("a", "r"))
         let manager = makeManager(service, store)
 
-        #expect(await manager.refreshForRetry(usedAccessToken: "a") == nil)
+        #expect(await manager.refreshForRetry(
+            mark: manager.sessionMark(usedAccessToken: "a")!, usedAccessToken: "a",
+        ) == nil)
+        // 오프라인·5xx로 갱신이 실패했다고 로그인 화면으로 쫓아내지 않는다 —
+        // 자격증명은 아직 살아 있을 수 있고, 화면은 오류만 보여 주면 된다.
+        #expect(store.load() == .credentials(creds("a", "r")))
+    }
+
+    // 확정 거부는 반대다 — 되살릴 수 없는 세션이라 자격증명을 버리고 로그인 화면으로.
+    @Test("갱신이 확정 거부되면 자격증명을 버리고 로그인 화면으로 보낸다")
+    func refreshForRetryRejected() async throws {
+        let service = FakeService()
+        service.loginDemoResult = .success(AuthSession(
+            accessToken: "a", refreshToken: "r",
+            user: user(), accessTokenTtlMs: 900_000,
+        ))
+        service.refreshResult = .failure(
+            APIError(status: 401, code: AuthErrorCode.unauthorized),
+        )
+        let store = FakeStore()
+        let manager = makeManager(service, store)
+
+        // 로그인된 화면을 보고 있다가 끊기는 상황이다 — 그래서 설명이 필요하다.
+        try await manager.signIn(with: .demo)
+        #expect(await manager.refreshForRetry(
+            mark: manager.sessionMark(usedAccessToken: "a")!, usedAccessToken: "a",
+        ) == nil)
+
+        #expect(manager.state == .signedOut)
+        #expect(store.load() == .revoked)
+        #expect(manager.endedUnexpectedly)
+    }
+
+    // 같은 만료를 예약 타이머·화면 요청·복원이 동시에 발견할 수 있다. 알릴지를 **경로**로
+    // 정하면 누가 먼저 처리하느냐에 따라 같은 상황이 조용했다 시끄러웠다 한다 — 기준은
+    // "무엇을 보고 있었는가"다. 로그인된 화면에서 끊겼으면 누가 발견했든 알린다.
+    @Test("예약된 회전이 거부되면 로그인된 화면이었으므로 알린다")
+    func proactiveRejectionIsAnnounced() async throws {
+        let service = FakeService()
+        service.loginDemoResult = .success(AuthSession(
+            accessToken: "a", refreshToken: "r",
+            user: user(), accessTokenTtlMs: 900_000,
+        ))
+        service.refreshResult = .failure(
+            APIError(status: 401, code: AuthErrorCode.unauthorized),
+        )
+        let store = FakeStore()
+        let manager = makeManager(service, store, schedule: instantSchedule)
+
+        try await manager.signIn(with: .demo)
+        // 예약된 회전이 돌아 거부될 때까지 기다린다(자격증명이 버려지면 끝난 것이다).
+        for _ in 0 ..< 200 {
+            if manager.state == .signedOut { break }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+
+        #expect(manager.state == .signedOut)
+        #expect(manager.endedUnexpectedly)
+    }
+
+    // 스스로 누른 로그아웃은 설명할 것이 없다.
+    @Test("스스로 로그아웃한 것은 알리지 않는다")
+    func deliberateSignOutIsNotAnnounced() async {
+        let manager = makeManager(FakeService(), FakeStore(creds("a", "r")))
+
+        await manager.signOut()
+
+        #expect(manager.state == .signedOut)
+        #expect(manager.endedUnexpectedly == false)
+    }
+
+    // 앱을 켤 때의 실패는 알리지 않는다 — 그 자리는 자격증명이 아예 없는 첫 방문과
+    // 구분되지 않아, 처음 온 사람에게 엉뚱한 안내가 뜬다.
+    @Test("복원이 실패해서 로그인 화면으로 가는 것은 알리지 않는다")
+    func restoreFailureIsNotAnnounced() async {
+        let service = FakeService()
+        service.meResult = .failure(APIError(status: 401, code: AuthErrorCode.sessionExpired))
+        service.refreshResult = .failure(
+            APIError(status: 401, code: AuthErrorCode.unauthorized),
+        )
+        let manager = makeManager(service, FakeStore(creds("a", "r")))
+
+        await manager.restoreSession()
+
+        #expect(manager.state == .signedOut)
+        #expect(manager.endedUnexpectedly == false)
     }
 
     @Test("자격증명이 없으면 갱신할 것도 없다")
     func refreshForRetryWithoutCredentials() async {
         let manager = makeManager(FakeService(), FakeStore(.none))
 
-        #expect(await manager.refreshForRetry(usedAccessToken: "a") == nil)
+        // 되살릴 세션이 없으니 표식도 없다.
+        #expect(manager.sessionMark(usedAccessToken: "a") == nil)
+        #expect(await manager.refreshForRetry(mark: 0, usedAccessToken: "a") == nil)
+    }
+
+    // 함께 나간 두 요청이 같은 토큰을 들고 있다가 하나가 먼저 회전시키면, 나머지는 이미
+    // 물러난 토큰을 들고 있다. 그것을 "남의 세션"으로 보면 되살릴 수 있는 401이 그냥
+    // 실패가 된다 — 물러난 토큰도 이 세션이 발급한 것이다.
+    @Test("회전 직전의 토큰으로 나간 요청도 되살아난다")
+    func supersededTokenStillBelongsToThisSession() async {
+        let service = FakeService()
+        service.refreshResult = .success(AuthSession(
+            accessToken: "a2", refreshToken: "r2",
+            user: user(), accessTokenTtlMs: 900_000,
+        ))
+        let store = FakeStore(creds("a", "r"))
+        let manager = makeManager(service, store)
+
+        // 첫 요청이 회전시킨다.
+        let mark = manager.sessionMark(usedAccessToken: "a")!
+        #expect(await manager.refreshForRetry(mark: mark, usedAccessToken: "a") == "a2")
+
+        // 뒤늦게 출발한 두 번째 요청은 아직 "a"를 들고 있다.
+        #expect(manager.sessionMark(usedAccessToken: "a") == mark)
+        // 이미 갈려 있으므로 갱신 없이 회전된 토큰으로 재시도한다.
+        #expect(await manager.refreshForRetry(mark: mark, usedAccessToken: "a") == "a2")
+        #expect(service.refreshCount == 1)
+    }
+
+    // 앞 세션의 확인이 뒤늦게 확정 실패로 돌아왔을 때, 버릴 자격증명이 이미 남의 것이면
+    // **아무것도 건드리지 않아야 한다.** 소유권을 보기 전에 타이머부터 끄면, 멀쩡히
+    // 로그인된 새 세션의 선제 갱신만 죽어 방치된 화면이 idle 창에서 조용히 만료된다.
+    @Test("남의 자격증명을 버리려다 지금 세션의 예약을 끄지 않는다")
+    func staleDiscardKeepsTheCurrentSessionScheduled() async {
+        let service = FakeService()
+        let gate = RefreshGate()
+        service.meGate = gate
+        // 앞 세션의 확인은 확정 실패로 끝난다(폐기·변조).
+        service.meResult = .failure(APIError(status: 401, code: AuthErrorCode.invalidToken))
+        service.loginDemoResult = .success(AuthSession(
+            accessToken: "b", refreshToken: "br",
+            user: user(), accessTokenTtlMs: 900_000,
+        ))
+        // 회전은 처음엔 실패한다 — 예약이 살아 있는지만 보고 싶기 때문이다.
+        service.refreshResult = .failure(APIError.network)
+        let store = FakeStore(creds("a", "r"))
+        let manager = makeManager(service, store, schedule: instantSchedule)
+
+        // 앞 세션의 확인이 네트워크에 매달린다.
+        let restore = Task { await manager.restoreSession() }
+        await gate.waitUntilEntered()
+
+        // 그 사이 새로 로그인한다 — 여기서 새 세션의 예약이 걸린다.
+        try? await manager.signIn(with: .demo)
+        #expect(manager.state == .signedIn(user()))
+
+        // 이제 앞 세션의 확인이 확정 실패로 돌아온다.
+        await gate.open()
+        await restore.value
+        #expect(manager.state == .signedIn(user()))          // 새 세션은 그대로다
+        #expect(store.load() == .credentials(creds("b", "br"))) // 자격증명도 그대로다
+
+        // 연결이 돌아오면 새 세션의 예약이 여전히 세션을 밀어야 한다.
+        service.refreshResult = .success(AuthSession(
+            accessToken: "b2", refreshToken: "br2",
+            user: user(), accessTokenTtlMs: 900_000,
+        ))
+        await waitForAccessToken(store, "b2")
+        #expect(store.load() == .credentials(creds("b2", "br2")))
+    }
+
+    // 회전이 네트워크에 매달린 사이 새 로그인이 시작되면 세대는 이미 올라가 있다. 그때
+    // 물러난 토큰을 **지금 세대**에 적으면, 끝난 세션의 토큰이 다음 세션의 이름표를 받아
+    // 옛 요청이 새 계정에서 재생된다.
+    @Test("로그인 중에 끝난 회전은 다음 세션에 흔적을 남기지 않는다")
+    func rotationFinishingDuringLoginCannotPoisonNextSession() async {
+        let service = RotateDuringLoginService(
+            rotated: AuthSession(
+                accessToken: "a2", refreshToken: "r2",
+                user: user(), accessTokenTtlMs: 900_000,
+            ),
+            issued: AuthSession(
+                accessToken: "b", refreshToken: "br",
+                user: user(), accessTokenTtlMs: 900_000,
+            ),
+        )
+        let store = FakeStore(creds("a", "r"))
+        let manager = makeManager(service, store)
+
+        // 복원이 회전에 들어가 멈춘다.
+        let restore = Task { await manager.restoreSession() }
+        await service.refreshGate.waitUntilEntered()
+
+        // 그 사이 새 로그인이 시작된다 — 세대가 오르고, 채택 직전에서 멈춘다.
+        let login = Task { try? await manager.signIn(with: .demo) }
+        await service.loginGate.waitUntilEntered()
+
+        // 회전이 먼저 끝난다. 저장된 자격증명이 아직 앞 세션의 것이라 저장에는 성공한다.
+        await service.refreshGate.open()
+        await restore.value
+
+        // 이제 새 세션이 채택된다.
+        await service.loginGate.open()
+        await login.value
+        #expect(manager.state == .signedIn(user()))
+        #expect(store.load() == .credentials(creds("b", "br")))
+
+        // 앞 세션의 토큰들은 새 세션의 표식을 받을 수 없다.
+        #expect(manager.sessionMark(usedAccessToken: "a") == nil)
+        #expect(manager.sessionMark(usedAccessToken: "a2") == nil)
+        #expect(manager.sessionMark(usedAccessToken: "b") != nil)
+    }
+
+    // 로그인·로그아웃이 도는 동안에는 이 요청이 어느 세션으로 끝날지 아직 모른다.
+    @Test("사용자 액션이 도는 동안에는 표식을 주지 않는다")
+    func noMarkWhileAnAuthActionIsInFlight() async {
+        let service = GatedLogoutService()
+        let store = FakeStore(creds("a", "r"))
+        let manager = makeManager(service, store)
+
+        #expect(manager.sessionMark(usedAccessToken: "a") != nil)
+
+        let signOut = Task { await manager.signOut() }
+        await service.gate.waitUntilEntered()
+        #expect(manager.sessionMark(usedAccessToken: "a") == nil)
+
+        await service.gate.open()
+        await signOut.value
+    }
+
+    // 요청을 보낸 뒤 응답이 돌아오기 전에 로그아웃하고 다시 로그인하면, 그 401은 **끝난
+    // 세션**의 것이다. 토큰만 비교하면 회전과 구분되지 않아, 옛 요청이 새 세션의 토큰으로
+    // 재생될 수 있었다.
+    @Test("낡은 표식으로 온 401은 새 세션을 건드리지 않는다")
+    func staleMarkCannotTouchANewSession() async throws {
+        let service = FakeService()
+        service.loginDemoResult = .success(AuthSession(
+            accessToken: "a", refreshToken: "r",
+            user: user(), accessTokenTtlMs: 900_000,
+        ))
+        let store = FakeStore()
+        let manager = makeManager(service, store)
+
+        try await manager.signIn(with: .demo)
+        let stale = try #require(manager.sessionMark(usedAccessToken: "a"))
+
+        // 그사이 로그아웃 → 다시 로그인. 여기서부터는 다른 세션이다.
+        await manager.signOut()
+        service.loginDemoResult = .success(AuthSession(
+            accessToken: "b", refreshToken: "br",
+            user: user(), accessTokenTtlMs: 900_000,
+        ))
+        try await manager.signIn(with: .demo)
+
+        // 회전도, 종료도 하지 않는다 — 새 세션은 그대로 살아 있다.
+        #expect(await manager.refreshForRetry(mark: stale, usedAccessToken: "a") == nil)
+        await manager.endSession(mark: stale, usedAccessToken: "a")
+
+        #expect(manager.state == .signedIn(user()))
+        #expect(manager.endedUnexpectedly == false)
+        #expect(store.load() == .credentials(creds("b", "br")))
     }
 
     @Test("만료된 액세스 토큰은 갱신으로 이어 회전된 토큰을 저장한다")
@@ -392,6 +767,76 @@ struct AuthManagerTests {
 
         #expect(manager.state == .signedOut)
         #expect(store.load() == StoredSession.revoked) // a2/r2가 되살아나지 않았다
+    }
+
+    // 서버는 리프레시 자격증명을 **1회용**으로 회전한다. 포그라운드 복귀의 복원과 화면의
+    // 401이 각자 회전을 띄우면 같은 값을 둘이 써서 재사용 탐지에 걸리고, 멀쩡한 세션이
+    // 끊긴다. 두 경로는 같은 문을 써야 한다.
+    @Test("복원과 401 재시도는 회전을 한 번만 내보낸다")
+    func restoreAndRetryShareOneRotation() async {
+        let service = GatedService(refreshResult: .success(AuthSession(
+            accessToken: "a2", refreshToken: "r2",
+            user: user(), accessTokenTtlMs: 900_000,
+        )))
+        let store = FakeStore(creds("a", "r"))
+        let manager = makeManager(service, store)
+
+        // 복원을 띄운다 → me가 sessionExpired → 회전이 게이트에서 멈춘다.
+        let restore = Task { await manager.restoreSession() }
+        await service.gate.waitUntilEntered()
+
+        // 그 사이 화면의 요청이 401을 만난다 — 같은 회전에 합류해야 한다.
+        let mark = manager.sessionMark(usedAccessToken: "a")!
+        let retry = Task { await manager.refreshForRetry(mark: mark, usedAccessToken: "a") }
+
+        await service.gate.open()
+        let rotated = await retry.value
+        await restore.value
+
+        #expect(service.refreshCount == 1) // 1회용 자격증명을 두 번 쓰지 않았다
+        #expect(rotated == "a2")           // 재시도는 회전된 토큰으로 나간다
+        #expect(manager.state == .signedIn(user()))
+    }
+
+    // 요청이 없는 채로 놔둔 화면은 401을 만날 일이 없어, 반응형 갱신만으로는 idle 창이
+    // 지나면 세션이 조용히 죽는다. 수명의 75% 지점에서 미리 돌린다.
+    @Test("수명의 앞자락에서 세션을 미리 회전한다")
+    func rotatesBeforeExpiry() async {
+        let service = FakeService()
+        service.meResult = .success(SessionUser(user: user(), accessTokenTtlMs: 900_000))
+        service.refreshResult = .success(AuthSession(
+            accessToken: "a2", refreshToken: "r2",
+            user: user(), accessTokenTtlMs: 900_000,
+        ))
+        let store = FakeStore(creds("a", "r"))
+        let manager = makeManager(service, store, schedule: instantSchedule)
+
+        await manager.restoreSession()
+        #expect(manager.state == .signedIn(user()))
+
+        await waitForAccessToken(store, "a2")
+        #expect(store.load() == .credentials(creds("a2", "r2")))
+    }
+
+    // 오프라인에서 예약 회전이 한 번 실패하면 타이머는 이미 소모됐다. 거기서 놓아 버리면
+    // 연결이 돌아와도 선제 갱신이 영영 멈춰, 세션이 idle 창에서 조용히 죽는다.
+    @Test("일시적 실패 뒤에도 선제 회전을 다시 시도한다")
+    func retriesProactiveRotationAfterTransientFailure() async throws {
+        let service = FlakyRefreshService(rotated: AuthSession(
+            accessToken: "a2", refreshToken: "r2",
+            user: user(), accessTokenTtlMs: 900_000,
+        ))
+        let store = FakeStore(creds("a", "r"))
+        let manager = makeManager(service, store, schedule: instantSchedule)
+
+        // 로그인으로 예약을 건다(me는 네트워크 실패라 복원 경로를 타지 않는다).
+        try await manager.signIn(with: .demo)
+        #expect(manager.state == .signedIn(user()))
+
+        await waitForAccessToken(store, "a2")
+        #expect(service.refreshCount >= 2)   // 첫 실패 뒤에도 다시 나갔다
+        #expect(store.load() == .credentials(creds("a2", "r2")))
+        #expect(manager.state == .signedIn(user()))
     }
 
     // 라운드5/6(정합성): 로그아웃은 revoke 마커를 durable하게 남긴다. 마커는 다음 로그인

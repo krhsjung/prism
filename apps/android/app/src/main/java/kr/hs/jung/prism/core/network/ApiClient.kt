@@ -15,18 +15,43 @@ import kotlin.coroutines.resumeWithException
 import kotlinx.coroutines.suspendCancellableCoroutine
 
 /**
- * 401을 만난 요청을 위해 세션을 한 번 갱신해 주는 것.
+ * 401을 만난 요청의 뒷일을 맡는 것 — 세션의 주인.
  *
  * [ApiClient]가 [AuthManager][kr.hs.jung.prism.feature.auth.AuthManager]를 직접 알면
  * 고리가 된다(ApiClient → AuthApi → AuthManager → ApiClient). 그래서 좁은 구멍 하나만
  * 두고, 조립하는 곳에서 **만든 뒤에** 꽂는다.
  */
-fun interface SessionRefresher {
+interface SessionAuthority {
     /**
-     * @param usedAccessToken 401을 받은 그 토큰. 이미 다른 요청이 갱신했는지 가리는 데 쓴다.
+     * **이 토큰으로** 나가는 요청에 찍을 세션 표식. 지금 세션의 토큰이 아니면 null.
+     *
+     * 요청을 **보내기 전에** 받아 두었다가 401의 뒷일을 맡길 때 함께 준다. 토큰만으로는
+     * 부족하다: 토큰이 갈린 것이 "같은 세션의 회전"인지 "로그아웃 뒤 새 로그인"인지
+     * 구분하지 못해, 옛 요청이 새 세션 위에서 재생되거나 새 세션을 끊을 수 있다.
+     *
+     * 토큰을 함께 받는 이유도 같다. 부르는 쪽이 토큰을 읽은 뒤 여기 오기까지 사이에
+     * 세션이 갈릴 수 있어, 표식만 새로 찍으면 **옛 토큰이 새 세션의 이름표를 달고** 나간다.
+     */
+    fun sessionMark(usedAccessToken: String): Long?
+
+    /**
+     * 만료된 세션을 갱신한다.
+     *
+     * @param mark 요청을 보낼 때의 세션 표식. 그사이 세션이 갈렸으면 아무것도 하지 않는다.
      * @return 재시도에 쓸 새 액세스 토큰. 갱신하지 못했으면 null.
      */
-    suspend fun refresh(usedAccessToken: String): String?
+    suspend fun refreshForRetry(mark: Long, usedAccessToken: String): String?
+
+    /**
+     * 서버가 **확정한** 인증 실패(폐기·변조)를 알린다 — 갱신으로는 살아나지 않는다.
+     *
+     * 다른 기기에서 이 세션을 해제하면 여기로 온다. 화면이 "불러오지 못했습니다"를 띄우고
+     * 마는 대신, 세션의 주인이 자격증명을 지우고 로그인 화면으로 보낸다.
+     *
+     * @param mark 요청을 보낼 때의 세션 표식. 그사이 새 세션이 들어왔다면 낡은 응답이
+     *   그것을 끊어서는 안 되므로 아무것도 하지 않는다.
+     */
+    suspend fun endSession(mark: Long, usedAccessToken: String)
 }
 
 /**
@@ -54,10 +79,10 @@ class ApiClient(
     private val baseUrl: String = BuildConfig.PRISM_API_URL,
 ) {
     /**
-     * 만료된 세션을 되살릴 방법. 조립하는 곳에서 꽂는다([SessionRefresher] 참고).
-     * 꽂히지 않았으면 401은 그대로 올라간다 — 로그인 이전 단계에서는 갱신할 것도 없다.
+     * 401의 뒷일을 맡을 것. 조립하는 곳에서 꽂는다([SessionAuthority] 참고).
+     * 꽂히지 않았으면 401은 그대로 올라간다 — 로그인 이전 단계에는 세션이 없다.
      */
-    var sessionRefresher: SessionRefresher? = null
+    var sessionAuthority: SessionAuthority? = null
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
@@ -77,21 +102,54 @@ class ApiClient(
         body: String? = null,
         accessToken: String? = null,
         /**
-         * 만료된 세션을 갱신하고 **한 번** 다시 보낼지. 인증 자신의 호출(`/auth/me`·
-         * `/auth/logout`)만 끈다 — 갱신 정책은 AuthManager의 것이고, 그쪽은 이미 락을 쥔
-         * 채로 이 호출을 하므로 여기서 갱신을 부르면 그 락에서 교착한다.
+         * 401의 뒷일(갱신·세션 종료)을 전송 계층이 맡을지. 인증 자신의 호출(`/auth/me`·
+         * `/auth/logout`)만 끈다 — 그 결정은 AuthManager의 것이고, 그쪽은 이미 락을 쥔
+         * 채로 이 호출을 하므로 여기서 부르면 그 락에서 교착한다.
          */
-        retryOnExpiredSession: Boolean = true,
+        recoverSession: Boolean = true,
+    ): String {
+        // 요청이 **어느 세션의 것인지** 지금 붙잡아 둔다. 응답이 돌아왔을 때는 그사이
+        // 로그아웃·재로그인이 끝나 있을 수 있고, 그때 옛 응답으로 새 세션을 건드리면
+        // 남의 계정에 옛 요청을 재생하거나 멀쩡한 세션을 끊게 된다.
+        val authority = sessionAuthority
+        val mark = if (recoverSession && accessToken != null) {
+            authority?.sessionMark(accessToken)
+        } else {
+            null
+        }
+        try {
+            return send(method, path, body, accessToken)
+        } catch (e: ApiError) {
+            // 토큰 없이 보낸 요청(로그인·갱신 자체)은 되살릴 세션이 없다.
+            if (authority == null || mark == null || accessToken == null) throw e
+            // 갱신하면 살아나는 401인지는 **서버만** 안다 — 코드로 받아 본다.
+            if (e.isSessionExpired) {
+                val rotated = authority.refreshForRetry(mark, accessToken) ?: throw e
+                AppLog.d("session rotated — retrying $method $path once")
+                return sendOrEndSession(method, path, body, rotated, authority, mark)
+            }
+            if (e.isDefinitiveAuthFailure) authority.endSession(mark, accessToken)
+            throw e
+        }
+    }
+
+    /**
+     * 재시도 한 번. 그 응답까지 확정 실패면 세션을 끝낸다 — 방금 회전한 토큰까지 거부됐다면
+     * 되살릴 수 있는 세션이 아니다.
+     */
+    private suspend fun sendOrEndSession(
+        method: String,
+        path: String,
+        body: String?,
+        accessToken: String,
+        authority: SessionAuthority,
+        mark: Long,
     ): String {
         try {
             return send(method, path, body, accessToken)
         } catch (e: ApiError) {
-            // 갱신하면 살아나는 401인지는 **서버만** 안다 — 코드로 받아 본다. 토큰 없이
-            // 보낸 요청(로그인·갱신 자체)은 되살릴 세션이 없으므로 그대로 올린다.
-            if (!retryOnExpiredSession || accessToken == null || !e.isSessionExpired) throw e
-            val rotated = sessionRefresher?.refresh(accessToken) ?: throw e
-            AppLog.d("session rotated — retrying $method $path once")
-            return send(method, path, body, rotated)
+            if (e.isDefinitiveAuthFailure) authority.endSession(mark, accessToken)
+            throw e
         }
     }
 
@@ -131,14 +189,9 @@ class ApiClient(
         method: String,
         path: String,
         accessToken: String? = null,
-        retryOnExpiredSession: Boolean = true,
+        recoverSession: Boolean = true,
     ) {
-        request(
-            method,
-            path,
-            accessToken = accessToken,
-            retryOnExpiredSession = retryOnExpiredSession,
-        )
+        request(method, path, accessToken = accessToken, recoverSession = recoverSession)
     }
 
     private fun default(status: Int): String =

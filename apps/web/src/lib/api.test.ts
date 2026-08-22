@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { api, ApiError } from './api';
+import { api, ApiError, setSessionAuthority } from './api';
 
 // 이 파일의 관심사는 "요청이 몇 번, 어디로 나갔는가"다.
 //
@@ -79,6 +79,127 @@ describe('401 갱신 판단', () => {
 
     await expect(api.me()).resolves.toEqual(sessionUser);
     expect(calls).toEqual(['/auth/me', '/auth/refresh', '/auth/me']);
+  });
+
+
+  // 다른 기기에서 이 세션을 해제하면 갱신으로는 살아나지 않는다. 화면이 "불러오지
+  // 못했습니다"를 띄우고 마는 대신 세션의 주인에게 알려 로그인 화면으로 보내야 한다.
+  it('폐기된 세션은 갱신하지 않고 세션의 주인에게 알린다', async () => {
+    const calls = mockFetch({
+      '/auth/sessions': [json(401, { error: 'UNAUTHORIZED' })],
+    });
+    const rejected = vi.fn();
+    setSessionAuthority({ mark: () => 1, reject: rejected });
+
+    await expect(api.sessions()).rejects.toThrow();
+
+    expect(calls).toEqual(['/auth/sessions']);
+    expect(rejected).toHaveBeenCalledWith(1);
+    setSessionAuthority(null);
+  });
+
+  // 만료로 보이지만 갱신까지 거부되면 되살릴 수 있는 세션이 아니다. 예전에는 여기서
+  // 원래 401을 그대로 돌려주기만 해, 화면이 "불러오지 못했습니다"를 띄운 채 죽은 세션의
+  // 목록을 계속 보여 줬다.
+  it('갱신이 확정 거부되면 세션의 주인에게 알린다', async () => {
+    const calls = mockFetch({
+      '/auth/sessions': [json(401, { error: 'SESSION_EXPIRED' })],
+      '/auth/refresh': [json(401, { error: 'UNAUTHORIZED' })],
+    });
+    const rejected = vi.fn();
+    setSessionAuthority({ mark: () => 1, reject: rejected });
+
+    await expect(api.sessions()).rejects.toThrow();
+
+    expect(calls).toEqual(['/auth/sessions', '/auth/refresh']);
+    expect(rejected).toHaveBeenCalledWith(1);
+    setSessionAuthority(null);
+  });
+
+  // 오프라인·5xx로 갱신이 실패한 것뿐이라면 세션을 끊지 않는다 — 일시적 실패로
+  // 로그인 화면으로 쫓아내면 잠깐 끊긴 것이 곧 로그아웃이 된다.
+  it('일시적 갱신 실패는 세션을 끊지 않는다', async () => {
+    mockFetch({
+      '/auth/sessions': [json(401, { error: 'SESSION_EXPIRED' })],
+      '/auth/refresh': [json(503, { error: 'SERVICE_UNAVAILABLE' })],
+    });
+    const rejected = vi.fn();
+    setSessionAuthority({ mark: () => 1, reject: rejected });
+
+    await expect(api.sessions()).rejects.toThrow();
+
+    expect(rejected).not.toHaveBeenCalled();
+    setSessionAuthority(null);
+  });
+
+  // 방금 회전한 자격증명까지 거부됐다면 되살릴 수 있는 세션이 아니다.
+  it('재시도가 확정 401로 돌아오면 세션의 주인에게 알린다', async () => {
+    const calls = mockFetch({
+      '/auth/sessions': [
+        json(401, { error: 'SESSION_EXPIRED' }),
+        json(401, { error: 'UNAUTHORIZED' }),
+      ],
+      '/auth/refresh': [json(200, sessionUser)],
+    });
+    const rejected = vi.fn();
+    setSessionAuthority({ mark: () => 1, reject: rejected });
+
+    await expect(api.sessions()).rejects.toThrow();
+
+    expect(calls).toEqual(['/auth/sessions', '/auth/refresh', '/auth/sessions']);
+    expect(rejected).toHaveBeenCalledWith(1);
+    setSessionAuthority(null);
+  });
+
+  // 응답이 돌아오기 전에 로그아웃하고 다시 로그인하면 그 401은 **끝난 세션**의 것이다.
+  // 쿠키는 자동으로 실려 나가 토큰을 비교할 수조차 없으니, 표식이 유일한 방벽이다.
+  it('그사이 세션이 갈리면 갱신도 종료도 하지 않는다', async () => {
+    const calls = mockFetch({
+      '/auth/sessions': [json(401, { error: 'SESSION_EXPIRED' })],
+    });
+    const rejected = vi.fn();
+    // 요청을 보낸 뒤 표식이 갈린 상황 — 두 번째 읽기부터 다른 값을 준다.
+    let reads = 0;
+    setSessionAuthority({ mark: () => (reads++ === 0 ? 1 : 2), reject: rejected });
+
+    await expect(api.sessions()).rejects.toThrow();
+
+    // 갱신 요청조차 나가지 않는다.
+    expect(calls).toEqual(['/auth/sessions']);
+    expect(rejected).not.toHaveBeenCalled();
+    setSessionAuthority(null);
+  });
+
+  // 갱신을 기다리는 사이에도 세션은 갈릴 수 있다. 그때 재시도하면 옛 요청이 **새 세션의
+  // 쿠키로** 나간다 — 쿠키는 자동으로 실려 나가므로 요청 스스로는 그것을 막지 못한다.
+  it('갱신 도중 세션이 갈리면 재시도하지 않는다', async () => {
+    const calls = mockFetch({
+      '/auth/sessions': [json(401, { error: 'SESSION_EXPIRED' })],
+      '/auth/refresh': [json(200, sessionUser)],
+    });
+    const rejected = vi.fn();
+    // 요청 시점은 1, 갱신 직전 확인도 1, 갱신이 끝난 뒤에는 2로 갈린다.
+    const marks = [1, 1, 2, 2];
+    setSessionAuthority({ mark: () => marks.shift() ?? 2, reject: rejected });
+
+    await expect(api.sessions()).rejects.toThrow();
+
+    expect(calls).toEqual(['/auth/sessions', '/auth/refresh']);
+    expect(rejected).not.toHaveBeenCalled();
+    setSessionAuthority(null);
+  });
+
+  // 자격증명이 없는 **첫 방문**도 401이다. 그것을 "다른 기기에서 해제됨"으로 알리면
+  // 처음 온 사람에게 엉뚱한 안내가 뜬다.
+  it('세션 확인(/auth/me)의 401은 알리지 않는다', async () => {
+    mockFetch({ '/auth/me': [json(401, { error: 'UNAUTHORIZED' })] });
+    const rejected = vi.fn();
+    setSessionAuthority({ mark: () => 1, reject: rejected });
+
+    await expect(api.me()).rejects.toThrow();
+
+    expect(rejected).not.toHaveBeenCalled();
+    setSessionAuthority(null);
   });
 
   it('갱신이 실패하면 재시도하지 않고 원래 401을 그대로 돌려준다', async () => {

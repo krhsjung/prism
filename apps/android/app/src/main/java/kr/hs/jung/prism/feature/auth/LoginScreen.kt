@@ -53,6 +53,9 @@ fun LoginScreen(
         factory = viewModelFactory { initializer { LoginViewModel(authManager) } },
     )
     val state by viewModel.state.collectAsStateWithLifecycle()
+    // 사용자가 스스로 로그아웃한 것이 아니라 서버가 세션을 끊어 여기로 온 경우 —
+    // 이유를 알려 주지 않으면 대시보드에서 그냥 튕긴 것으로 보인다.
+    val endedUnexpectedly by authManager.endedUnexpectedly.collectAsStateWithLifecycle()
     val colors = PrismTheme.colors
 
     // 내용이 짧으면 세로 가운데(웹의 justify-content: center), 큰 글씨·작은 화면에서
@@ -93,6 +96,9 @@ fun LoginScreen(
                 fontSize = PrismDimensions.fontBody,
             )
 
+            if (endedUnexpectedly) {
+                PrismErrorAlert(message = stringResource(R.string.error_session_ended))
+            }
             state.errorRes?.let { PrismErrorAlert(message = stringResource(it)) }
 
             Column(verticalArrangement = Arrangement.spacedBy(PrismDimensions.spacingSm)) {

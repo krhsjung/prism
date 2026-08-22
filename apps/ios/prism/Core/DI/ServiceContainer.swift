@@ -50,9 +50,9 @@ final class ServiceContainer {
             social: social,
         )
 
-        // 만료된 세션을 되살리는 고리를 **만든 뒤에** 꽂는다 — 생성 시점에 이으면
+        // 401의 뒷일을 맡을 고리를 **만든 뒤에** 꽂는다 — 생성 시점에 이으면
         // NetworkManager → AuthService → AuthManager → NetworkManager로 도는 순환이 된다.
-        network.use(refresher: authManager)
+        network.use(authority: authManager)
 
         localization = LocalizationStore()
         theme = ThemeStore()

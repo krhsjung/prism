@@ -27,6 +27,7 @@ const refresh = vi.fn(async () => true);
 
 const auth: AuthContextValue = {
   state: { status: 'anonymous' },
+  endedUnexpectedly: false,
   signIn: vi.fn(),
   refresh,
   signOut: vi.fn(async () => true),
@@ -57,12 +58,12 @@ function useDesktop(matches: boolean) {
   );
 }
 
-function renderLogin() {
+function renderLogin(overrides: Partial<AuthContextValue> = {}) {
   return render(
     <MemoryRouter initialEntries={['/login']}>
       <I18nContext.Provider value={englishI18n()}>
         <ThemeContext.Provider value={lightTheme()}>
-          <AuthContext.Provider value={auth}>
+          <AuthContext.Provider value={{ ...auth, ...overrides }}>
             <LoginPage />
           </AuthContext.Provider>
         </ThemeContext.Provider>
@@ -110,6 +111,25 @@ const googleButton = () =>
   });
 
 describe('LoginPage', () => {
+  // 대시보드를 보고 있다가 아무 말 없이 로그인 화면으로 돌아가면 이동이 실패한 것처럼
+  // 보인다. 다만 **원인은 단정하지 않는다** — 서버는 폐기·만료·로그아웃을 한 코드로만
+  // 알려주므로 "다른 기기에서 해제됐다"고 말하면 없는 사실을 지어내게 된다.
+  it('세션이 끊겨서 왔으면 이유를 알려 준다', () => {
+    renderLogin({ endedUnexpectedly: true });
+
+    expect(
+      screen.getByText('Your session has ended. Please sign in again.'),
+    ).toBeDefined();
+  });
+
+  it('그냥 로그인하러 온 사람에게는 알리지 않는다', () => {
+    renderLogin();
+
+    expect(
+      screen.queryByText('Your session has ended. Please sign in again.'),
+    ).toBeNull();
+  });
+
   beforeEach(() => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     assign.mockClear();

@@ -128,6 +128,90 @@ final class DashboardUITests: XCTestCase {
     }
 
 
+
+    /// 데모 계정의 **모든 세션을 폐기한다** — 다른 기기에서 이 앱의 세션을 해제한 상황을
+    /// 만든다. 서버는 그런 토큰에 `401 UNAUTHORIZED`를 준다(갱신으로 살아나지 않는다).
+    @MainActor
+    private func revokeEveryDemoSession() throws {
+        // 기본값을 두지 않는다. 이 함수는 데모 계정의 **모든 세션을 폐기**하므로, 주소를
+        // 빠뜨린 채 돌리면 배포된 서버의 세션을 통째로 끊는다 — 실수의 대가가 너무 크다.
+        guard let base = ProcessInfo.processInfo.environment["PRISM_API_URL"], !base.isEmpty
+        else { throw XCTSkip("PRISM_API_URL을 지정해야 하는 테스트다(모든 세션을 폐기한다)") }
+        guard let mintURL = URL(string: base + "/auth/demo/native"),
+              let revokeURL = URL(string: base + "/auth/sessions/revoke-all")
+        else { throw XCTSkip("PRISM_API_URL이 주소로 읽히지 않는다: \(base)") }
+
+        var mint = URLRequest(url: mintURL)
+        mint.httpMethod = "POST"
+        mint.timeoutInterval = 15
+        let minted = expectation(description: "token to revoke with")
+        var token: String?
+        URLSession.shared.dataTask(with: mint) { data, _, _ in
+            if let data,
+               let body = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                token = body["accessToken"] as? String
+            }
+            minted.fulfill()
+        }.resume()
+        wait(for: [minted], timeout: 20)
+        guard let token else { throw XCTSkip("세션을 만들지 못했다 — 서버가 떠 있는지 확인") }
+
+        var revoke = URLRequest(url: revokeURL)
+        revoke.httpMethod = "POST"
+        revoke.setValue("Bearer " + token, forHTTPHeaderField: "Authorization")
+        revoke.timeoutInterval = 15
+        let done = expectation(description: "revoke all")
+        var status = 0
+        URLSession.shared.dataTask(with: revoke) { _, response, _ in
+            status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            done.fulfill()
+        }.resume()
+        wait(for: [done], timeout: 20)
+        guard (200..<300).contains(status) else {
+            throw XCTSkip("세션을 폐기하지 못했다(HTTP \(status))")
+        }
+    }
+
+    /// 다른 기기에서 이 세션을 해제하면 갱신으로는 살아나지 않는다. 그때 화면이 오류만
+    /// 띄우고 대시보드에 머물면, 사용자는 **이미 끝난 세션의 목록**을 보며 아무것도 할 수
+    /// 없다 — 로그인 화면으로 돌아가야 한다.
+    @MainActor
+    func testRevokedSessionSendsUserBackToLogin() throws {
+        let app = XCUIApplication()
+        app.launch()
+        openDashboard(app)
+
+        try revokeEveryDemoSession()
+
+        // 당겨서 새로고침 — 여기서 401 UNAUTHORIZED를 받는다.
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25))
+            .press(
+                forDuration: 0.1,
+                thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.9)),
+            )
+
+        let demo = app.buttons.matching(
+            NSPredicate(format: "label CONTAINS[c] '데모' OR label CONTAINS[c] 'demo'"),
+        ).firstMatch
+        XCTAssertTrue(
+            demo.waitForExistence(timeout: 20),
+            "폐기된 세션인데 대시보드에 남아 있다",
+        )
+
+        // 이유 없이 튕기면 무슨 일이 일어난 건지 알 수 없다 — 안내가 함께 떠야 한다.
+        let notice = app.staticTexts.matching(
+            NSPredicate(
+                format: "label CONTAINS[c] '세션이 종료' OR label CONTAINS[c] 'session has ended'",
+            ),
+        ).firstMatch
+        XCTAssertTrue(notice.waitForExistence(timeout: 5), "왜 로그아웃됐는지 알려 주지 않는다")
+
+        let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        shot.name = "signed-out-notice"
+        shot.lifetime = .keepAlways
+        add(shot)
+    }
+
     /// 당겨서 새로고침. 세션 목록은 이 앱 밖에서도 바뀌므로(다른 기기 로그인·만료),
     /// 사용자가 스스로 맞출 손잡이가 있어야 한다.
     ///

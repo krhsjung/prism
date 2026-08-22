@@ -16,6 +16,9 @@ import SwiftUI
 struct LoginView: View {
     @Environment(LocalizationStore.self) private var t
     @State private var viewModel: LoginViewModel
+    /// 세션의 주인. 사용자가 스스로 로그아웃한 것이 아니라 **서버가 세션을 끊어** 여기로
+    /// 온 경우를 알려 주기 위해 본다.
+    private let authManager: AuthManager
 
     /// 스크롤 뷰포트(사용 가능한 전체 높이). `GeometryReader`의 라이브 값을 `minHeight`로
     /// 곧바로 되먹이면 콘텐츠 높이 변화와 측정이 같은 레이아웃 패스에서 얽혀 재레이아웃이
@@ -24,6 +27,7 @@ struct LoginView: View {
     @State private var viewportHeight: CGFloat = 0
 
     init(authManager: AuthManager) {
+        self.authManager = authManager
         _viewModel = State(initialValue: LoginViewModel(authManager: authManager))
     }
 
@@ -74,6 +78,11 @@ struct LoginView: View {
                 Text(t(.authSignInToContinue))
                     .font(.system(size: AppDimension.FontSize.body))
                     .foregroundStyle(AppColor.muted)
+            }
+
+            // 이유 없이 대시보드에서 튕기면 무슨 일인지 알 수 없다 — 한 줄 알려 준다.
+            if authManager.endedUnexpectedly {
+                PrismErrorAlert(message: t(.errorSessionEnded))
             }
 
             if let errorKey = viewModel.errorKey {

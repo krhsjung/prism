@@ -100,12 +100,12 @@ enum APIEndpoint {
         }
     }
 
-    /// 만료된 세션을 갱신하고 **한 번** 다시 보낼지.
+    /// 401의 뒷일(갱신·세션 종료)을 전송 계층이 맡을지.
     ///
-    /// 인증 자신의 호출(`/auth/me`·`/auth/logout`)만 끈다 — 갱신 정책은 `AuthManager`의
-    /// 것이고, 그쪽은 이미 자기 직렬화 안에서 이 호출을 하므로 여기서 갱신을 부르면
-    /// 그 안으로 다시 들어가게 된다. 나머지는 토큰이 없어 되살릴 세션도 없다.
-    var retriesOnExpiredSession: Bool {
+    /// 인증 자신의 호출(`/auth/me`·`/auth/logout`)만 끈다 — 그 결정은 `AuthManager`의
+    /// 것이고, 그쪽은 이미 자기 직렬화 안에서 이 호출을 하므로 여기서 부르면 그 안으로
+    /// 다시 들어가게 된다. 나머지는 토큰이 없어 되살릴 세션도 없다.
+    var recoversSession: Bool {
         switch self {
         case .sessions, .revokeSession, .revokeAllSessions: true
         case .me, .logout, .appleNative, .googleNative, .kakaoNative, .demoNative,

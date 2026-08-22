@@ -40,7 +40,7 @@ function keyFor(code: string | null): MessageKey | null {
 
 export function LoginPage() {
   const navigate = useNavigate();
-  const { state, signIn, refresh } = useAuth();
+  const { state, endedUnexpectedly, signIn, refresh } = useAuth();
   const { t } = useI18n();
   const [searchParams] = useSearchParams();
   const [pending, setPending] = useState<Pending>(null);
@@ -159,6 +159,13 @@ export function LoginPage() {
           <h1>{t('auth.welcome_back')}</h1>
           <p>{t('auth.sign_in_to_continue')}</p>
         </header>
+
+        {/* 이유 없이 대시보드에서 튕기면 무슨 일인지 알 수 없다 — 한 줄 알려 준다. */}
+        {endedUnexpectedly && (
+          <div className="alert alert--error" role="alert">
+            {t('error.session_ended')}
+          </div>
+        )}
 
         {errorKey && (
           <div className="alert alert--error" role="alert">

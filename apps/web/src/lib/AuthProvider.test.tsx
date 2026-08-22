@@ -20,13 +20,29 @@ import type { SessionUser, User } from './contracts.gen';
 // 타이머·wake가 부르지만 이 파일의 예약 지연(≥11분)은 테스트 중 발화하지 않는다 —
 // 그래도 호출돼도 안전하도록 성공 결과를 돌려준다.
 vi.mock('./api', () => ({
+  // provider가 "확정 401인지"를 이 타입으로 가린다 — mock에도 있어야 한다.
+  ApiError: class ApiError extends Error {
+    status: number;
+    code: string;
+    constructor(status: number, code: string) {
+      super(code);
+      this.status = status;
+      this.code = code;
+    }
+  },
   api: {
     me: vi.fn(),
     logout: vi.fn(async () => undefined),
-    refreshSession: vi.fn(async () => ({ ok: true, ttlMs: 15 * 60 * 1000 })),
+    refreshSession: vi.fn(async () => ({
+      ok: true,
+      ttlMs: 15 * 60 * 1000,
+      rejected: false,
+    })),
   },
+  // 확정 401을 알리는 고리 — provider가 마운트될 때 꽂고 언마운트에서 뗀다.
+  setSessionAuthority: vi.fn(),
 }));
-import { api } from './api';
+import { api, setSessionAuthority, type SessionAuthority } from './api';
 
 const user: User = {
   id: 'u-1',
@@ -243,6 +259,165 @@ describe('AuthProvider 경합 방어', () => {
 
 // 선제 갱신: 액세스 토큰이 만료되기 전에 세션을 회전(idle 창 연장)해, 요청이 없는
 // 탭도 죽지 않게 한다(plan/auth.md §6). 시간 축이 핵심이라 fake timer로 검증한다.
+// 확정 401을 만나면 api가 세션의 주인에게 알린다. 그 고리가 실제로 화면까지 닿는지 —
+// 그리고 **표식이 갈린 낡은 알림은 무시되는지** 본다.
+describe('AuthProvider 세션 종료 알림', () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    vi.mocked(api.me).mockResolvedValue(sessionUser);
+    vi.mocked(api.logout).mockResolvedValue(undefined);
+  });
+
+  function attachedAuthority(): SessionAuthority {
+    const calls = vi.mocked(setSessionAuthority).mock.calls;
+    const attached = calls.map(([a]) => a).filter(Boolean);
+    return attached[attached.length - 1] as SessionAuthority;
+  }
+
+  it('세션이 끊겼다는 알림을 받으면 로그인 화면에 이유를 남긴다', async () => {
+    const { result } = renderHook(() => useAuth(), { wrapper });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(result.current.state.status).toBe('authenticated');
+    expect(result.current.endedUnexpectedly).toBe(false);
+
+    const authority = attachedAuthority();
+    await act(async () => {
+      authority.reject(authority.mark());
+    });
+
+    expect(result.current.state.status).toBe('anonymous');
+    expect(result.current.endedUnexpectedly).toBe(true);
+  });
+
+  // 알림을 남겨둔 채 다시 로그인하면, 다음에 **스스로** 로그아웃했을 때도 로그인 화면이
+  // "세션이 종료되었습니다"를 띄운다 — 사용자가 직접 누른 로그아웃인데.
+  it('다시 로그인하면 앞 세션의 알림은 지운다', async () => {
+    const { result } = renderHook(() => useAuth(), { wrapper });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    const authority = attachedAuthority();
+    await act(async () => {
+      authority.reject(authority.mark());
+    });
+    expect(result.current.endedUnexpectedly).toBe(true);
+
+    await act(async () => {
+      result.current.signIn(user, ACCESS_TTL_MS);
+    });
+
+    expect(result.current.state.status).toBe('authenticated');
+    expect(result.current.endedUnexpectedly).toBe(false);
+  });
+
+  // 로그아웃은 서버 응답을 기다린다. 그 사이 만료가 먼저 발견되면, 자기가 누른 버튼의
+  // 결과가 "세션이 종료되었습니다"라는 사고 통지로 뜬다.
+  it('로그아웃을 기다리는 동안 세션이 끊겨도 알리지 않는다', async () => {
+    let finishLogout: (() => void) | null = null;
+    vi.mocked(api.logout).mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          finishLogout = () => resolve();
+        }),
+    );
+    const { result } = renderHook(() => useAuth(), { wrapper });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const authority = attachedAuthority();
+
+    // 로그아웃을 누르고, 응답을 기다리는 사이에 만료가 발견된다.
+    const pending: Array<Promise<boolean>> = [];
+    await act(async () => {
+      pending.push(result.current.signOut());
+      await Promise.resolve();
+      authority.reject(authority.mark());
+    });
+
+    await act(async () => {
+      finishLogout?.();
+      await pending[0];
+    });
+
+    expect(result.current.state.status).toBe('anonymous');
+    expect(result.current.endedUnexpectedly).toBe(false);
+  });
+
+  // 로그아웃이 겹쳐 눌릴 수 있다. 의도를 boolean으로 들고 있으면 **한쪽의 실패가 아직
+  // 진행 중인 다른 로그아웃의 의도까지 내려** 버려, 그 틈에 안내가 뜬다.
+  it('겹친 로그아웃 중 하나가 실패해도 나머지의 의도는 남는다', async () => {
+    const settle: Array<{ ok: () => void; fail: () => void }> = [];
+    // noUncheckedIndexedAccess가 켜져 있어 인덱스 접근이 optional이다 — 아직 시작되지
+    // 않은 로그아웃을 건드리면 조용히 넘어가지 말고 여기서 터지게 한다.
+    const settleAt = (index: number) => {
+      const at = settle[index];
+      if (!at) throw new Error(`로그아웃 ${index}번이 아직 시작되지 않았다`);
+      return at;
+    };
+    vi.mocked(api.logout).mockImplementation(
+      () =>
+        new Promise<void>((resolve, reject) => {
+          settle.push({ ok: () => resolve(), fail: () => reject(new Error('nope')) });
+        }),
+    );
+    const { result } = renderHook(() => useAuth(), { wrapper });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const authority = attachedAuthority();
+
+    // 두 번 눌렸다.
+    const pending: Array<Promise<boolean>> = [];
+    await act(async () => {
+      pending.push(result.current.signOut(), result.current.signOut());
+      await Promise.resolve();
+    });
+    expect(settle).toHaveLength(2);
+
+    // 첫 번째가 실패한다 — 두 번째는 아직 진행 중이다.
+    await act(async () => {
+      settleAt(0).fail();
+      await pending[0];
+    });
+
+    // 그 틈에 만료가 발견된다.
+    await act(async () => {
+      authority.reject(authority.mark());
+    });
+    expect(result.current.endedUnexpectedly).toBe(false);
+
+    await act(async () => {
+      settleAt(1).ok();
+      await pending[1];
+    });
+    expect(result.current.endedUnexpectedly).toBe(false);
+  });
+
+  it('그사이 세션이 갈렸으면 낡은 알림은 무시한다', async () => {
+    const { result } = renderHook(() => useAuth(), { wrapper });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    const authority = attachedAuthority();
+    const stale = authority.mark();
+    // 새 로그인이 앞질렀다 — 표식이 오른다.
+    await act(async () => {
+      result.current.signIn(user, ACCESS_TTL_MS);
+    });
+
+    await act(async () => {
+      authority.reject(stale);
+    });
+
+    expect(result.current.state.status).toBe('authenticated');
+    expect(result.current.endedUnexpectedly).toBe(false);
+  });
+});
+
 describe('AuthProvider 선제 갱신', () => {
   const LEAD_MS = ACCESS_TTL_MS * 0.75; // REFRESH_LEAD_RATIO
 
@@ -254,6 +429,7 @@ describe('AuthProvider 선제 갱신', () => {
     vi.mocked(api.refreshSession).mockResolvedValue({
       ok: true,
       ttlMs: ACCESS_TTL_MS,
+      rejected: false,
     });
   });
 
@@ -303,8 +479,14 @@ describe('AuthProvider 선제 갱신', () => {
     expect(hang).toBe(true); // me는 여전히 매달린 채 — 회전은 signIn이 건 예약이다
   });
 
-  it('선제 회전이 실패하면 재검증(me)으로 세션을 확인한다', async () => {
-    vi.mocked(api.refreshSession).mockResolvedValue({ ok: false, ttlMs: null });
+  // 서버가 확정 거부한 경우만 재검증으로 넘긴다 — 다른 탭이 먼저 회전한 경합일 수 있어
+  // 곧장 anonymous로 끊지 않고 me로 확인한다.
+  it('선제 회전이 확정 거부되면 재검증(me)으로 세션을 확인한다', async () => {
+    vi.mocked(api.refreshSession).mockResolvedValue({
+      ok: false,
+      ttlMs: null,
+      rejected: true,
+    });
     const { result } = renderHook(() => useAuth(), { wrapper });
     await act(async () => {
       await Promise.resolve();
@@ -318,6 +500,79 @@ describe('AuthProvider 선제 갱신', () => {
     });
     expect(vi.mocked(api.refreshSession)).toHaveBeenCalledTimes(1);
     expect(result.current.state.status).toBe('anonymous');
+  });
+
+  // 회전이 도는 도중 로그아웃하면 그 회전은 **끝난 세션**의 것이다. 그 수명으로 다음
+  // 타이머를 심으면 로그인 화면 뒤에서 회전이 영영 돌아간다.
+  it('회전 중에 로그아웃하면 다음 회전을 예약하지 않는다', async () => {
+    let settleRefresh: (() => void) | null = null;
+    vi.mocked(api.refreshSession).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          settleRefresh = () =>
+            resolve({ ok: true, ttlMs: ACCESS_TTL_MS, rejected: false });
+        }),
+    );
+    const { result } = renderHook(() => useAuth(), { wrapper });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    // 예약된 회전이 시작되고, 응답을 받기 전에 로그아웃한다.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(LEAD_MS);
+    });
+    await act(async () => {
+      await result.current.signOut();
+    });
+    expect(result.current.state.status).toBe('anonymous');
+
+    await act(async () => {
+      settleRefresh?.();
+      await Promise.resolve();
+    });
+
+    // 늦게 도착한 회전이 타이머를 심었다면 여기서 두 번째 회전이 나갔을 것이다.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(LEAD_MS * 2);
+    });
+    expect(vi.mocked(api.refreshSession)).toHaveBeenCalledTimes(1);
+  });
+
+  // 오프라인에서 예약 회전이 실패했다고 로그인 화면으로 쫓아내면, 잠깐 끊긴 것이 곧
+  // 로그아웃이 된다(네이티브는 세션을 유지한다). 타이머는 이미 소모됐으니 다시 걸어야
+  // 연결이 돌아왔을 때 세션이 다시 밀린다.
+  it('일시적 회전 실패는 세션을 유지하고 다시 시도한다', async () => {
+    vi.mocked(api.refreshSession).mockResolvedValue({
+      ok: false,
+      ttlMs: null,
+      rejected: false,
+    });
+    const { result } = renderHook(() => useAuth(), { wrapper });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(result.current.state.status).toBe('authenticated');
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(LEAD_MS);
+    });
+    expect(vi.mocked(api.refreshSession)).toHaveBeenCalledTimes(1);
+    // me로 확인하러 가지 않고, 화면도 그대로다.
+    expect(vi.mocked(api.me)).toHaveBeenCalledTimes(1); // 초기 확인 한 번뿐
+    expect(result.current.state.status).toBe('authenticated');
+
+    // 연결이 돌아왔다 — 다음 시도에서 세션이 다시 밀린다.
+    vi.mocked(api.refreshSession).mockResolvedValue({
+      ok: true,
+      ttlMs: ACCESS_TTL_MS,
+      rejected: false,
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_000);
+    });
+    expect(vi.mocked(api.refreshSession)).toHaveBeenCalledTimes(2);
+    expect(result.current.state.status).toBe('authenticated');
   });
 
   it('탭 복귀 시 직전 회전이 오래됐으면 즉시 회전한다', async () => {

@@ -63,6 +63,9 @@ async function fetchOrThrow(path: string, init?: RequestInit): Promise<Response>
 export interface RefreshResult {
   ok: boolean;
   ttlMs: number | null;
+  // 서버가 갱신을 **확정 거부**했는가(폐기·변조). 네트워크·5xx 같은 일시적 실패와
+  // 구분한다 — 일시적 실패로 로그인 화면으로 쫓아내면 오프라인이 곧 로그아웃이 된다.
+  rejected: boolean;
 }
 
 let refreshing: Promise<RefreshResult> | null = null;
@@ -73,26 +76,76 @@ function refreshSession(): Promise<RefreshResult> {
       const res = await fetchOrThrow('/auth/refresh', { method: 'POST' });
       if (!res.ok) {
         log.auth('refresh', { outcome: 'rejected', status: res.status });
-        return { ok: false, ttlMs: null };
+        // 401·403은 리프레시 자격증명 자체가 죽었다는 뜻이다 — 되살릴 수 있는 세션이
+        // 아니다. 5xx는 서버 사정일 뿐이라 세션을 끊지 않는다.
+        return {
+          ok: false,
+          ttlMs: null,
+          rejected: res.status === 401 || res.status === 403,
+        };
       }
       // 쿠키 흐름의 갱신 응답은 { user, accessTokenTtlMs }(토큰은 쿠키로만).
       try {
         const { accessTokenTtlMs } = decodeSessionUser(await jsonBodyOf(res));
         log.auth('refresh', { outcome: 'rotated' });
-        return { ok: true, ttlMs: accessTokenTtlMs };
+        return { ok: true, ttlMs: accessTokenTtlMs, rejected: false };
       } catch {
         log.auth('refresh', { outcome: 'rotated_undecodable' });
-        return { ok: true, ttlMs: null };
+        return { ok: true, ttlMs: null, rejected: false };
       }
     } catch {
       log.auth('refresh', { outcome: 'network_error' });
-      return { ok: false, ttlMs: null };
+      return { ok: false, ttlMs: null, rejected: false };
     } finally {
       // 다음 만료 때 다시 시도할 수 있도록 비운다.
       refreshing = null;
     }
   })();
   return refreshing;
+}
+
+// 세션의 뒷일을 **스스로 쥔** 경로. 확정 실패를 여기서 알리지 않는다 — AuthProvider가
+// 그 응답으로 이미 상태를 정리한다.
+//
+// `/auth/me`를 빼는 이유가 하나 더 있다: **자격증명이 없는 첫 방문도 401**이다. 그것을
+// "다른 기기에서 해제됨"으로 알리면 처음 온 사람에게 엉뚱한 안내가 뜬다.
+const SESSION_OWNED_PATHS = new Set(['/auth/refresh', '/auth/me', '/auth/logout']);
+
+// 401의 뒷일을 맡을 세션의 주인. 조립하는 곳(AuthProvider)에서 꽂는다 — api 모듈이
+// 인증 상태를 직접 알면 고리가 된다.
+export interface SessionAuthority {
+  /**
+   * 지금 세션의 표식. 요청을 **보내는 시점**에 찍어 두고 401의 뒷일까지 그대로 들고 간다.
+   *
+   * 응답이 돌아오기 전에 로그아웃하고 다시 로그인하면 그 401은 **끝난 세션**의 것이다.
+   * 웹은 쿠키가 자동으로 실려 나가 네이티브처럼 토큰을 비교할 수조차 없으니, 옛 요청이
+   * 새 세션을 회전시키거나 끊는 것을 막는 수단은 이 표식뿐이다.
+   */
+  mark(): number;
+
+  /** 서버가 **확정한** 인증 실패. 그 표식의 세션이 아직 현재일 때만 정리한다. */
+  reject(mark: number): void;
+}
+
+let authority: SessionAuthority | null = null;
+
+export function setSessionAuthority(next: SessionAuthority | null): void {
+  authority = next;
+}
+
+// 갱신으로는 살아나지 않는 401인가 — 폐기·변조. 만료(SESSION_EXPIRED)와 다르다.
+function isDefinitiveAuthFailure(code: string): boolean {
+  return (
+    code === AUTH_ERROR_CODES.UNAUTHORIZED ||
+    code === AUTH_ERROR_CODES.INVALID_TOKEN
+  );
+}
+
+// 세션의 주인에게 "이 세션은 끝났다"고 알린다. 뒷일을 스스로 쥔 경로는 알리지 않는다
+// (위 SESSION_OWNED_PATHS 참고).
+function notifyRejected(path: string, mark: number | null): void {
+  if (mark === null || SESSION_OWNED_PATHS.has(path)) return;
+  authority?.reject(mark);
 }
 
 // 401이면 갱신 후 1회 재시도. 갱신 경로 자체는 재시도하지 않는다(무한 루프 방지).
@@ -105,13 +158,45 @@ async function fetchWithRefresh(
   path: string,
   init?: RequestInit,
 ): Promise<Response> {
+  // 표식은 **보내기 전에** 찍는다 — 응답이 돌아왔을 때 그사이 세션이 갈렸는지는
+  // 이 값으로만 알 수 있다.
+  const mark = authority?.mark() ?? null;
   const res = await fetchOrThrow(path, init);
+  // 갱신 경로 자체만 재시도에서 뺀다 — 여기서 갱신하면 무한 루프가 된다.
   if (res.status !== 401 || path === '/auth/refresh') return res;
   // body는 한 번만 읽을 수 있다 — 코드 확인은 사본으로 하고 원본은 호출부에 그대로 넘긴다.
   const code = await errorCodeOf(res.clone());
-  if (code !== AUTH_ERROR_CODES.SESSION_EXPIRED) return res;
-  if (!(await refreshSession()).ok) return res;
-  return fetchOrThrow(path, init);
+  // 그사이 세션이 갈렸다면 이 401은 **남의 것**이다 — 새 세션을 회전시키지도, 끊지도
+  // 않는다(로그아웃 직후 다시 로그인하면 실제로 그렇게 겹친다).
+  //
+  // 주인이 아직 안 꽂혔다면(mark === null) 표식으로 가릴 것이 없다 — 그때는 갱신·재시도만
+  // 하고 알리지는 않는다. 여기서 막아 버리면 앱이 뜨는 첫 `/auth/me`가 갱신 기회를 잃는다.
+  if (mark !== null && mark !== authority?.mark()) return res;
+
+  if (code === AUTH_ERROR_CODES.SESSION_EXPIRED) {
+    const rotated = await refreshSession();
+    // 회전을 기다리는 사이에도 세션은 갈릴 수 있다 — 여기서 다시 보지 않으면 옛 요청이
+    // **새 세션의 쿠키로** 재시도된다.
+    if (mark !== null && mark !== authority?.mark()) return res;
+    if (!rotated.ok) {
+      // 갱신이 확정 거부됐다면 되살릴 수 있는 세션이 아니다 — 화면이 "불러오지
+      // 못했습니다"를 띄우고 마는 대신 세션의 주인이 정리하게 알린다.
+      if (rotated.rejected) notifyRejected(path, mark);
+      return res;
+    }
+    const retried = await fetchOrThrow(path, init);
+    // 방금 회전한 자격증명까지 거부됐다면 되살릴 수 있는 세션이 아니다.
+    if (
+      retried.status === 401 &&
+      isDefinitiveAuthFailure(await errorCodeOf(retried.clone()))
+    ) {
+      notifyRejected(path, mark);
+    }
+    return retried;
+  }
+  // 갱신으로는 살아나지 않는 401 — 다른 기기에서 이 세션을 해제한 경우가 대표적이다.
+  if (isDefinitiveAuthFailure(code)) notifyRejected(path, mark);
+  return res;
 }
 
 // 오류 응답 body에서 서버 오류 코드를 꺼낸다(형식이 다르면 기본 코드).

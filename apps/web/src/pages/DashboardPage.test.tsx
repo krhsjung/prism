@@ -47,6 +47,7 @@ function renderDashboard(
 ): void {
   const auth: AuthContextValue = {
     state: { status: 'authenticated', user },
+    endedUnexpectedly: false,
     signIn: vi.fn(),
     refresh: vi.fn(async () => true),
     signOut,

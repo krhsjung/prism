@@ -9,6 +9,9 @@ export type AuthState =
 
 export interface AuthContextValue {
   state: AuthState;
+  // 사용자가 스스로 로그아웃한 것이 **아니라** 서버가 세션을 끊어 로그인 화면으로 온 경우.
+  // 이유 없이 대시보드에서 튕기면 무슨 일인지 알 수 없다 — 로그인 화면이 한 줄 알려 준다.
+  endedUnexpectedly: boolean;
   // 서버가 방금 세션을 발급한 경우(데모 로그인) — 쿠키는 이미 심겼고 사용자만 반영한다.
   // accessTokenTtlMs로 선제 갱신 스케줄을 곧바로 건다(로그인 직후부터 세션이 밀린다).
   signIn(user: User, accessTokenTtlMs: number): void;

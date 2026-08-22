@@ -84,4 +84,6 @@ export const messages: Messages = {
   'error.logout_failed': 'Couldn’t log you out. You’re still signed in — check your connection and try again.',
   'error.sessions_load_failed': 'Couldn’t load your sessions. Check your connection and try again.',
   'error.revoke_failed': 'Couldn’t sign out that session. Try again.',
+  // 스스로 로그아웃한 것이 아닌데 로그인 화면으로 온 경우. 서버는 폐기·만료·로그아웃을 한 코드(UNAUTHORIZED)로만 알려주므로 원인을 단정하지 않는다
+  'error.session_ended': 'Your session has ended. Please sign in again.',
 };

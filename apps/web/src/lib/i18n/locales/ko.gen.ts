@@ -84,4 +84,6 @@ export const messages: Messages = {
   'error.logout_failed': '로그아웃하지 못했습니다. 아직 로그인된 상태입니다 — 연결을 확인하고 다시 시도해 주세요.',
   'error.sessions_load_failed': '세션을 불러오지 못했습니다. 연결을 확인하고 다시 시도해 주세요.',
   'error.revoke_failed': '해당 세션을 로그아웃하지 못했습니다. 다시 시도해 주세요.',
+  // 스스로 로그아웃한 것이 아닌데 로그인 화면으로 온 경우. 서버는 폐기·만료·로그아웃을 한 코드(UNAUTHORIZED)로만 알려주므로 원인을 단정하지 않는다
+  'error.session_ended': '세션이 종료되었습니다. 다시 로그인해 주세요.',
 };

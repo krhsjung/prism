@@ -88,6 +88,7 @@ enum MessageKey: String, CaseIterable, Sendable {
     case errorLogoutFailed = "error.logout_failed"
     case errorSessionsLoadFailed = "error.sessions_load_failed"
     case errorRevokeFailed = "error.revoke_failed"
+    case errorSessionEnded = "error.session_ended"
 
     /// 키가 실린 .xcstrings 카탈로그 이름.
     var table: String {
@@ -155,7 +156,8 @@ enum MessageKey: String, CaseIterable, Sendable {
              .errorProviderUnavailable,
              .errorLogoutFailed,
              .errorSessionsLoadFailed,
-             .errorRevokeFailed:
+             .errorRevokeFailed,
+             .errorSessionEnded:
             "Error"
         }
     }

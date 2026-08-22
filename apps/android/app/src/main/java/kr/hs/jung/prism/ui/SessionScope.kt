@@ -2,6 +2,7 @@ package kr.hs.jung.prism.ui
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelStore
@@ -30,12 +31,25 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 fun SessionScope(generation: Long, content: @Composable () -> Unit) {
     val holder: SessionScopeHolder = viewModel()
     val store = remember(holder, generation) { holder.storeFor(generation) }
+
     val owner = remember(store) {
         object : ViewModelStoreOwner {
             override val viewModelStore = store
         }
     }
     CompositionLocalProvider(LocalViewModelStoreOwner provides owner, content = content)
+}
+
+/**
+ * 로그인한 세션이 끝났음을 알린다 — 그 세션의 화면 상태를 **지금** 버린다.
+ *
+ * 로그아웃했는데 다음 로그인까지 저장소를 들고 있으면, 끝난 세션의 ViewModel과 그 코루틴이
+ * 로그인 화면에 머무는 내내 살아 있다. 다음 세션이 시작될 때 비우는 것으로는 늦다.
+ */
+@Composable
+fun ClearSessionScope() {
+    val holder: SessionScopeHolder = viewModel()
+    LaunchedEffect(holder) { holder.clear() }
 }
 
 /**
@@ -54,6 +68,14 @@ class SessionScopeHolder : ViewModel() {
             this.generation = generation
         }
         return store
+    }
+
+    /** 세션이 끝났다 — 지금 비운다. 다음 `storeFor`는 새 저장소를 받는다. */
+    fun clear() {
+        if (generation == null) return
+        store.clear()
+        store = ViewModelStore()
+        generation = null
     }
 
     override fun onCleared() {

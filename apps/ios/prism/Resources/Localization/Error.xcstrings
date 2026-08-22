@@ -184,6 +184,29 @@
           }
         }
       }
+    },
+    "error.session_ended": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your session has ended. Please sign in again."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "세션이 종료되었습니다. 다시 로그인해 주세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セッションが終了しました。もう一度サインインしてください。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

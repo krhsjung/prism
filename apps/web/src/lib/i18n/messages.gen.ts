@@ -84,6 +84,7 @@ export const MESSAGE_KEYS = [
   'error.logout_failed',
   'error.sessions_load_failed',
   'error.revoke_failed',
+  'error.session_ended',
 ] as const;
 
 export type MessageKey = (typeof MESSAGE_KEYS)[number];

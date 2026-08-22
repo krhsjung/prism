@@ -6,6 +6,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kr.hs.jung.prism.core.network.ApiError
 import kr.hs.jung.prism.core.security.SessionTokens
@@ -79,8 +80,12 @@ class AuthManagerTest {
             if (meCount == meGateOnCall) meGate?.await()
             return meResult.getOrThrow()
         }
+        // 회전을 붙잡아 "락을 쥔 채 서버 응답을 기다리는" 순간을 재현한다(널이면 통과).
+        var refreshGate: CompletableDeferred<Unit>? = null
+
         override suspend fun refreshBearer(refreshToken: String): AuthSession {
             refreshCount++
+            refreshGate?.await()
             return refreshResult.getOrThrow()
         }
         override suspend fun logoutBearer(accessToken: String) {
@@ -213,6 +218,257 @@ class AuthManagerTest {
         native.refreshResult = Result.success(AuthSession("a3", "r3", user(), ACCESS_TTL_MS))
         advanceTimeBy((ACCESS_TTL_MS * 0.75).toLong() + 1)
         assertEquals(2, native.refreshCount)
+    }
+
+    // 요청을 보낸 뒤 응답이 돌아오기 전에 로그아웃하고 다시 로그인하면, 그 401은 **끝난
+    // 세션**의 것이다. 토큰만 비교하면 회전과 구분되지 않아 옛 요청이 새 세션을 회전시킬 수
+    // 있었다 — 요청 시점의 표식으로 막는다.
+    @Test
+    fun `낡은 표식으로 온 401은 새 세션을 회전시키지 않는다`() = runTest {
+        val native = FakeNative().apply {
+            demoResult = Result.success(AuthSession("a1", "r1", user(), ACCESS_TTL_MS))
+            refreshResult = Result.success(AuthSession("a2", "r2", user(), ACCESS_TTL_MS))
+        }
+        val tokens = FakeTokens()
+        val manager = manager(native, tokens)
+
+        manager.signIn(AuthProvider.DEMO)
+        val stale = manager.sessionMark("a1")!!
+
+        // 그사이 로그아웃 → 다시 로그인. 여기서부터는 다른 세션이다.
+        manager.signOut()
+        native.demoResult = Result.success(AuthSession("b1", "br1", user(), ACCESS_TTL_MS))
+        manager.signIn(AuthProvider.DEMO)
+
+        assertEquals(null, manager.refreshForRetry(stale, "a1"))
+        assertEquals(0, native.refreshCount)
+        assertEquals("b1", tokens.acc)
+    }
+
+    // 확정 401도 마찬가지다 — 끝난 세션의 응답이 새 세션을 끊으면 방금 로그인한 사용자가
+    // 이유 없이 튕긴다.
+    @Test
+    fun `낡은 표식으로 온 확정 401은 새 세션을 끝내지 않는다`() = runTest {
+        val native = FakeNative().apply {
+            demoResult = Result.success(AuthSession("a1", "r1", user(), ACCESS_TTL_MS))
+        }
+        val manager = manager(native, FakeTokens())
+
+        manager.signIn(AuthProvider.DEMO)
+        val stale = manager.sessionMark("a1")!!
+
+        manager.signOut()
+        native.demoResult = Result.success(AuthSession("b1", "br1", user(), ACCESS_TTL_MS))
+        manager.signIn(AuthProvider.DEMO)
+
+        manager.endSession(stale, "a1")
+
+        assertTrue(manager.state.value is AuthManager.State.SignedIn)
+        assertFalse(manager.endedUnexpectedly.value)
+    }
+
+    // 오프라인·5xx로 갱신이 실패했다고 로그인 화면으로 쫓아내지 않는다 — 자격증명은
+    // 아직 살아 있을 수 있고, 화면은 오류만 보여 주면 된다.
+    @Test
+    fun `쓰는 도중 갱신이 일시적으로 실패해도 세션을 유지한다`() = runTest {
+        val native = FakeNative().apply {
+            demoResult = Result.success(AuthSession("a1", "r1", user(), ACCESS_TTL_MS))
+            refreshResult = Result.failure(ApiError.network)
+        }
+        val tokens = FakeTokens()
+        val manager = manager(native, tokens)
+
+        manager.signIn(AuthProvider.DEMO)
+        val mark = manager.sessionMark("a1")!!
+
+        assertEquals(null, manager.refreshForRetry(mark, "a1"))
+
+        assertTrue(manager.state.value is AuthManager.State.SignedIn)
+        assertEquals(0, tokens.clearCount)
+        assertEquals("a1", tokens.acc)
+    }
+
+    // 확정 거부는 반대다 — 되살릴 수 없는 세션이므로 자격증명을 지우고 로그인 화면으로 보낸다.
+    @Test
+    fun `쓰는 도중 갱신이 확정 거부되면 로그인 화면으로 보낸다`() = runTest {
+        val native = FakeNative().apply {
+            demoResult = Result.success(AuthSession("a1", "r1", user(), ACCESS_TTL_MS))
+            refreshResult = Result.failure(ApiError(401, AuthErrorCode.UNAUTHORIZED))
+        }
+        val tokens = FakeTokens()
+        val manager = manager(native, tokens)
+
+        manager.signIn(AuthProvider.DEMO)
+        val mark = manager.sessionMark("a1")!!
+
+        assertEquals(null, manager.refreshForRetry(mark, "a1"))
+
+        assertEquals(AuthManager.State.SignedOut, manager.state.value)
+        assertEquals(1, tokens.clearCount)
+        // 쓰는 도중 끊긴 것이므로 로그인 화면이 이유를 알려 줘야 한다.
+        assertTrue(manager.endedUnexpectedly.value)
+    }
+
+    // 같은 만료를 예약 타이머·화면 요청·복원이 동시에 발견할 수 있다. 알릴지를 **경로**로
+    // 정하면 누가 먼저 처리하느냐에 따라 같은 상황이 조용했다 시끄러웠다 한다 — 기준은
+    // "무엇을 보고 있었는가"다. 로그인된 화면에서 끊겼으면 누가 발견했든 알린다.
+    @Test
+    fun `예약된 회전이 거부되면 로그인된 화면이었으므로 알린다`() = runTest {
+        val native = FakeNative().apply {
+            demoResult = Result.success(AuthSession("a1", "r1", user(), ACCESS_TTL_MS))
+            refreshResult = Result.failure(ApiError(401, AuthErrorCode.UNAUTHORIZED))
+        }
+        val manager = manager(native, FakeTokens())
+
+        manager.signIn(AuthProvider.DEMO)
+        advanceTimeBy((ACCESS_TTL_MS * 0.75).toLong() + 1)
+
+        assertEquals(1, native.refreshCount)
+        assertEquals(AuthManager.State.SignedOut, manager.state.value)
+        assertTrue(manager.endedUnexpectedly.value)
+    }
+
+    // 로그아웃은 락과 서버 응답을 기다린다. 그 사이 만료가 먼저 발견되면, 자기가 누른
+    // 버튼의 결과가 "세션이 종료되었습니다"라는 사고 통지로 뜬다.
+    @Test
+    fun `로그아웃을 기다리는 동안 세션이 끊겨도 알리지 않는다`() = runTest {
+        val gate = CompletableDeferred<Unit>()
+        val native = FakeNative().apply {
+            demoResult = Result.success(AuthSession("a1", "r1", user(), ACCESS_TTL_MS))
+            refreshResult = Result.failure(ApiError(401, AuthErrorCode.UNAUTHORIZED))
+            refreshGate = gate
+        }
+        val manager = manager(native, FakeTokens())
+
+        manager.signIn(AuthProvider.DEMO)
+        // 예약된 회전이 락을 쥔 채 서버 응답에서 멈춘다.
+        advanceTimeBy((ACCESS_TTL_MS * 0.75).toLong() + 1)
+        runCurrent()
+        assertEquals(1, native.refreshCount)
+
+        // 그 사이 사용자가 로그아웃을 누른다 — 락을 기다리게 된다.
+        val signOut = launch { manager.signOut() }
+        runCurrent()
+
+        // 멈춰 있던 회전이 확정 거부로 끝난다 — 먼저 정리하지만 알리지는 않아야 한다.
+        gate.complete(Unit)
+        signOut.join()
+
+        assertEquals(AuthManager.State.SignedOut, manager.state.value)
+        assertFalse(manager.endedUnexpectedly.value)
+    }
+
+    // 스스로 누른 로그아웃은 설명할 것이 없다.
+    @Test
+    fun `스스로 로그아웃한 것은 알리지 않는다`() = runTest {
+        val native = FakeNative().apply {
+            demoResult = Result.success(AuthSession("a1", "r1", user(), ACCESS_TTL_MS))
+        }
+        val manager = manager(native, FakeTokens())
+
+        manager.signIn(AuthProvider.DEMO)
+        manager.signOut()
+
+        assertEquals(AuthManager.State.SignedOut, manager.state.value)
+        assertFalse(manager.endedUnexpectedly.value)
+    }
+
+    // 앱을 켤 때의 실패는 알리지 않는다 — 그 자리는 자격증명이 아예 없는 첫 방문과
+    // 구분되지 않아, 처음 온 사람에게 엉뚱한 안내가 뜬다.
+    @Test
+    fun `복원이 실패해서 로그인 화면으로 가는 것은 알리지 않는다`() = runTest {
+        val native = FakeNative().apply {
+            meResult = Result.failure(ApiError(401, AuthErrorCode.SESSION_EXPIRED))
+            refreshResult = Result.failure(ApiError(401, AuthErrorCode.UNAUTHORIZED))
+        }
+        val manager = manager(native, FakeTokens(acc = "a", ref = "r"))
+
+        manager.restoreSession()
+
+        assertEquals(AuthManager.State.SignedOut, manager.state.value)
+        assertFalse(manager.endedUnexpectedly.value)
+    }
+
+    // 로그아웃한 뒤 남은 요청이 401로 돌아와도 되살릴 세션이 없다.
+    @Test
+    fun `로그아웃하면 표식이 사라진다`() = runTest {
+        val native = FakeNative().apply {
+            demoResult = Result.success(AuthSession("a1", "r1", user(), ACCESS_TTL_MS))
+        }
+        val manager = manager(native, FakeTokens())
+
+        manager.signIn(AuthProvider.DEMO)
+        assertTrue(manager.sessionMark("a1") != null)
+
+        manager.signOut()
+        assertEquals(null, manager.sessionMark("a1"))
+    }
+
+    // 요청을 보내려고 토큰을 읽은 **뒤** 로그아웃·재로그인이 끝날 수 있다. 그때 표식만
+    // 새로 찍으면 옛 토큰이 새 세션의 이름표를 달고 나가, 401 처리가 그 요청을 새 세션의
+    // 것으로 착각한다.
+    @Test
+    fun `낡은 토큰은 새 세션의 표식을 받지 못한다`() = runTest {
+        val native = FakeNative().apply {
+            demoResult = Result.success(AuthSession("a1", "r1", user(), ACCESS_TTL_MS))
+        }
+        val manager = manager(native, FakeTokens())
+
+        manager.signIn(AuthProvider.DEMO)
+        manager.signOut()
+        native.demoResult = Result.success(AuthSession("b1", "br1", user(), ACCESS_TTL_MS))
+        manager.signIn(AuthProvider.DEMO)
+
+        assertEquals(null, manager.sessionMark("a1"))
+        assertTrue(manager.sessionMark("b1") != null)
+    }
+
+    // 오프라인에서 예약 회전이 한 번 실패하면 타이머는 이미 소모됐다. 거기서 놓아 버리면
+    // 연결이 돌아와도 선제 갱신이 영영 멈춰, 세션이 idle 창에서 조용히 죽는다.
+    @Test
+    fun `일시적 실패 뒤에도 선제 회전을 다시 시도한다`() = runTest {
+        val native = FakeNative().apply {
+            demoResult = Result.success(AuthSession("a1", "r1", user(), ACCESS_TTL_MS))
+            refreshResult = Result.failure(ApiError.network)
+        }
+        val tokens = FakeTokens()
+        val manager = manager(native, tokens)
+
+        manager.signIn(AuthProvider.DEMO)
+        advanceTimeBy((ACCESS_TTL_MS * 0.75).toLong() + 1)
+        assertEquals(1, native.refreshCount)
+        // 실패했다고 쫓아내지는 않는다.
+        assertTrue(manager.state.value is AuthManager.State.SignedIn)
+
+        // 연결이 돌아왔다 — 다음 시도에서 세션이 다시 밀린다.
+        native.refreshResult = Result.success(AuthSession("a2", "r2", user(), ACCESS_TTL_MS))
+        advanceTimeBy(60_000 + 1)
+        assertEquals(2, native.refreshCount)
+        assertEquals("a2", tokens.acc)
+    }
+
+    // 함께 나간 두 요청이 같은 토큰을 들고 있다가 하나가 먼저 회전시키면, 나머지는 이미
+    // 물러난 토큰을 들고 있다. 그것을 "남의 세션"으로 보면 되살릴 수 있는 401이 그냥
+    // 실패가 된다 — 물러난 토큰도 이 세션이 발급한 것이다.
+    @Test
+    fun `회전 직전의 토큰으로 나간 요청도 되살아난다`() = runTest {
+        val native = FakeNative().apply {
+            demoResult = Result.success(AuthSession("a1", "r1", user(), ACCESS_TTL_MS))
+            refreshResult = Result.success(AuthSession("a2", "r2", user(), ACCESS_TTL_MS))
+        }
+        val manager = manager(native, FakeTokens())
+
+        manager.signIn(AuthProvider.DEMO)
+        val mark = manager.sessionMark("a1")!!
+
+        // 첫 요청이 회전시킨다.
+        assertEquals("a2", manager.refreshForRetry(mark, "a1"))
+
+        // 뒤늦게 출발한 두 번째 요청은 아직 "a1"을 들고 있다.
+        assertEquals(mark, manager.sessionMark("a1"))
+        // 이미 갈려 있으므로 갱신 없이 회전된 토큰으로 재시도한다.
+        assertEquals("a2", manager.refreshForRetry(mark, "a1"))
+        assertEquals(1, native.refreshCount)
     }
 
     @Test

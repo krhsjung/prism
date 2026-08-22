@@ -22,10 +22,35 @@ import UIKit
 /// AuthManager → NetworkManager). 그래서 좁은 구멍 하나만 두고, 조립하는 곳에서 **만든
 /// 뒤에** 꽂는다.
 @MainActor
-protocol SessionRefreshing: AnyObject, Sendable {
-    /// - Parameter usedAccessToken: 401을 받은 그 토큰. 이미 다른 요청이 갱신했는지 가린다.
+protocol SessionAuthority: AnyObject, Sendable {
+    /// **이 토큰으로** 나가는 요청에 찍을 세션 표식. 지금 세션이 발급한 토큰이 아니면 nil.
+    ///
+    /// 요청을 **보내는 시점**에 찍어 두고 401의 뒷일까지 그대로 들고 간다. 응답이 돌아오기
+    /// 전에 로그아웃하고 다시 로그인하면 그 401은 **끝난 세션**의 것인데, 토큰만 비교해서는
+    /// 회전과 구분되지 않는다 — 옛 요청이 새 세션의 토큰으로 재생되거나, 새 세션을 끊는다.
+    ///
+    /// 토큰을 함께 받는 이유도 같다. 부르는 쪽이 토큰을 읽은 뒤 여기 오기까지는 `await`
+    /// 하나가 끼어 있어, 그사이 세션이 갈리면 **옛 토큰이 새 세션의 이름표를 달고** 나간다.
+    func sessionMark(usedAccessToken: String) -> Int?
+
+    /// 만료된 세션을 갱신한다.
+    ///
+    /// - Parameters:
+    ///   - mark: 요청을 보낼 때 찍은 세션 표식. 그 세션이 아직 살아 있을 때만 손댄다.
+    ///   - usedAccessToken: 401을 받은 그 토큰. 이미 다른 요청이 갱신했는지 가린다.
     /// - Returns: 재시도에 쓸 새 액세스 토큰. 갱신하지 못했으면 nil.
-    func refreshForRetry(usedAccessToken: String) async -> String?
+    func refreshForRetry(mark: Int, usedAccessToken: String) async -> String?
+
+    /// 서버가 **확정한** 인증 실패(폐기·변조)를 알린다 — 갱신으로는 살아나지 않는다.
+    ///
+    /// 다른 기기에서 이 세션을 해제하면 여기로 온다. 화면이 "불러오지 못했습니다"를 띄우고
+    /// 마는 대신, 세션의 주인이 자격증명을 지우고 로그인 화면으로 보낸다.
+    ///
+    /// - Parameters:
+    ///   - mark: 요청을 보낼 때 찍은 세션 표식. 그사이 세션이 갈렸다면 낡은 응답이 새
+    ///     세션을 끊어서는 안 된다.
+    ///   - usedAccessToken: 401을 받은 그 토큰. 아직 현재값일 때만 정리한다.
+    func endSession(mark: Int, usedAccessToken: String) async
 }
 
 final class NetworkManager: Sendable {
@@ -33,16 +58,16 @@ final class NetworkManager: Sendable {
     private let decoder = JSONDecoder()
     private let encoder = JSONEncoder()
 
-    /// 만료된 세션을 되살릴 방법. 조립이 끝난 뒤 한 번 꽂히고, 그다음부터는 읽기만 한다 —
+    /// 401의 뒷일을 맡을 것. 조립이 끝난 뒤 한 번 꽂히고, 그다음부터는 읽기만 한다 —
     /// 그 한 번의 쓰기와 이후의 읽기가 다른 스레드일 수 있어 잠금으로 감싼다.
     private let refresherLock = NSLock()
-    nonisolated(unsafe) private var refresher: (any SessionRefreshing)?
+    nonisolated(unsafe) private var refresher: (any SessionAuthority)?
 
-    func use(refresher: any SessionRefreshing) {
-        refresherLock.withLock { self.refresher = refresher }
+    func use(authority: any SessionAuthority) {
+        refresherLock.withLock { self.refresher = authority }
     }
 
-    private var currentRefresher: (any SessionRefreshing)? {
+    private var currentAuthority: (any SessionAuthority)? {
         refresherLock.withLock { refresher }
     }
 
@@ -102,18 +127,52 @@ final class NetworkManager: Sendable {
         body: Data?,
         accessToken: String?,
     ) async throws -> Data {
+        // 토큰 없이 보낸 요청이나, 뒷일을 스스로 쥔 인증 자신의 호출은 손대지 않는다.
+        // 표식은 **보내기 전에** 찍는다 — 응답이 돌아왔을 때 그사이 세션이 갈렸는지는
+        // 이 값으로만 알 수 있다.
+        var mark: Int?
+        let authority = currentAuthority
+        if endpoint.recoversSession, let accessToken, let authority {
+            mark = await authority.sessionMark(usedAccessToken: accessToken)
+        }
+
         do {
             return try await send(endpoint, body: body, accessToken: accessToken)
-        } catch let error as APIError where error.isSessionExpired {
-            // 갱신하면 살아나는 401인지는 **서버만** 안다 — 코드로 받아 본다. 토큰 없이
-            // 보낸 요청이나, 갱신 정책을 쥔 인증 자신의 호출은 되살리지 않는다.
-            guard endpoint.retriesOnExpiredSession,
-                  let accessToken,
-                  let refresher = currentRefresher,
-                  let rotated = await refresher.refreshForRetry(usedAccessToken: accessToken)
-            else { throw error }
-            Log.network("session rotated — retrying \(endpoint.path) once")
-            return try await send(endpoint, body: body, accessToken: rotated)
+        } catch let error as APIError {
+            guard let authority, let mark, let accessToken else { throw error }
+
+            // 갱신하면 살아나는 401인지는 **서버만** 안다 — 코드로 받아 본다.
+            if error.isSessionExpired {
+                guard let rotated = await authority.refreshForRetry(
+                    mark: mark, usedAccessToken: accessToken,
+                ) else { throw error }
+                Log.network("session rotated — retrying \(endpoint.path) once")
+                return try await sendOrEndSession(
+                    endpoint, body: body, accessToken: rotated,
+                    authority: authority, mark: mark,
+                )
+            }
+            if error.isDefinitiveAuthFailure {
+                await authority.endSession(mark: mark, usedAccessToken: accessToken)
+            }
+            throw error
+        }
+    }
+
+    /// 재시도 한 번. 그 응답까지 확정 실패면 세션을 끝낸다 — 방금 회전한 토큰까지 거부됐다면
+    /// 되살릴 수 있는 세션이 아니다.
+    private func sendOrEndSession(
+        _ endpoint: APIEndpoint,
+        body: Data?,
+        accessToken: String,
+        authority: any SessionAuthority,
+        mark: Int,
+    ) async throws -> Data {
+        do {
+            return try await send(endpoint, body: body, accessToken: accessToken)
+        } catch let error as APIError where error.isDefinitiveAuthFailure {
+            await authority.endSession(mark: mark, usedAccessToken: accessToken)
+            throw error
         }
     }
 
