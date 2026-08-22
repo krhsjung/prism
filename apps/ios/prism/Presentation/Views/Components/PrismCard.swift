@@ -9,13 +9,19 @@ import SwiftUI
 
 /// 웹 `.card`와 같은 표면 — 로그인·대시보드가 공유하는 컨테이너.
 struct PrismCard<Content: View>: View {
+    /// 내용 여백. **구분선이 카드 폭을 가로지르는** 카드(세션 목록)는 0으로 두고, 각
+    /// 구획이 자기 여백을 갖는다 — 카드가 여백을 쥐면 선도 그만큼 안으로 들어온다
+    /// (웹 `.sessions { padding: 0 }`와 같은 구조).
+    var padding: CGFloat = AppDimension.Card.padding
+    /// 구획 사이 간격. 구분선으로 나뉘는 카드는 0이다(간격은 각 구획의 여백이 만든다).
+    var spacing: CGFloat = AppDimension.Card.spacing
     @ViewBuilder let content: Content
 
     var body: some View {
-        VStack(alignment: .leading, spacing: AppDimension.Card.spacing) {
+        VStack(alignment: .leading, spacing: spacing) {
             content
         }
-        .padding(AppDimension.Card.padding)
+        .padding(padding)
         .frame(maxWidth: AppDimension.Screen.cardMaxWidth)
         .background(AppColor.card)
         .clipShape(.rect(cornerRadius: AppDimension.Radius.lg))

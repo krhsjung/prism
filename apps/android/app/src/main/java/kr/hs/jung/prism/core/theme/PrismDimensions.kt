@@ -82,6 +82,15 @@ object PrismDimensions {
     val sessionIconTile = 36.dp
     val sessionIconGlyph = 18.dp
     val sessionRowPadding = 14.dp
+
+    /**
+     * 세션 카드의 좌우 여백. 카드가 아니라 **각 구획이** 갖는다 — 그래야 구분선이 카드
+     * 폭을 가로지른다(웹 `.sessions__row { padding: 14px 24px }`와 같은 값).
+     */
+    val sessionCardInset = 24.dp
+
+    /** 세션 카드 머리의 위아래 여백(웹 `.sessions__head { padding: 20px 24px }`). */
+    val sessionHeadPadding = 20.dp
     /** 신원 줄과 날짜 덩어리 사이(시안 10). */
     val sessionBlockSpacing = 10.dp
     /** 시작↔만료 사이. 시안은 거의 붙어 있다(17px 줄 사이 1px). */

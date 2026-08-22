@@ -42,6 +42,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
@@ -310,8 +311,16 @@ private fun SessionsCard(
     onRetry: () -> Unit,
 ) {
     val colors = PrismTheme.colors
-    PrismCard {
-        Column(verticalArrangement = Arrangement.spacedBy(PrismDimensions.headSpacing)) {
+    // 여백을 카드가 아니라 **각 구획**이 갖는다 — 그래야 구분선이 카드 폭을 가로지른다
+    // (웹 `.sessions { padding: 0 }`와 같은 구조).
+    PrismCard(contentPadding = 0.dp, spacing = 0.dp) {
+        Column(
+            verticalArrangement = Arrangement.spacedBy(PrismDimensions.headSpacing),
+            modifier = Modifier.padding(
+                horizontal = PrismDimensions.sessionCardInset,
+                vertical = PrismDimensions.sessionHeadPadding,
+            ),
+        ) {
             Text(
                 text = stringResource(R.string.dashboard_active_sessions),
                 color = colors.heading,
@@ -325,28 +334,48 @@ private fun SessionsCard(
             )
         }
 
-        state.actionErrorRes?.let { PrismErrorAlert(message = stringResource(it)) }
+        state.actionErrorRes?.let {
+            PrismErrorAlert(
+                message = stringResource(it),
+                modifier = Modifier
+                    .padding(horizontal = PrismDimensions.sessionCardInset)
+                    .padding(bottom = PrismDimensions.sessionHeadPadding),
+            )
+        }
 
         when {
             state.loadErrorRes != null -> {
-                PrismErrorAlert(message = stringResource(state.loadErrorRes))
-                PrismButton(
-                    text = stringResource(R.string.dashboard_retry),
-                    variant = PrismButtonVariant.SECONDARY,
-                    onClick = onRetry,
-                    fillWidth = false,
-                )
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(PrismDimensions.spacingMd),
+                    modifier = Modifier
+                        .padding(horizontal = PrismDimensions.sessionCardInset)
+                        .padding(bottom = PrismDimensions.sessionHeadPadding),
+                ) {
+                    PrismErrorAlert(message = stringResource(state.loadErrorRes))
+                    PrismButton(
+                        text = stringResource(R.string.dashboard_retry),
+                        variant = PrismButtonVariant.SECONDARY,
+                        onClick = onRetry,
+                        fillWidth = false,
+                    )
+                }
             }
             state.sessions == null -> Text(
                 text = stringResource(R.string.common_loading),
                 color = colors.muted,
                 fontSize = PrismDimensions.fontBody,
+                modifier = Modifier
+                    .padding(horizontal = PrismDimensions.sessionCardInset)
+                    .padding(bottom = PrismDimensions.sessionHeadPadding),
             )
             // 현재 세션은 항상 하나 있으므로 "0건"은 없다 — 1건이 "나 혼자"다.
             state.sessions.size == 1 -> Text(
                 text = stringResource(R.string.dashboard_only_this_session),
                 color = colors.muted,
                 fontSize = PrismDimensions.fontBody,
+                modifier = Modifier
+                    .padding(horizontal = PrismDimensions.sessionCardInset)
+                    .padding(bottom = PrismDimensions.sessionHeadPadding),
             )
             else -> state.sessions.forEach { session ->
                 SessionRow(
@@ -364,6 +393,7 @@ private fun SessionsCard(
         // 이어 붙으면 "행 하나 더"로 읽히고 오탭 표적도 겹친다.
         // (나 말고 다른 세션이 있을 때만 의미가 있다)
         if (state.hasOthers) {
+            HorizontalDivider(color = colors.border)
             PrismButton(
                 text = stringResource(
                     if (state.signingOutAll) R.string.dashboard_signing_out_all
@@ -373,6 +403,10 @@ private fun SessionsCard(
                 enabled = !state.signingOutAll,
                 // 되돌릴 수 없다 — 바로 실행하지 않고 한 번 되묻는다.
                 onClick = onSignOutAll,
+                modifier = Modifier.padding(
+                    horizontal = PrismDimensions.sessionCardInset,
+                    vertical = PrismDimensions.sessionRowPadding,
+                ),
             )
         }
     }
@@ -393,6 +427,10 @@ private fun SessionRow(
     onRevoke: () -> Unit,
 ) {
     val colors = PrismTheme.colors
+    // 선은 행의 **위**에 둔다. 그러면 첫 행 위(= 카드 머리 아래)에도 한 줄이 생기고,
+    // 마지막 행 아래에는 생기지 않는다 — 거기는 카드 끝이거나 자기 선을 가진 푸터다
+    // (웹 `.session { border-top }`). 선이 카드 폭을 가로지르도록 여백보다 **밖**에 둔다.
+    HorizontalDivider(color = colors.border)
     Column(
         verticalArrangement = Arrangement.spacedBy(PrismDimensions.sessionBlockSpacing),
         modifier = Modifier
@@ -400,7 +438,10 @@ private fun SessionRow(
             // 끊기는 중인 행은 통째로 흐려진다. 바쁜 것은 버튼이 아니라 **이 세션**이고,
             // 곧 사라질 행이라 그 예고로도 읽힌다. 크기가 변하지 않아 목록이 흔들리지 않는다.
             .alpha(if (revoking) PrismDimensions.buttonDisabledAlpha else 1f)
-            .padding(vertical = PrismDimensions.sessionRowPadding),
+            .padding(
+                horizontal = PrismDimensions.sessionCardInset,
+                vertical = PrismDimensions.sessionRowPadding,
+            ),
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -494,7 +535,6 @@ private fun SessionRow(
             }
         }
     }
-    HorizontalDivider(color = colors.border)
 }
 
 /**

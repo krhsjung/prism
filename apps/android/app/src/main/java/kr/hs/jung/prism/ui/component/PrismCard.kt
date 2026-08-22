@@ -17,6 +17,7 @@ import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.background
 import androidx.compose.ui.draw.shadow
@@ -25,7 +26,18 @@ import kr.hs.jung.prism.core.theme.PrismTheme
 
 /** 웹 `.card`와 같은 표면 — 로그인·대시보드가 공유하는 컨테이너. */
 @Composable
-fun PrismCard(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
+fun PrismCard(
+    modifier: Modifier = Modifier,
+    /**
+     * 내용 여백. **구분선이 카드 폭을 가로지르는** 카드(세션 목록)는 0으로 두고, 각 구획이
+     * 자기 여백을 갖는다 — 카드가 여백을 쥐면 선도 그만큼 안으로 들어온다
+     * (웹 `.sessions { padding: 0 }`와 같은 구조).
+     */
+    contentPadding: Dp = PrismDimensions.cardPadding,
+    /** 구획 사이 간격. 구분선으로 나뉘는 카드는 0이다(간격은 각 구획의 여백이 만든다). */
+    spacing: Dp = PrismDimensions.cardSpacing,
+    content: @Composable ColumnScope.() -> Unit,
+) {
     val colors = PrismTheme.colors
     val shape = RoundedCornerShape(PrismDimensions.radiusLg)
     Column(
@@ -37,8 +49,8 @@ fun PrismCard(modifier: Modifier = Modifier, content: @Composable ColumnScope.()
             .clip(shape)
             .background(colors.card)
             .border(1.dp, colors.border, shape)
-            .padding(PrismDimensions.cardPadding),
-        verticalArrangement = Arrangement.spacedBy(PrismDimensions.cardSpacing),
+            .padding(contentPadding),
+        verticalArrangement = Arrangement.spacedBy(spacing),
         content = content,
     )
 }

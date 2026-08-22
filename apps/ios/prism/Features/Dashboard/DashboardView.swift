@@ -205,7 +205,9 @@ struct DashboardView: View {
 
     /// 시안 `SessionsCard` — 제목 · 요약 · 세션 행들.
     private var sessionsCard: some View {
-        PrismCard {
+        // 여백을 카드가 아니라 **각 구획**이 갖는다 — 그래야 구분선이 카드 폭을 가로지른다
+        // (웹 `.sessions { padding: 0 }`와 같은 구조).
+        PrismCard(padding: 0, spacing: 0) {
             VStack(alignment: .leading, spacing: AppDimension.Dashboard.headSpacing) {
                 Text(t(.dashboardActiveSessions))
                     .font(.system(size: AppDimension.FontSize.sectionTitle, weight: .heavy))
@@ -215,9 +217,13 @@ struct DashboardView: View {
                     .foregroundStyle(AppColor.muted)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, AppDimension.Dashboard.sessionCardInset)
+            .padding(.vertical, AppDimension.Dashboard.sessionHeadPadding)
 
             if let key = viewModel.actionErrorKey {
                 PrismErrorAlert(message: t(key))
+                    .padding(.horizontal, AppDimension.Dashboard.sessionCardInset)
+                    .padding(.bottom, AppDimension.Dashboard.sessionHeadPadding)
             }
 
             sessionsBody
@@ -228,6 +234,7 @@ struct DashboardView: View {
             // 기둥에 이어 붙으면 "행 하나 더"로 읽히고 오탭 표적도 겹친다.
             // (나 말고 다른 세션이 있을 때만 의미가 있다)
             if viewModel.hasOthers {
+                cardDivider
                 PrismButton(
                     title: t(viewModel.isSigningOutAll
                         ? .dashboardSigningOutAll : .dashboardSignOutAll),
@@ -237,6 +244,8 @@ struct DashboardView: View {
                     // 되돌릴 수 없다 — 바로 실행하지 않고 한 번 되묻는다.
                     isConfirmingSignOutAll = true
                 }
+                .padding(.horizontal, AppDimension.Dashboard.sessionCardInset)
+                .padding(.vertical, AppDimension.Dashboard.sessionRowPadding)
             }
         }
     }
@@ -244,27 +253,43 @@ struct DashboardView: View {
     @ViewBuilder
     private var sessionsBody: some View {
         if let key = viewModel.loadErrorKey {
-            PrismErrorAlert(message: t(key))
-            PrismButton(title: t(.dashboardRetry), variant: .secondary, fillsWidth: false) {
-                Task { await viewModel.load() }
+            VStack(alignment: .leading, spacing: AppDimension.Spacing.md) {
+                PrismErrorAlert(message: t(key))
+                PrismButton(title: t(.dashboardRetry), variant: .secondary, fillsWidth: false) {
+                    Task { await viewModel.load() }
+                }
             }
+            .padding(.horizontal, AppDimension.Dashboard.sessionCardInset)
+            .padding(.bottom, AppDimension.Dashboard.sessionHeadPadding)
         } else if let sessions = viewModel.sessions {
             // 현재 세션은 항상 하나 있으므로 "0건"은 없다 — 1건이 "나 혼자"다.
             if sessions.count == 1 {
                 Text(t(.dashboardOnlyThisSession))
                     .font(.system(size: AppDimension.FontSize.body))
                     .foregroundStyle(AppColor.muted)
+                    .padding(.horizontal, AppDimension.Dashboard.sessionCardInset)
+                    .padding(.bottom, AppDimension.Dashboard.sessionHeadPadding)
             } else {
                 ForEach(sessions) { session in
+                    // 선은 행의 **위**에 둔다. 그러면 첫 행 위(= 카드 머리 아래)에도
+                    // 한 줄이 생기고, 마지막 행 아래에는 생기지 않는다 — 거기는 카드
+                    // 끝이거나 자기 선을 가진 푸터다(웹 `.session { border-top }`).
+                    cardDivider
                     sessionRow(session)
-                    Rectangle().fill(AppColor.border).frame(height: 1)
                 }
             }
         } else {
             Text(t(.commonLoading))
                 .font(.system(size: AppDimension.FontSize.body))
                 .foregroundStyle(AppColor.muted)
+                .padding(.horizontal, AppDimension.Dashboard.sessionCardInset)
+                .padding(.bottom, AppDimension.Dashboard.sessionHeadPadding)
         }
+    }
+
+    /// 카드 폭을 가로지르는 1px 구분선.
+    private var cardDivider: some View {
+        Rectangle().fill(AppColor.border).frame(height: 1)
     }
 
     /// 세션 한 줄 — 시안 `SessionRow`.
@@ -348,7 +373,8 @@ struct DashboardView: View {
                 }
             }
         }
-        .padding(.vertical, AppDimension.Spacing.sm)
+        .padding(.horizontal, AppDimension.Dashboard.sessionCardInset)
+        .padding(.vertical, AppDimension.Dashboard.sessionRowPadding)
         // 끊기는 중인 행은 통째로 흐려진다. 바쁜 것은 버튼이 아니라 **이 세션**이고,
         // 곧 사라질 행이라 그 예고로도 읽힌다. 크기가 변하지 않아 목록이 흔들리지 않는다.
         .opacity(

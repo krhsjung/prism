@@ -98,6 +98,13 @@ enum AppDimension {
         static let navItemPadding: CGFloat = 16
         /// 카드 제목과 부제 사이(웹 `.sessions__desc { margin-top: 2px }`).
         static let headSpacing: CGFloat = 2
+        /// 세션 카드의 좌우 여백. 카드가 아니라 **각 구획이** 갖는다 — 그래야 구분선이
+        /// 카드 폭을 가로지른다(웹 `.sessions__row { padding: 14px 24px }`와 같은 값).
+        static let sessionCardInset: CGFloat = 24
+        /// 세션 행의 위아래 여백(웹 `.sessions__row { padding: 14px 24px }`).
+        static let sessionRowPadding: CGFloat = 14
+        /// 세션 카드 머리의 위아래 여백(웹 `.sessions__head { padding: 20px 24px }`).
+        static let sessionHeadPadding: CGFloat = 20
         /// 확인 창의 최대 너비(웹 `.confirm { width: min(360px, 100%) }`).
         static let dialogWidth: CGFloat = 360
         /// 세션 행 — 아이콘 타일 36 안에 18짜리 글리프(시안 SessionRow).

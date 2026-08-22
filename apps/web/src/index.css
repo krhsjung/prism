@@ -629,7 +629,6 @@ body {
   padding-top: 10px;
   padding-bottom: 10px;
   border-top: 1px solid var(--color-border);
-  border-bottom: 1px solid var(--color-border);
   background: var(--color-surface);
   font-size: 12px;
   font-weight: 600;
@@ -692,11 +691,13 @@ body {
   margin-top: 20px;
 }
 
+/* 카드의 각 구획은 **전폭** 구분선으로 나뉜다. 선을 행의 *위*에 두면 그 규칙이 저절로
+   성립한다: 행이 몇 개든 첫 행 위(= 카드 머리 아래)에 한 줄이 생기고, 마지막 행 아래에는
+   생기지 않는다 — 거기는 카드 끝이거나 자기 선을 가진 푸터다.
+   선이 카드 폭을 가로지르려면 좌우 여백을 **카드가 아니라 각 구획이** 가져야 한다
+   (`.sessions { padding: 0 }`). 앱도 같은 구조다. */
 .session {
-  border-bottom: 1px solid var(--color-border);
-}
-.session:last-child {
-  border-bottom: 0;
+  border-top: 1px solid var(--color-border);
 }
 /* 끊기는 중인 행은 통째로 흐려진다. 바쁜 것은 버튼이 아니라 **이 세션**이고, 곧 사라질
    행이라 그 예고로도 읽힌다. 크기가 변하지 않아 목록이 흔들리지 않는다(.btn:disabled와
