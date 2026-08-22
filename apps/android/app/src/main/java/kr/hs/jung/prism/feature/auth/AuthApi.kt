@@ -88,8 +88,17 @@ class HttpAuthApi(private val client: ApiClient) : NativeAuthApi {
             client.request("POST", "/auth/native/exchange", body(("code" to code))),
         )
 
+    // 갱신 정책은 AuthManager의 것이다 — 이 두 호출은 그쪽이 **락을 쥔 채로** 하므로,
+    // 여기서 자동 갱신이 걸리면 그 락에서 교착한다.
     override suspend fun meBearer(accessToken: String): SessionUser =
-        decodeSessionUser(client.request("GET", "/auth/me", accessToken = accessToken))
+        decodeSessionUser(
+            client.request(
+                "GET",
+                "/auth/me",
+                accessToken = accessToken,
+                retryOnExpiredSession = false,
+            ),
+        )
 
     /** body의 refresh token으로 회전하면 서버는 새 토큰을 담은 AuthSession을 돌려준다. */
     override suspend fun refreshBearer(refreshToken: String): AuthSession =
@@ -98,7 +107,12 @@ class HttpAuthApi(private val client: ApiClient) : NativeAuthApi {
         )
 
     override suspend fun logoutBearer(accessToken: String) {
-        client.requestIgnoringBody("POST", "/auth/logout", accessToken = accessToken)
+        client.requestIgnoringBody(
+            "POST",
+            "/auth/logout",
+            accessToken = accessToken,
+            retryOnExpiredSession = false,
+        )
     }
 
     /** 단일 필드 JSON body. org.json으로 안전하게 이스케이프한다(수동 문자열 조합 금지). */

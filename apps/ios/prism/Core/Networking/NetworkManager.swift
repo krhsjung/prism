@@ -16,10 +16,35 @@ import UIKit
 /// 없이도 "어쩌다" 인증되는 경로가 생기고, 그 경로는 Keychain을 거치지 않는다 —
 /// plan/auth.md §6이 네이티브에 요구하는 저장 위치를 조용히 우회하는 셈이다.
 /// 그래서 쿠키 항아리를 아예 끈다: 네이티브의 인증 경로는 Bearer 하나뿐이다.
+/// 401을 만난 요청을 위해 세션을 한 번 갱신해 주는 것.
+///
+/// `NetworkManager`가 `AuthManager`를 직접 알면 고리가 된다(NetworkManager → AuthService →
+/// AuthManager → NetworkManager). 그래서 좁은 구멍 하나만 두고, 조립하는 곳에서 **만든
+/// 뒤에** 꽂는다.
+@MainActor
+protocol SessionRefreshing: AnyObject, Sendable {
+    /// - Parameter usedAccessToken: 401을 받은 그 토큰. 이미 다른 요청이 갱신했는지 가린다.
+    /// - Returns: 재시도에 쓸 새 액세스 토큰. 갱신하지 못했으면 nil.
+    func refreshForRetry(usedAccessToken: String) async -> String?
+}
+
 final class NetworkManager: Sendable {
     private let session: URLSession
     private let decoder = JSONDecoder()
     private let encoder = JSONEncoder()
+
+    /// 만료된 세션을 되살릴 방법. 조립이 끝난 뒤 한 번 꽂히고, 그다음부터는 읽기만 한다 —
+    /// 그 한 번의 쓰기와 이후의 읽기가 다른 스레드일 수 있어 잠금으로 감싼다.
+    private let refresherLock = NSLock()
+    nonisolated(unsafe) private var refresher: (any SessionRefreshing)?
+
+    func use(refresher: any SessionRefreshing) {
+        refresherLock.withLock { self.refresher = refresher }
+    }
+
+    private var currentRefresher: (any SessionRefreshing)? {
+        refresherLock.withLock { refresher }
+    }
 
     init() {
         let configuration = URLSessionConfiguration.ephemeral
@@ -73,6 +98,27 @@ final class NetworkManager: Sendable {
     }()
 
     private func perform(
+        _ endpoint: APIEndpoint,
+        body: Data?,
+        accessToken: String?,
+    ) async throws -> Data {
+        do {
+            return try await send(endpoint, body: body, accessToken: accessToken)
+        } catch let error as APIError where error.isSessionExpired {
+            // 갱신하면 살아나는 401인지는 **서버만** 안다 — 코드로 받아 본다. 토큰 없이
+            // 보낸 요청이나, 갱신 정책을 쥔 인증 자신의 호출은 되살리지 않는다.
+            guard endpoint.retriesOnExpiredSession,
+                  let accessToken,
+                  let refresher = currentRefresher,
+                  let rotated = await refresher.refreshForRetry(usedAccessToken: accessToken)
+            else { throw error }
+            Log.network("session rotated — retrying \(endpoint.path) once")
+            return try await send(endpoint, body: body, accessToken: rotated)
+        }
+    }
+
+    /// 한 번 보낸다. 재시도는 [perform]이 정하고 여기서는 하지 않는다.
+    private func send(
         _ endpoint: APIEndpoint,
         body: Data?,
         accessToken: String?,

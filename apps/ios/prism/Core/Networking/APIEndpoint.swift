@@ -100,6 +100,20 @@ enum APIEndpoint {
         }
     }
 
+    /// 만료된 세션을 갱신하고 **한 번** 다시 보낼지.
+    ///
+    /// 인증 자신의 호출(`/auth/me`·`/auth/logout`)만 끈다 — 갱신 정책은 `AuthManager`의
+    /// 것이고, 그쪽은 이미 자기 직렬화 안에서 이 호출을 하므로 여기서 갱신을 부르면
+    /// 그 안으로 다시 들어가게 된다. 나머지는 토큰이 없어 되살릴 세션도 없다.
+    var retriesOnExpiredSession: Bool {
+        switch self {
+        case .sessions, .revokeSession, .revokeAllSessions: true
+        case .me, .logout, .appleNative, .googleNative, .kakaoNative, .demoNative,
+            .nativeExchange, .refresh:
+            false
+        }
+    }
+
     var url: URL {
         APIConfiguration.baseURL.appending(path: path)
     }

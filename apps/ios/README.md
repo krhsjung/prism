@@ -109,6 +109,24 @@ Text(t(.dashboardSignedInAs, ["name": user.displayName]))
 - 언어를 늘릴 때는 `prism.xcodeproj`의 `knownRegions`에도 코드를 추가해야 그 언어의
   `.lproj`가 번들에 생성됩니다(빠지면 그 언어만 조용히 영어로 뜹니다).
 
+### 만료된 세션은 네트워크 계층이 되살린다
+
+액세스 토큰은 짧아 **화면을 쓰는 도중에도 만료된다.** 갱신이 `restoreSession()`(앱 시작·
+포그라운드 복귀)에만 있으면 그사이의 401은 그냥 실패로 보인다 — 세션 목록이 "불러오지
+못했습니다"가 되고, 사용자가 할 수 있는 일은 앱을 껐다 켜는 것뿐이다.
+
+그래서 `NetworkManager`가 401 + `SESSION_EXPIRED`를 만나면 `SessionRefreshing`으로 세션을
+갱신하고 **새 토큰으로 한 번만** 다시 보낸다. 화면마다 처리하면 빠뜨리는 곳이 생긴다.
+
+- 고리는 **만든 뒤에** 꽂는다(`ServiceContainer.init`의 `network.use(refresher:)`).
+  생성 시점에 이으면 NetworkManager → AuthService → AuthManager → NetworkManager로 도는
+  순환이 된다.
+- 갱신은 `AuthManager.refreshForRetry`가 맡고 **한 번만** 나간다: 내가 실패시킨 토큰이
+  이미 갈려 있으면 다른 요청이 갱신한 것이므로 그 결과를 쓴다.
+- 되살릴 엔드포인트는 `APIEndpoint.retriesOnExpiredSession`이 정한다. `/auth/me`·
+  `/auth/logout`은 빠진다 — 갱신 정책은 AuthManager의 것이고, 그쪽이 자기 직렬화 안에서
+  부르는 호출이기 때문이다.
+
 ## 디자인 토큰
 
 색은 `Resources/Assets.xcassets/Colors`에 라이트·다크 두 벌로 들어 있고, 이름은 웹의

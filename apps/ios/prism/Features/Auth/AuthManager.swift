@@ -25,7 +25,7 @@ import Observation
 /// 자격증명 저장은 KeychainManager가 한 항목으로 원자 처리하므로 "반쪽만 저장"은 없다.
 @MainActor
 @Observable
-final class AuthManager {
+final class AuthManager: SessionRefreshing {
     enum State: Equatable {
         /// 저장된 자격증명으로 세션을 확인하는 중(앱 시작 직후).
         case checking
@@ -210,6 +210,26 @@ final class AuthManager {
             Log.auth("session check inconclusive — keeping credentials for retry")
             applyFromRestore(gen) { self.state = .signedOut }
         }
+    }
+
+    /// 401을 만난 요청을 위해 세션을 갱신한다 — 화면을 쓰는 도중 액세스 토큰이 만료되는
+    /// 흔한 경우다(앱 시작·복귀에서만 갱신하면 그 사이는 그냥 실패로 보인다).
+    ///
+    /// 여러 요청이 동시에 401을 받아도 **갱신은 한 번만** 나간다: 내가 실패시킨 그 토큰이
+    /// 이미 갈려 있으면 다른 요청이 갱신한 것이므로 그 결과를 쓴다. 각자 갱신하면 회전한
+    /// refresh token으로 두 번째가 거부되어 멀쩡한 세션이 끊긴다.
+    ///
+    /// - Returns: 재시도에 쓸 **새** 액세스 토큰. 갱신하지 못했으면 nil — 토큰이 그대로면
+    ///   같은 401이 한 번 더 날 뿐이라 재시도하지 않는다.
+    func refreshForRetry(usedAccessToken: String) async -> String? {
+        if let current = keychain.load().credentials?.accessToken,
+           current != usedAccessToken {
+            return current
+        }
+        guard let refreshToken = keychain.load().credentials?.refreshToken else { return nil }
+        await performRefresh(generation: generation, using: refreshToken)
+        let rotated = keychain.load().credentials?.accessToken
+        return rotated == usedAccessToken ? nil : rotated
     }
 
     /// 액세스 토큰 갱신.

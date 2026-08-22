@@ -15,6 +15,21 @@ import kotlin.coroutines.resumeWithException
 import kotlinx.coroutines.suspendCancellableCoroutine
 
 /**
+ * 401을 만난 요청을 위해 세션을 한 번 갱신해 주는 것.
+ *
+ * [ApiClient]가 [AuthManager][kr.hs.jung.prism.feature.auth.AuthManager]를 직접 알면
+ * 고리가 된다(ApiClient → AuthApi → AuthManager → ApiClient). 그래서 좁은 구멍 하나만
+ * 두고, 조립하는 곳에서 **만든 뒤에** 꽂는다.
+ */
+fun interface SessionRefresher {
+    /**
+     * @param usedAccessToken 401을 받은 그 토큰. 이미 다른 요청이 갱신했는지 가리는 데 쓴다.
+     * @return 재시도에 쓸 새 액세스 토큰. 갱신하지 못했으면 null.
+     */
+    suspend fun refresh(usedAccessToken: String): String?
+}
+
+/**
  * HTTP 호출 한 겹.
  *
  * 인증은 **Bearer 토큰**으로만 오간다: 로그인 응답의 토큰을 안전 저장소에 담고, 이후
@@ -35,7 +50,15 @@ class ApiClient(
      * 문자열을 저장하지 않고 접은 결과만 남긴다.
      */
     private val userAgent: String = "Prism (Android; Mobile)",
+    /** 서버 주소. 테스트가 가짜 서버를 꽂을 수 있도록 열어 둔다. */
+    private val baseUrl: String = BuildConfig.PRISM_API_URL,
 ) {
+    /**
+     * 만료된 세션을 되살릴 방법. 조립하는 곳에서 꽂는다([SessionRefresher] 참고).
+     * 꽂히지 않았으면 401은 그대로 올라간다 — 로그인 이전 단계에서는 갱신할 것도 없다.
+     */
+    var sessionRefresher: SessionRefresher? = null
+
     private val client = OkHttpClient.Builder()
         .connectTimeout(CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
         .readTimeout(READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
@@ -53,6 +76,31 @@ class ApiClient(
         path: String,
         body: String? = null,
         accessToken: String? = null,
+        /**
+         * 만료된 세션을 갱신하고 **한 번** 다시 보낼지. 인증 자신의 호출(`/auth/me`·
+         * `/auth/logout`)만 끈다 — 갱신 정책은 AuthManager의 것이고, 그쪽은 이미 락을 쥔
+         * 채로 이 호출을 하므로 여기서 갱신을 부르면 그 락에서 교착한다.
+         */
+        retryOnExpiredSession: Boolean = true,
+    ): String {
+        try {
+            return send(method, path, body, accessToken)
+        } catch (e: ApiError) {
+            // 갱신하면 살아나는 401인지는 **서버만** 안다 — 코드로 받아 본다. 토큰 없이
+            // 보낸 요청(로그인·갱신 자체)은 되살릴 세션이 없으므로 그대로 올린다.
+            if (!retryOnExpiredSession || accessToken == null || !e.isSessionExpired) throw e
+            val rotated = sessionRefresher?.refresh(accessToken) ?: throw e
+            AppLog.d("session rotated — retrying $method $path once")
+            return send(method, path, body, rotated)
+        }
+    }
+
+    /** 한 번 보낸다. 재시도는 [request]가 정하고 여기서는 하지 않는다. */
+    private suspend fun send(
+        method: String,
+        path: String,
+        body: String?,
+        accessToken: String?,
     ): String {
         val requestBody: RequestBody? = when {
             body != null -> body.toRequestBody(JSON)
@@ -61,7 +109,7 @@ class ApiClient(
             else -> null
         }
         val request = Request.Builder()
-            .url(BuildConfig.PRISM_API_URL + path)
+            .url(baseUrl + path)
             .method(method, requestBody)
             .header("User-Agent", userAgent)
             .apply { if (accessToken != null) header("Authorization", "Bearer $accessToken") }
@@ -83,8 +131,14 @@ class ApiClient(
         method: String,
         path: String,
         accessToken: String? = null,
+        retryOnExpiredSession: Boolean = true,
     ) {
-        request(method, path, accessToken = accessToken)
+        request(
+            method,
+            path,
+            accessToken = accessToken,
+            retryOnExpiredSession = retryOnExpiredSession,
+        )
     }
 
     private fun default(status: Int): String =

@@ -200,6 +200,24 @@ class AuthManager(
         _state.value = State.SignedIn(session.user, generation)
     }
 
+    /**
+     * 401을 만난 요청을 위해 세션을 갱신한다 — 화면을 쓰는 도중 액세스 토큰이 만료되는
+     * 흔한 경우다(앱 시작·복귀에서만 갱신하면 그 사이는 그냥 실패로 보인다).
+     *
+     * 여러 요청이 동시에 401을 받아도 **갱신은 한 번만** 나간다: 락을 잡은 뒤, 내가
+     * 실패시킨 그 토큰이 이미 갈려 있으면 다른 요청이 갱신한 것이므로 그 결과를 쓴다.
+     * 각자 갱신하면 회전한 refresh token으로 두 번째가 거부되어 멀쩡한 세션이 끊긴다.
+     *
+     * @return 재시도에 쓸 **새** 액세스 토큰. 갱신하지 못했으면 null — 토큰이 그대로면
+     *   같은 401이 한 번 더 날 뿐이라 재시도하지 않는다.
+     */
+    suspend fun refreshForRetry(usedAccessToken: String): String? = mutex.withLock {
+        val current = tokens.access()
+        if (current != null && current != usedAccessToken) return@withLock current
+        refreshOrSignOut()
+        tokens.access()?.takeIf { it != usedAccessToken }
+    }
+
     /** 갱신 성공이면 새 토큰으로 세션을 잇고, 확정 실패면 토큰을 지운다. 일시적 실패면 보존한다. */
     private suspend fun refreshOrSignOut() {
         val refresh = tokens.refresh()

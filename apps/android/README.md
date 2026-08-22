@@ -97,6 +97,23 @@ Text(stringResource(R.string.auth_welcome_back))
   별도 윈도우인 팝업에 닿지 않는다). 그래서 언어를 바꾸면 `recreate()`로 이 경로를
   다시 탄다 — 세션 상태는 Application 컨테이너에 있어 사라지지 않는다.
 
+### 만료된 세션은 네트워크 계층이 되살린다
+
+액세스 토큰은 짧아 **화면을 쓰는 도중에도 만료된다.** 갱신이 `restoreSession()`(앱 시작·
+`ON_RESUME`)에만 있으면 그사이의 401은 그냥 실패로 보인다 — 세션 목록이 "불러오지
+못했습니다"가 되고, 사용자가 할 수 있는 일은 앱을 껐다 켜는 것뿐이다.
+
+그래서 `ApiClient`가 401 + `SESSION_EXPIRED`를 만나면 `SessionRefresher`로 세션을 갱신하고
+**새 토큰으로 한 번만** 다시 보낸다. 화면마다 처리하면 빠뜨리는 곳이 생긴다.
+
+- 고리는 **만든 뒤에** 꽂는다(`ServiceContainer.init`). 생성 시점에 이으면
+  ApiClient → AuthApi → AuthManager → ApiClient로 도는 순환이 된다.
+- 갱신은 `AuthManager.refreshForRetry`가 맡고 **한 번만** 나간다: 락을 잡은 뒤 내가
+  실패시킨 토큰이 이미 갈려 있으면 다른 요청이 갱신한 것이므로 그 결과를 쓴다. 각자
+  갱신하면 회전한 refresh token으로 두 번째가 거부되어 멀쩡한 세션이 끊긴다.
+- `/auth/me`·`/auth/logout`은 `retryOnExpiredSession = false`다. 갱신 정책은 AuthManager의
+  것이고, 그쪽은 **락을 쥔 채로** 이 호출을 하므로 여기서 갱신을 부르면 교착한다.
+
 ### 당겨서 새로고침은 `refresh()`를 탄다
 
 `PullToRefreshBox`가 도는 동안 알리는 것은 `DashboardUiState.refreshing` 하나이고, 목록은

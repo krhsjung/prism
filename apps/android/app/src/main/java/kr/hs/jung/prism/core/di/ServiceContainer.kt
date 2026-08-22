@@ -4,6 +4,7 @@ import android.content.Context
 import kr.hs.jung.prism.BuildConfig
 import kr.hs.jung.prism.core.i18n.LocaleStore
 import kr.hs.jung.prism.core.network.ApiClient
+import kr.hs.jung.prism.core.network.SessionRefresher
 import kr.hs.jung.prism.core.security.SecureSessionTokens
 import kr.hs.jung.prism.core.security.SecureStore
 import kr.hs.jung.prism.core.theme.ThemeStore
@@ -64,6 +65,12 @@ class ServiceContainer(context: Context) {
     )
     /** 활성 세션 조회·폐기(`/auth/sessions*`). 인증은 AuthManager가 담은 Bearer로 한다. */
     val sessionsApi = HttpSessionsApi(apiClient)
+
+    init {
+        // 만료된 세션을 되살리는 고리를 **만든 뒤에** 꽂는다 — 생성 시점에 이으면
+        // ApiClient → AuthApi → AuthManager → ApiClient로 도는 순환이 된다.
+        apiClient.sessionRefresher = SessionRefresher(authManager::refreshForRetry)
+    }
     val themeStore = ThemeStore(context)
     val localeStore = LocaleStore(context)
 }

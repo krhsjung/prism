@@ -229,6 +229,61 @@ struct AuthManagerTests {
         #expect(store.load() == .credentials(creds("da", "dr")))
     }
 
+
+    // 화면을 쓰는 도중 액세스 토큰이 만료되는 흔한 경우. 앱 시작·복귀에서만 갱신하면
+    // 그사이의 401은 그냥 실패로 보이고, 사용자가 할 수 있는 일은 앱을 껐다 켜는 것뿐이다.
+    @Test("401을 만난 요청을 위해 갱신하고 새 토큰을 돌려준다")
+    func refreshForRetryRotates() async {
+        let service = FakeService()
+        service.refreshResult = .success(AuthSession(
+            accessToken: "a2", refreshToken: "r2", user: user(),
+        ))
+        let store = FakeStore(creds("a", "r"))
+        let manager = makeManager(service, store)
+
+        let rotated = await manager.refreshForRetry(usedAccessToken: "a")
+
+        #expect(rotated == "a2")
+        #expect(store.load() == .credentials(creds("a2", "r2")))
+    }
+
+    // 여러 요청이 동시에 401을 받았을 때, 각자 갱신하면 회전한 refresh token으로 두 번째가
+    // 거부되어 멀쩡한 세션이 끊긴다. 먼저 갱신한 결과를 그대로 쓴다.
+    @Test("이미 다른 요청이 갱신했으면 그 토큰을 쓰고 다시 갱신하지 않는다")
+    func refreshForRetryReusesAnotherRotation() async {
+        let service = FakeService()
+        service.refreshResult = .success(AuthSession(
+            accessToken: "a3", refreshToken: "r3", user: user(),
+        ))
+        // 저장된 값이 이미 갈려 있다 — 내가 실패시킨 토큰은 옛것이다.
+        let store = FakeStore(creds("a2", "r2"))
+        let manager = makeManager(service, store)
+
+        let rotated = await manager.refreshForRetry(usedAccessToken: "a")
+
+        #expect(rotated == "a2")
+        // 갱신이 나가지 않았으므로 저장된 값도 그대로다.
+        #expect(store.load() == .credentials(creds("a2", "r2")))
+    }
+
+    // 갱신이 실패했는데 옛 토큰을 돌려주면 같은 401이 한 번 더 날 뿐이다.
+    @Test("갱신하지 못하면 nil을 돌려준다")
+    func refreshForRetryGivesUp() async {
+        let service = FakeService()
+        service.refreshResult = .failure(APIError.network)
+        let store = FakeStore(creds("a", "r"))
+        let manager = makeManager(service, store)
+
+        #expect(await manager.refreshForRetry(usedAccessToken: "a") == nil)
+    }
+
+    @Test("자격증명이 없으면 갱신할 것도 없다")
+    func refreshForRetryWithoutCredentials() async {
+        let manager = makeManager(FakeService(), FakeStore(.none))
+
+        #expect(await manager.refreshForRetry(usedAccessToken: "a") == nil)
+    }
+
     @Test("만료된 액세스 토큰은 갱신으로 이어 회전된 토큰을 저장한다")
     func refreshesAndPersistsRotatedTokens() async {
         let service = FakeService()
