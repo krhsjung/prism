@@ -32,6 +32,9 @@ private fun JSONObject.requireString(key: String): String {
  * `optLong`의 문자열·소수 강제 변환에 기대지 않고 실제 숫자 타입인지·정수인지·양수인지
  * 직접 본다. 범위는 JS 안전 정수(2^53-1)까지 — 그 밖은 플랫폼마다 해석이 갈린다.
  */
+private fun JSONObject.optPositiveLong(key: String): Long =
+    if (opt(key) == null) 0 else requirePositiveLong(key)
+
 private fun JSONObject.requirePositiveLong(key: String): Long {
     val value = opt(key)
     if (value !is Number) throw ApiError.invalidResponse
@@ -81,7 +84,10 @@ fun decodeAuthSession(body: String): AuthSession {
         accessToken = json.requireString("accessToken"),
         refreshToken = json.requireString("refreshToken"),
         user = decodeUser(userJson),
-        accessTokenTtlMs = json.requirePositiveLong("accessTokenTtlMs"),
+        // **없어도 받는다.** 나중에 더한 필드라, 아직 배포되지 않은 서버는 보내지 않는다 —
+        // 여기서 거부하면 앱이 옛 서버에 로그인조차 못 한다(실제로 그렇게 깨졌다).
+        // 없으면 0이고, 0이면 선제 갱신을 걸지 않는다. 만료 대응은 401 재시도가 맡는다.
+        accessTokenTtlMs = json.optPositiveLong("accessTokenTtlMs"),
     )
 }
 

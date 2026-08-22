@@ -103,16 +103,20 @@ struct AuthSession: Codable, Equatable, Sendable {
         accessToken = try c.decodeNonEmptyString(forKey: .accessToken)
         refreshToken = try c.decodeNonEmptyString(forKey: .refreshToken)
         user = try c.decode(User.self, forKey: .user)
-        // 서버 계약의 decodePositiveInt와 같게 양수만 받는다(수명값이 0·음수일 수 없다).
-        let ttl = try c.decode(Int.self, forKey: .accessTokenTtlMs)
-        guard ttl > 0 else {
+        // **없어도 받는다.** 나중에 더한 필드라, 아직 배포되지 않은 서버는 보내지 않는다 —
+        // 여기서 거부하면 앱이 옛 서버에 로그인조차 못 한다(실제로 그렇게 깨졌다).
+        // 없으면 0이고, 0이면 선제 갱신을 걸지 않는다. 만료 대응은 401 재시도가 맡으므로
+        // 그때까지 손해는 "미리 돌리지 못한다"뿐이다.
+        // 없으면 0, **있으면 양수**여야 한다 — 없는 것과 잘못된 것은 다르다.
+        let ttl = try c.decodeIfPresent(Int.self, forKey: .accessTokenTtlMs)
+        if let ttl, ttl <= 0 {
             throw DecodingError.dataCorruptedError(
                 forKey: .accessTokenTtlMs,
                 in: c,
                 debugDescription: "expected positive integer",
             )
         }
-        accessTokenTtlMs = ttl
+        accessTokenTtlMs = ttl ?? 0
     }
 }
 

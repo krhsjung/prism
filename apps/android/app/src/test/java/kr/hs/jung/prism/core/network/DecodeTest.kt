@@ -104,4 +104,34 @@ class DecodeTest {
         assertEquals(null, decodeErrorCode(null))
         assertEquals(null, decodeErrorCode("not-json"))
     }
+
+    // 나중에 더한 필드다. 아직 배포되지 않은 서버는 보내지 않으므로, 여기서 거부하면
+    // 앱이 옛 서버에 로그인조차 못 한다 — 실제로 그렇게 깨졌다.
+    @Test
+    fun `accessTokenTtlMs가 없는 옛 서버 응답도 받는다`() {
+        val session = decodeAuthSession(
+            """{"accessToken":"a.b.c","refreshToken":"sid.secret","user":$validUser}""",
+        )
+        // 0이면 선제 갱신을 걸지 않는다 — 만료 대응은 401 재시도가 맡는다.
+        assertEquals(0L, session.accessTokenTtlMs)
+    }
+
+    @Test
+    fun `accessTokenTtlMs가 있으면 그대로 읽는다`() {
+        val session = decodeAuthSession(
+            """{"accessToken":"a.b.c","refreshToken":"sid.secret","user":$validUser,
+               "accessTokenTtlMs":900000}""",
+        )
+        assertEquals(900_000L, session.accessTokenTtlMs)
+    }
+
+    @Test
+    fun `비양수 accessTokenTtlMs는 거부한다`() {
+        assertThrows(ApiError::class.java) {
+            decodeAuthSession(
+                """{"accessToken":"a.b.c","refreshToken":"sid.secret","user":$validUser,
+                   "accessTokenTtlMs":0}""",
+            )
+        }
+    }
 }
