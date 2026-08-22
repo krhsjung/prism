@@ -58,7 +58,8 @@ import kr.hs.jung.prism.domain.model.DeviceKind
 import kr.hs.jung.prism.domain.model.SessionListItem
 import kr.hs.jung.prism.domain.model.User
 import kr.hs.jung.prism.ui.component.LocaleSwitcher
-import kr.hs.jung.prism.ui.component.PreferenceMenuPlacement
+import kr.hs.jung.prism.ui.component.PreferenceControls
+import kr.hs.jung.prism.ui.component.PreferenceControlsPlacement
 import kr.hs.jung.prism.ui.component.PrismAvatar
 import kr.hs.jung.prism.ui.component.PrismBadge
 import kr.hs.jung.prism.ui.component.PrismBadgeVariant
@@ -260,10 +261,7 @@ private fun DrawerContent(
             )
             Box(modifier = Modifier.weight(1f))
             HorizontalDivider(color = colors.border)
-            // 드로어는 좁고 길어 스위처가 바닥 가까이 앉는다 — 아래로 펼 자리가 없어
-            // 옆으로 연다(웹 `.sidebar__footer`·iOS 드로어와 같은 규칙).
-            ThemeSwitcher(themeStore, placement = PreferenceMenuPlacement.TRAILING)
-            LocaleSwitcher(localeStore, placement = PreferenceMenuPlacement.TRAILING)
+            PreferenceControls(themeStore, localeStore, PreferenceControlsPlacement.DRAWER)
             PrismButton(
                 text = stringResource(R.string.dashboard_log_out),
                 variant = PrismButtonVariant.OUTLINE,

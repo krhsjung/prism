@@ -157,10 +157,7 @@ struct DashboardView: View {
             Spacer()
 
             Rectangle().fill(AppColor.border).frame(height: 1)
-            // 드로어는 좁고 길어 스위처가 바닥 가까이 앉는다 — 아래로 펼 자리가 없어
-            // 옆으로 연다(웹 `.sidebar__footer`·Android 드로어와 같은 규칙).
-            ThemeSwitcher(placement: .trailing)
-            LocaleSwitcher(placement: .trailing)
+            PreferenceControls(placement: .drawer)
             PrismButton(
                 title: t(isSigningOut ? .dashboardLoggingOut : .dashboardLogOut),
                 variant: .outline,

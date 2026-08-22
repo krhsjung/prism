@@ -58,6 +58,54 @@ import kr.hs.jung.prism.core.theme.PrismTheme
 import kr.hs.jung.prism.core.theme.ThemeStore
 
 /**
+ * 테마·언어 한 벌이 놓이는 **자리**. 로그인 화면과 드로어가 같은 짝을 쓰므로, 자리마다
+ * 다른 것(줄 방향·메뉴가 열리는 쪽)을 여기서 한 번에 정한다.
+ *
+ * 배치를 자리 이름 하나로 묶는 이유는 **섞이지 않게** 하려는 것이다: 가로로 놓인 줄의
+ * 스위처가 옆으로 열리거나, 세로로 쌓인 드로어 스위처가 아래로 열리는 조합은 없다.
+ * (iOS `PreferenceControlsPlacement`와 같은 값)
+ */
+enum class PreferenceControlsPlacement {
+    /** 로그인 화면 아래의 가로 한 줄. 메뉴는 아래로 편다. */
+    BAR,
+
+    /** 드로어 바닥의 세로 쌓기. 메뉴는 트리거 오른쪽으로 편다. */
+    DRAWER,
+    ;
+
+    internal val menu: PreferenceMenuPlacement
+        get() = if (this == BAR) PreferenceMenuPlacement.BELOW else PreferenceMenuPlacement.TRAILING
+}
+
+/**
+ * 테마·언어 스위처 한 벌 — 두 화면이 나눠 쓴다.
+ *
+ * 한쪽에만 손대면 로그인 화면과 드로어가 갈린다. 짝과 자리를 여기 한 곳에 둔다.
+ */
+@Composable
+fun PreferenceControls(
+    themeStore: ThemeStore,
+    localeStore: LocaleStore,
+    placement: PreferenceControlsPlacement = PreferenceControlsPlacement.BAR,
+) {
+    when (placement) {
+        PreferenceControlsPlacement.BAR -> Row(
+            horizontalArrangement = Arrangement.spacedBy(PrismDimensions.spacingSm),
+        ) {
+            ThemeSwitcher(themeStore, placement = placement.menu)
+            LocaleSwitcher(localeStore, placement = placement.menu)
+        }
+
+        PreferenceControlsPlacement.DRAWER -> Column(
+            verticalArrangement = Arrangement.spacedBy(PrismDimensions.spacingLg),
+        ) {
+            ThemeSwitcher(themeStore, placement = placement.menu)
+            LocaleSwitcher(localeStore, placement = placement.menu)
+        }
+    }
+}
+
+/**
  * 메뉴가 트리거의 어느 쪽으로 열리는지. 상단 바에서는 아래가 자연스럽지만, 좁고 긴
  * 드로어에서는 트리거가 바닥 가까이 앉아 아래로 열 자리가 없다 — 그 자리에서는 옆으로
  * 편다(웹 `.sidebar__footer .select__menu` · iOS `PreferenceMenuPlacement`와 같은 값).

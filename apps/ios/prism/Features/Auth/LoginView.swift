@@ -51,10 +51,7 @@ struct LoginView: View {
                     .animation(nil, value: viewModel.pending)
                     .animation(nil, value: viewModel.errorKey)
 
-                HStack(spacing: AppDimension.Spacing.sm) {
-                    ThemeSwitcher()
-                    LocaleSwitcher()
-                }
+                PreferenceControls(placement: .bar)
             }
             .padding(.horizontal, AppDimension.Screen.horizontalPadding)
             .padding(.vertical, AppDimension.Screen.sectionSpacing)

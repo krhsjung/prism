@@ -33,6 +33,8 @@ import kr.hs.jung.prism.ui.component.LocaleSwitcher
 import kr.hs.jung.prism.ui.component.PrismButton
 import kr.hs.jung.prism.ui.component.PrismButtonVariant
 import kr.hs.jung.prism.ui.component.PrismCard
+import kr.hs.jung.prism.ui.component.PreferenceControls
+import kr.hs.jung.prism.ui.component.PreferenceControlsPlacement
 import kr.hs.jung.prism.ui.component.PrismErrorAlert
 import kr.hs.jung.prism.ui.component.ThemeSwitcher
 
@@ -122,10 +124,7 @@ fun LoginScreen(
             )
         }
 
-        Row(horizontalArrangement = Arrangement.spacedBy(PrismDimensions.spacingSm)) {
-            ThemeSwitcher(themeStore)
-            LocaleSwitcher(localeStore)
-        }
+        PreferenceControls(themeStore, localeStore, PreferenceControlsPlacement.BAR)
     }
 }
 

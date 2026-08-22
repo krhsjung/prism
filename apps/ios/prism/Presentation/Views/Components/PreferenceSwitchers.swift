@@ -7,6 +7,42 @@
 
 import SwiftUI
 
+/// 테마·언어 한 벌이 놓이는 **자리**. 로그인 화면과 드로어가 같은 짝을 쓰므로, 자리마다
+/// 다른 것(줄 방향·메뉴가 열리는 쪽)을 여기서 한 번에 정한다.
+///
+/// 배치를 자리 이름 하나로 묶는 이유는 **섞이지 않게** 하려는 것이다: 가로로 놓인 상단 바
+/// 스위처가 옆으로 열리거나, 세로로 쌓인 드로어 스위처가 아래로 열리는 조합은 없다.
+enum PreferenceControlsPlacement {
+    /// 로그인 화면 아래의 가로 한 줄. 메뉴는 시스템이 자리를 보고 연다.
+    case bar
+    /// 드로어 바닥의 세로 쌓기. 메뉴는 트리거 오른쪽으로 편다.
+    case drawer
+
+    fileprivate var menu: PreferenceMenuPlacement { self == .bar ? .below : .trailing }
+}
+
+/// 테마·언어 스위처 한 벌 — 두 화면이 나눠 쓴다.
+///
+/// 한쪽에만 손대면 로그인 화면과 드로어가 갈린다. 짝과 자리를 여기 한 곳에 둔다.
+struct PreferenceControls: View {
+    var placement: PreferenceControlsPlacement = .bar
+
+    var body: some View {
+        switch placement {
+        case .bar:
+            HStack(spacing: AppDimension.Spacing.sm) {
+                ThemeSwitcher(placement: placement.menu)
+                LocaleSwitcher(placement: placement.menu)
+            }
+        case .drawer:
+            VStack(alignment: .leading, spacing: AppDimension.Spacing.lg) {
+                ThemeSwitcher(placement: placement.menu)
+                LocaleSwitcher(placement: placement.menu)
+            }
+        }
+    }
+}
+
 /// 메뉴가 트리거의 어느 쪽으로 열리는지. 상단 바에서는 아래가 자연스럽지만, 좁고 긴
 /// 드로어에서는 트리거가 바닥 가까이 앉아 아래로 열 자리가 없다 — 그 자리에서는 옆으로
 /// 편다(웹 `.sidebar__footer .select__menu` · Android `PreferenceMenuPlacement`와 같은 값).
@@ -18,10 +54,14 @@ enum PreferenceMenuPlacement {
 
     var chevron: String { self == .below ? "chevron.down" : "chevron.right" }
 
-    /// 화살표가 붙는 **팝오버 쪽** 변이라 뜻이 뒤집혀 읽히기 쉽다: `.top`은 위가 아니라
-    /// **아래로 여는 값**이다(화살표가 팝오버 위에 달리므로). `.leading`도 마찬가지로
-    /// 오른쪽으로 여는 값이다.
-    var arrowEdge: Edge { self == .below ? .top : .leading }
+    /// 화살표가 붙는 **팝오버 쪽** 변이라 뜻이 뒤집혀 읽힌다: `.leading`은 왼쪽이 아니라
+    /// **오른쪽으로 여는 값**이다(화살표가 팝오버 왼쪽에 달리므로).
+    ///
+    /// `below`는 **`nil`을 준다 — 값을 정하지 않는 것이 답이다.** `arrowEdge`의 기본값이
+    /// `nil`이고, 그 뜻은 "시스템이 자리를 보고 고른다"이다. 여기에 `.top`(= 아래로 열기)을
+    /// 못 박으면 화면 **맨 아래**에 있는 트리거는 열 자리가 없어 팝오버가 뜨지 않는다
+    /// (로그인 화면의 테마·언어가 실제로 그렇게 죽었다).
+    var arrowEdge: Edge? { self == .below ? nil : .leading }
 }
 
 /// 테마 선택. 고르기 전에는 기기 설정을 따르고(system), 한 번 고르면 그 값이 저장되어
