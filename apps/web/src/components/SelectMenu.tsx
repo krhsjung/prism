@@ -34,7 +34,9 @@ interface SelectMenuProps<T extends string> {
 
 function ChevronIcon() {
   return (
-    <svg className="icon icon--bold" viewBox="0 0 24 24" aria-hidden="true">
+    // 드로어 안에서는 CSS가 이 아이콘을 90도 돌려 `>`로 만든다 — 옆으로 펴지는 메뉴의
+    // 방향을 그대로 가리키게 한다(`.sidebar__footer .icon--chevron`).
+    <svg className="icon icon--bold icon--chevron" viewBox="0 0 24 24" aria-hidden="true">
       <path d="m6 9 6 6 6-6" />
     </svg>
   );

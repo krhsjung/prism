@@ -200,10 +200,11 @@ body {
 }
 
 .select__menu {
+  --select-menu-width: 184px;
   position: absolute;
   top: calc(100% + 8px);
   z-index: 10;
-  width: 184px;
+  width: var(--select-menu-width);
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -362,9 +363,10 @@ body {
 }
 
 .sidebar {
+  --sidebar-padding: 16px;
   flex: none;
   width: 240px;
-  padding: 24px 16px;
+  padding: 24px var(--sidebar-padding);
   display: flex;
   flex-direction: column;
   gap: 24px;
@@ -501,6 +503,71 @@ body {
   text-transform: capitalize;
 }
 
+/* 사용자 아바타(디자인 `Atom/Avatar`) — 모바일 상단 바에서 사용자 칩을 대신한다. */
+.avatar {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  background: var(--color-primary);
+  color: var(--color-primary-fg);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  user-select: none;
+}
+
+/* 모바일 드로어 바닥 — 상단 바에서 내려온 컨트롤이 앉는 자리(데스크톱에선 렌더되지 않는다).
+   `margin-top: auto`로 내비게이션과 떨어져 패널 아래에 고정된다. */
+.sidebar__footer {
+  margin-top: auto;
+  padding-top: 16px;
+  border-top: 1px solid var(--color-border);
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+}
+/* 세로로 쌓이므로 버튼이 패널 폭을 채운다 — 가로 배치용 정렬을 되돌린다. */
+.sidebar__footer .btn {
+  width: 100%;
+  justify-content: flex-start;
+}
+/* 메뉴는 래퍼(.select)를 기준으로 `left: 100%`에 걸리므로, 래퍼가 패널 폭을 채우면
+   트리거에서 한참 떨어진 자리에 열려 화면 밖으로 밀린다 — 내용만큼만 차지하게 한다. */
+.sidebar__footer .select {
+  align-self: flex-start;
+}
+.sidebar__footer .select__trigger {
+  justify-content: flex-start;
+}
+
+/* 드로어는 좁고 길어 스위처가 바닥 가까이 앉는다 — 아래로 펼 자리가 없어 옆으로 편다
+   (iOS·Android 드로어와 같은 규칙). 윗변을 트리거에 맞추고 8만큼 띄운다.
+   트리거가 폭을 채우면 메뉴가 화면 밖으로 밀리므로, 여기서는 내용만큼만 차지한다. */
+.sidebar__footer .select__menu {
+  top: 0;
+  right: auto;
+  /* 트리거 오른쪽 8px이 기본이지만, 거기서 화면을 넘기면 안으로 당긴다 — iOS·Android는
+     시스템이 해주는 일이고(popover·DropdownMenu), 웹에는 그 장치가 없어 직접 잰다.
+     `left`는 래퍼 기준이라 화면 왼쪽 끝까지 더해야 한다(드로어는 화면에 붙어 있다). */
+  left: min(
+    calc(100% + 8px),
+    calc(100vw - var(--sidebar-padding) - var(--select-menu-width) - 8px)
+  );
+  transform: none;
+}
+/* 셰브런도 펼침 방향을 가리킨다: `∨`를 돌려 `>`로 만든다. */
+.sidebar__footer .icon--chevron {
+  rotate: -90deg;
+}
+.sidebar__footer .topbar__user {
+  padding-left: 4px;
+}
+
 .content {
   flex: 1;
   padding: 32px;
@@ -576,11 +643,66 @@ body {
 .sessions__row--head span:nth-child(4) {
   text-align: center;
 }
+/* 좁은 폭에서 "모두 로그아웃"이 앉는 자리 — 목록 아래, 구분선 뒤.
+   폭을 채워 행마다 있는 "해제" 기둥에 이어 붙어 보이지 않게 한다. */
+.sessions__foot {
+  border-top: 1px solid var(--color-border);
+  padding: 14px 20px;
+}
+.sessions__foot .btn {
+  width: 100%;
+  justify-content: center;
+}
+
+/* 되돌릴 수 없는 동작 앞의 확인 창. 드로어의 scrim과 달리 폭과 무관하게 뜬다. */
+.confirm-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(22, 35, 56, 0.45);
+}
+.confirm {
+  width: min(360px, 100%);
+  padding: 20px;
+  background: var(--color-card);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+}
+.confirm__title {
+  margin: 0;
+  font-weight: 700;
+  font-size: 18px;
+  color: var(--color-heading);
+}
+.confirm__body {
+  margin: 8px 0 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--color-muted);
+}
+.confirm__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 20px;
+}
+
 .session {
   border-bottom: 1px solid var(--color-border);
 }
 .session:last-child {
   border-bottom: 0;
+}
+/* 끊기는 중인 행은 통째로 흐려진다. 바쁜 것은 버튼이 아니라 **이 세션**이고, 곧 사라질
+   행이라 그 예고로도 읽힌다. 크기가 변하지 않아 목록이 흔들리지 않는다(.btn:disabled와
+   같은 투명도). */
+.session--revoking {
+  opacity: 0.55;
 }
 .session__id {
   display: flex;
@@ -632,7 +754,10 @@ body {
 .badge {
   display: inline-flex;
   align-items: center;
-  padding: 3px 10px;
+  /* 높이를 고정한다 — 패딩만 주면 글꼴·플랫폼마다 글자 상자 여백이 달라 같은 배지가
+     서로 다른 높이로 나온다. 시안 `Atom/Badge`의 23으로 못박아 셋을 맞춘다. */
+  height: 23px;
+  padding: 0 10px;
   border-radius: 9999px;
   font-size: 12px;
   font-weight: 600;
@@ -662,6 +787,14 @@ body {
 
 /* 모바일: 사이드바를 숨기고 표를 카드형으로 쌓는다. */
 @media (max-width: 720px) {
+  /* 목록 안의 `해제`는 데스크톱에서 판 없는 ghost다 — 표가 가벼워지고, 눌리는 것이라는
+     신호는 hover가 준다. **터치에는 hover가 없다.** 그 신호가 사라지면 남는 것은 그냥
+     글자뿐이라, 좁은 폭에서는 판을 깐다(앱도 같은 이유로 채운 판을 쓴다). */
+  .session__action .btn--ghost {
+    background: var(--color-secondary-bg);
+    color: var(--color-secondary-fg);
+  }
+
   /* 사이드바가 왼쪽에서 슬라이드인하는 드로어가 된다. 닫힘 상태는 visibility:hidden으로
      포커스·스크린리더에서 빠진다(화면 밖에 살아있는 요소가 tab에 걸리지 않게). */
   .sidebar {
@@ -696,6 +829,10 @@ body {
   }
   .topbar {
     padding: 12px 20px;
+    /* 시안의 모바일 상단 바는 워드마크 · 아바타 · 햄버거뿐이다. 남은 컨트롤은
+       드로어로 내려가므로 한 줄에 밀어 넣을 것이 없다(예전에는 테마·언어·사용자·
+       로그아웃이 모두 여기 있어 글자가 세로로 쪼개졌다). */
+    gap: 12px;
   }
   .content {
     padding: 20px;
@@ -703,19 +840,32 @@ body {
   .sessions__row--head {
     display: none;
   }
+  /* 시안 `Dashboard / Mobile`의 세션 카드 배치 — 세 줄이다:
+       1) 세션 이름 · 짧은 id            [배지]
+       2) 시작 …
+       3) 만료 …                          [해제]
+     `grid-row`를 명시하는 이유: 자동 배치는 마크업 순서(id → 시작 → 만료 → 상태 → 액션)를
+     그대로 따라가 배지가 날짜 아래로 밀려난다. 열만 지정해서는 줄을 되돌릴 수 없다. */
   .sessions__row {
     grid-template-columns: 1fr auto;
-    row-gap: 8px;
+    /* 시안의 두 날짜 줄은 거의 붙어 있다(17px 줄 사이 1px). 행 간격을 그 값에 맞추고,
+       신원 줄과의 거리(시안 10px)는 아래 margin으로 따로 준다 — 한 grid의 row-gap은
+       모든 행에 같이 걸려 두 간격을 따로 줄 수 없기 때문이다. */
+    row-gap: 1px;
   }
   .session__id {
     grid-column: 1;
+    grid-row: 1;
+    margin-bottom: 9px;
   }
   .session__status {
     grid-column: 2;
+    grid-row: 1;
     justify-self: end;
+    align-self: start;
   }
   .session__when {
-    grid-column: 1 / -1;
+    grid-column: 1;
     font-size: 13px;
     color: var(--color-muted);
     text-align: left;
@@ -725,8 +875,13 @@ body {
     margin-right: 6px;
     color: var(--color-muted);
   }
+  /* 시안에서 Revoke는 만료 줄이 아니라 **날짜 두 줄 전체**의 오른쪽에, 세로 가운데로
+     선다(버튼 높이 39가 날짜 블록 35를 감싼다). 두 행에 걸치게 두지 않으면 버튼이
+     만료 줄에만 붙어 시작 줄 쪽이 허전해진다. */
   .session__action {
-    grid-column: 1 / -1;
-    justify-self: start;
+    grid-column: 2;
+    grid-row: 2 / 4;
+    justify-self: end;
+    align-self: center;
   }
 }

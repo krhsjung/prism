@@ -9,8 +9,25 @@ pnpm install
 pnpm dev       # 개발 서버 (HMR)
 pnpm build     # 타입체크 + 프로덕션 빌드
 pnpm preview   # 빌드 산출물 미리보기
-pnpm test      # vitest (91개)
+pnpm test      # vitest (93개)
 ```
+
+## 지원 브라우저 하한
+
+`vite.config.ts`의 `BROWSER_FLOOR`가 지원 하한을 **명시합니다**(`build.target`·`cssTarget`
+둘 다 같은 값). 값 자체보다 명시했다는 것이 중요합니다 — 기본값에 맡기면 최소화기가 최신
+문법으로 줄여도 알 길이 없습니다. 실제로 `@media (max-width: 720px)`가 range 문법
+(`@media (width<=720px)`)으로 나가, 그 문법을 모르는 브라우저에서는 규칙이 **통째로 무시돼**
+모바일 배치가 죽었습니다(Safari는 16.4부터 지원).
+
+CSS만 정하면 "스타일은 무시되는데 스크립트는 도는" 어긋난 조합이 나오므로 JS도 같은 값을 씁니다.
+빌드 뒤 확인하려면:
+
+```bash
+grep -o '@media[^{]*' dist/assets/*.css   # (max-width:720px)여야 한다
+```
+
+## API 주소
 
 API 주소는 소스에 박지 않고 `VITE_API_URL`에서 옵니다(iOS·Android의 `PRISM_API_URL`과
 같은 역할). 비어 있으면 `http://localhost:3000`으로 떨어집니다.
@@ -48,7 +65,8 @@ JS는 읽을 수도 지울 수도 없습니다. 그래서 "로그인 상태인�
 - `GET /auth/sessions`로 내 세션을 보고, 개별(`POST /auth/sessions/:id/revoke`)·전체
   (`.../revoke-all`)로 원격 폐기합니다. 현재 세션을 지우면 이 브라우저의 쿠키도 함께
   정리됩니다.
-- **기기 종류만 보여줍니다.** 계약의 `device`는 폰·태블릿·데스크톱·모름 넷뿐입니다 —
+- **기기 종류만 보여줍니다.** 계약의 `device`는 정해진 목록(iPhone·iPad·Galaxy·Pixel·
+  Android·Mac·Windows·데스크톱·모름)뿐입니다 —
   서버가 로그인 요청의 User-Agent를 그 자리에서 접고 원문은 버리며, IP는 읽지 않습니다.
   기기명·브라우저·위치를 그리려면 그것들을 저장해야 하고, 그러면 개인정보 미저장 원칙이
   깨집니다. 각 행은 "기기 종류 + 현재/로그인된 세션 + 짧은 세션 id + 시작·만료 시각"입니다.
@@ -120,6 +138,11 @@ const { t } = useI18n();
 언어·테마 선택은 팝오버 메뉴 하나를 공유합니다(`src/components/SelectMenu.tsx`) —
 생김새뿐 아니라 키보드·초점 규칙까지 같아야 하기 때문입니다. 각자 구현하면 한쪽만
 고쳐지고 다른 쪽이 뒤처집니다.
+
+메뉴는 기본적으로 트리거 아래로 펴지지만, **모바일 드로어 안에서는 오른쪽으로 폅니다**
+(`.sidebar__footer .select__menu`). 드로어 바닥에 붙은 트리거에는 아래로 열 자리가 없기
+때문이고, 셰브런도 CSS로 90도 돌려 `>`로 만들어 가리키는 쪽과 펴지는 쪽을 맞춥니다. 화면을
+넘길 때는 `min()`으로 안쪽으로 당깁니다 — iOS·Android에서는 시스템이 해주는 일입니다.
 
 ## 관련 문서
 
