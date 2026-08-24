@@ -8,7 +8,11 @@ import type {
   SocialProvider,
   User,
 } from '@app/common';
-import { SessionsRepository, UsersRepository } from '@app/common';
+import {
+  PresenceRepository,
+  SessionsRepository,
+  UsersRepository,
+} from '@app/common';
 import { PrismConfigService } from '@app/config';
 import { SESSION_ABSOLUTE_TTL_MS, SessionTokenService } from '@app/session';
 import { AppleOAuthClient } from './oauth/apple-oauth.client';
@@ -48,6 +52,8 @@ export class AuthService {
   constructor(
     private readonly users: UsersRepository,
     private readonly sessions: SessionsRepository,
+    // 지금 소켓을 붙들고 있는 세션들. 쓰는 쪽은 socket 서비스고 여기는 읽기만 한다.
+    private readonly presence: PresenceRepository,
     @Inject(OAUTH_CLIENTS) private readonly clients: OAuthClientRegistry,
     // native 로그인(토큰 직접 검증)은 provider별 프로토콜이 달라 각 클라이언트를 별도 주입한다
     // (레지스트리의 OAuthClient 인터페이스에는 없는 검증 메서드를 쓰기 때문).
@@ -264,6 +270,15 @@ export class AuthService {
 
   listSessions(userId: string): Promise<SessionInfo[]> {
     return this.sessions.listForUser(userId);
+  }
+
+  // 이 사용자의 세션 중 지금 소켓이 붙어 있는 것들.
+  //
+  // 목록과 **따로** 묻는 이유는 원천이 다르기 때문이다 — 목록은 세션 저장소가, 연결은
+  // socket 서비스가 쓴 presence가 답한다. 둘을 한 호출로 합치면 세션 저장소가
+  // 자기가 모르는 값을 대신 말하게 된다.
+  connectedSessionIds(userId: string): Promise<Set<string>> {
+    return this.presence.connectedSessionIds(userId);
   }
 
   // 소유권 범위 폐기 — 내 세션이 아니면 false.

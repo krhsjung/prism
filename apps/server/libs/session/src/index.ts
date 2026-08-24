@@ -6,6 +6,7 @@
 // (OAuth 흐름처럼 auth 서비스에만 있는 것은 services/auth에 남는다)
 export * from './session-cookie';
 export * from './session-token.service';
+export * from './session-authenticator';
 export * from './jwt-auth.guard';
 export * from './public.decorator';
 export * from './session.module';

@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-# NestJS monorepo image. Pick the app with --build-arg APP=api|auth.
+# NestJS monorepo image. Pick the app with --build-arg APP=api|auth|socket.
 ARG APP=api
 
 # ---- build stage ----

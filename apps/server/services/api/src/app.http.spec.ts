@@ -5,7 +5,11 @@ import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { PrismConfigService } from '@app/config';
 import { SessionsRepository, type User } from '@app/common';
-import { JwtAuthGuard, SessionTokenService } from '@app/session';
+import {
+  JwtAuthGuard,
+  SessionAuthenticator,
+  SessionTokenService,
+} from '@app/session';
 import { AppController } from './app.controller';
 
 const user: User = {
@@ -45,6 +49,7 @@ describe('api 서비스 인증 경계', () => {
       controllers: [AppController, FutureDomainController],
       providers: [
         SessionTokenService,
+        SessionAuthenticator,
         { provide: APP_GUARD, useClass: JwtAuthGuard },
         { provide: SessionsRepository, useValue: sessions },
         {

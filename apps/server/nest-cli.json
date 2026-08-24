@@ -72,6 +72,15 @@
       "compilerOptions": {
         "tsConfigPath": "libs/session/tsconfig.lib.json"
       }
+    },
+    "socket": {
+      "type": "application",
+      "root": "services/socket",
+      "entryFile": "main",
+      "sourceRoot": "services/socket/src",
+      "compilerOptions": {
+        "tsConfigPath": "services/socket/tsconfig.app.json"
+      }
     }
   }
 }

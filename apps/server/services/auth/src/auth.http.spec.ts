@@ -8,7 +8,11 @@ import { SessionsRepository, type AuthSession, type User } from '@app/common';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { WebOriginGuard } from './web-origin.guard';
-import { JwtAuthGuard, SessionTokenService } from '@app/session';
+import {
+  JwtAuthGuard,
+  SessionAuthenticator,
+  SessionTokenService,
+} from '@app/session';
 import { AuthTokenService } from './session/auth-token.service';
 import { NativeAuthCodeStore } from './session/native-auth-code.service';
 
@@ -40,6 +44,7 @@ describe('auth HTTP 경계', () => {
     revokeSession: jest.Mock;
     refreshSession: jest.Mock;
     listSessions: jest.Mock;
+    connectedSessionIds: jest.Mock;
     revokeOwnedSession: jest.Mock;
     revokeAllSessions: jest.Mock;
   };
@@ -63,6 +68,11 @@ describe('auth HTTP 경계', () => {
           { id: 'sess-1', startedAt: ISO, expiresAt: ISO },
           { id: 'sess-other', startedAt: ISO, expiresAt: ISO },
         ]),
+      ),
+      // 지금 소켓이 붙어 있는 세션들. 목록과 원천이 달라 따로 답한다 —
+      // 여기서는 'sess-other'만 붙어 있는 상태로 둔다.
+      connectedSessionIds: jest.fn(() =>
+        Promise.resolve(new Set(['sess-other'])),
       ),
       revokeOwnedSession: jest.fn(() => Promise.resolve(true)),
       revokeAllSessions: jest.fn(() => Promise.resolve(2)),
@@ -91,6 +101,7 @@ describe('auth HTTP 경계', () => {
       providers: [
         AuthTokenService,
         SessionTokenService,
+        SessionAuthenticator,
         JwtAuthGuard,
         WebOriginGuard,
         { provide: AuthService, useValue: auth },
@@ -448,6 +459,88 @@ describe('auth HTTP 경계', () => {
     const body = res.body as object as { id: string; isCurrent: boolean }[];
     expect(body.find((s) => s.id === 'sess-1')?.isCurrent).toBe(true);
     expect(body.find((s) => s.id === 'sess-other')?.isCurrent).toBe(false);
+  });
+
+  // isCurrent와 isConnected는 **다른 축**이다. 현재 세션이라고 소켓이 붙어 있는 것도,
+  // 붙어 있다고 현재 세션인 것도 아니다 — 여기서는 정확히 엇갈린 경우를 본다.
+  it('sessions: 소켓이 붙어 있는 세션만 isConnected로 표시한다', async () => {
+    const token = tokens.signSession(user.id, 'sess-1');
+    const res = await server()
+      .get('/auth/sessions')
+      .set('Cookie', `prism_session=${token}`)
+      .expect(200);
+
+    expect(auth.connectedSessionIds).toHaveBeenCalledWith(user.id);
+    const body = res.body as object as { id: string; isConnected: boolean }[];
+    expect(body.find((s) => s.id === 'sess-1')?.isConnected).toBe(false);
+    expect(body.find((s) => s.id === 'sess-other')?.isConnected).toBe(true);
+  });
+
+  // ⚠️ 회귀 방지: 저장소가 주는 기본 순서는 인덱스 score(=만료 시각)라 **회전할 때마다
+  // 바뀐다** — 지금 쓰는 세션이 가장 자주 회전하므로 보고 있는 동안 그 행이 계속 맨 아래로
+  // 떨어졌다. 정렬 키는 움직이지 않는 값이어야 한다.
+  it('sessions: 현재 세션이 맨 위, 나머지는 시작이 최신인 순이다', async () => {
+    // 저장소는 만료가 이른 순으로 준다 — 현재 세션이 가장 늦게 만료돼 맨 끝에 온다.
+    auth.listSessions.mockResolvedValue([
+      { id: 'sess-old', startedAt: '2026-01-01T00:00:00.000Z', expiresAt: ISO },
+      { id: 'sess-new', startedAt: '2026-01-03T00:00:00.000Z', expiresAt: ISO },
+      { id: 'sess-1', startedAt: '2026-01-02T00:00:00.000Z', expiresAt: ISO },
+    ]);
+
+    const token = tokens.signSession(user.id, 'sess-1');
+    const res = await server()
+      .get('/auth/sessions')
+      .set('Cookie', `prism_session=${token}`)
+      .expect(200);
+
+    const body = res.body as object as { id: string }[];
+    expect(body.map((s) => s.id)).toEqual(['sess-1', 'sess-new', 'sess-old']);
+  });
+
+  // 만료 시각이 어떻게 흔들려도 순서는 그대로여야 한다 — 그것이 이 정렬의 요점이다.
+  it('sessions: 회전으로 만료가 바뀌어도 순서가 흔들리지 않는다', async () => {
+    const rows = (currentExpiry: string) => [
+      { id: 'sess-old', startedAt: '2026-01-01T00:00:00.000Z', expiresAt: ISO },
+      {
+        id: 'sess-1',
+        startedAt: '2026-01-02T00:00:00.000Z',
+        expiresAt: currentExpiry,
+      },
+    ];
+    const token = tokens.signSession(user.id, 'sess-1');
+    const order = async () => {
+      const res = await server()
+        .get('/auth/sessions')
+        .set('Cookie', `prism_session=${token}`)
+        .expect(200);
+      return (res.body as object as { id: string }[]).map((s) => s.id);
+    };
+
+    auth.listSessions.mockResolvedValue(rows('2026-01-02T00:00:00.000Z'));
+    const before = await order();
+
+    // 현재 세션이 회전해 만료가 한참 뒤로 밀렸다(저장소라면 맨 끝으로 갔을 상황).
+    auth.listSessions.mockResolvedValue(
+      rows('2026-12-31T00:00:00.000Z').reverse(),
+    );
+    expect(await order()).toEqual(before);
+  });
+
+  // 빠르게 두 번 로그인하면 시작 시각이 같을 수 있다 — 그때도 순서가 흔들리면 안 된다.
+  it('sessions: 시작 시각이 같으면 id로 순서를 결정한다', async () => {
+    auth.listSessions.mockResolvedValue([
+      { id: 'sess-b', startedAt: ISO, expiresAt: ISO },
+      { id: 'sess-a', startedAt: ISO, expiresAt: ISO },
+    ]);
+
+    const token = tokens.signSession(user.id, 'sess-none');
+    const res = await server()
+      .get('/auth/sessions')
+      .set('Cookie', `prism_session=${token}`)
+      .expect(200);
+
+    const body = res.body as object as { id: string }[];
+    expect(body.map((s) => s.id)).toEqual(['sess-a', 'sess-b']);
   });
 
   // 회귀 방지: @Get(':provider')가 뒤에 선언돼 있어 순서가 바뀌면

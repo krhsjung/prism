@@ -1,7 +1,16 @@
-import type { CookieOptions, Request } from 'express';
+import type { CookieOptions } from 'express';
 import type { CookiePolicy } from '@app/config';
 
 export type { CookiePolicy };
+
+// 토큰을 찾는 데 필요한 것은 헤더 두 개뿐이다 — 그래서 express.Request를 요구하지 않는다.
+//
+// WebSocket 업그레이드는 express를 거치지 않고 http.IncomingMessage로 도착한다.
+// 구조적 타입으로 좁혀 두면 **양쪽이 그대로 만족**하므로(둘 다 이 모양이다) 소켓이
+// 같은 규칙으로 토큰을 찾을 수 있고, 기존 호출부는 한 줄도 바뀌지 않는다.
+export interface HeaderCarrier {
+  headers: { cookie?: string; authorization?: string };
+}
 
 // 브라우저에 심는 쿠키의 이름/속성 정책을 여기서 소유한다.
 //
@@ -106,7 +115,7 @@ export function refreshCookieOptions(
 // 값은 클라이언트가 마음대로 보낼 수 있다. `%zz` 같은 깨진 퍼센트 인코딩이 오면
 // decodeURIComponent가 던지는데, 그대로 두면 인증 실패가 아니라 500이 된다.
 // 읽을 수 없는 쿠키는 "없는 쿠키"로 다룬다.
-export function cookieOf(req: Request, name: string): string | undefined {
+export function cookieOf(req: HeaderCarrier, name: string): string | undefined {
   const header = req.headers.cookie;
   if (!header) return undefined;
   for (const part of header.split(';')) {
@@ -131,7 +140,7 @@ export function cookieOf(req: Request, name: string): string | undefined {
 // 운영에서는 __Host- 이름만 인정한다. 접두어 없는 동명 쿠키까지 받아주면 형제 서브도메인이
 // 심은 쿠키가 그대로 통과해 접두어를 쓰는 의미가 사라진다.
 export function sessionTokenOf(
-  req: Request,
+  req: HeaderCarrier,
   policy: CookiePolicy,
 ): string | null {
   const header = req.headers.authorization;

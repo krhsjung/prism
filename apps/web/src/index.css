@@ -771,6 +771,16 @@ body {
   background: var(--color-secondary-bg);
   color: var(--color-accent);
 }
+/* 연결이 없는 세션 — 유효하지만 지금 소켓을 붙들고 있지 않다. 색도 한 단계 물러선다.
+   surface는 카드보다 한 톤 눌린 배경이라 라이트/다크 모두에서 카드 위에 얹히고,
+   Info(secondary)·Current(success)와 헷갈리지 않는다. 새 토큰이 필요 없다. */
+.badge--neutral {
+  background: var(--color-surface);
+  color: var(--color-muted);
+  /* 라이트에서 surface(#f5f8fc)와 카드(#fff)의 차이가 작아 알약 윤곽이 흐리다.
+     inset이라 셋을 맞춰 둔 23px 높이를 건드리지 않는다. */
+  box-shadow: inset 0 0 0 1px var(--color-border);
+}
 .session__action {
   justify-self: end;
 }

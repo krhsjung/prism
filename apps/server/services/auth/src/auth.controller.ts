@@ -87,6 +87,28 @@ function escapeHtml(value: string): string {
     .replace(/'/g, '&#39;');
 }
 
+// 목록의 순서 규칙 — **현재 세션이 맨 위, 나머지는 시작이 최신인 순.**
+//
+// ⚠️ 정렬 키는 **움직이지 않는 값**이어야 한다. 저장소가 주는 기본 순서는 인덱스의
+// score(=만료 시각)인데, 그 값은 회전할 때마다 다시 쓰인다 — 지금 쓰고 있는 세션이
+// 가장 자주 회전하므로 보고 있는 동안 그 행이 계속 맨 아래로 떨어진다.
+// `startedAt`은 세션이 사는 동안 바뀌지 않고, `isCurrent`도 보는 사람 기준으로 고정이다.
+//
+// 같은 이유로 `isConnected`로는 정렬하지 않는다. 그것으로 줄을 세우면 다른 기기가 앱을
+// 켜고 끌 때마다 행이 솟구쳤다 가라앉는다 — 연결 상태는 배지로만 말하게 둔다.
+//
+// 현재 세션을 위에 두는 이유: 목록의 목적이 "모르는 세션을 찾아 끊기"라 기준점("이게 나")이
+// 먼저 읽혀야 나머지를 그것과 대조할 수 있다. 현재 세션만 해제 버튼이 없어서, 가운데 있으면
+// 오른쪽 버튼 기둥이 중간에 끊기기도 한다.
+// 최신순인 이유: 낯선 로그인은 대개 방금 생긴 것이라 의심스러운 항목이 맨 위로 온다.
+function byCurrentThenNewest(a: SessionListItem, b: SessionListItem): number {
+  if (a.isCurrent !== b.isCurrent) return a.isCurrent ? -1 : 1;
+  // ISO-8601(UTC, 고정 폭)이라 사전순 비교가 곧 시간순이다.
+  if (a.startedAt !== b.startedAt) return a.startedAt < b.startedAt ? 1 : -1;
+  // 빠르게 두 번 로그인하면 시작 시각이 같을 수 있다 — id로 갈라 순서를 완전히 결정한다.
+  return a.id < b.id ? -1 : 1;
+}
+
 @Controller('auth')
 export class AuthController {
   private readonly logger = new Logger(AuthController.name);
@@ -429,8 +451,19 @@ export class AuthController {
   async sessions(
     @Req() req: Request & { user: User; sessionId: string },
   ): Promise<SessionListItem[]> {
-    const sessions = await this.auth.listSessions(req.user.id);
-    return sessions.map((s) => ({ ...s, isCurrent: s.id === req.sessionId }));
+    // 목록과 연결 여부는 원천이 달라(세션 저장소 / socket 서비스가 쓴 presence)
+    // 두 번 묻는다. 서로 기다릴 이유가 없으므로 함께 보낸다.
+    const [sessions, connected] = await Promise.all([
+      this.auth.listSessions(req.user.id),
+      this.auth.connectedSessionIds(req.user.id),
+    ]);
+    return sessions
+      .map((s) => ({
+        ...s,
+        isCurrent: s.id === req.sessionId,
+        isConnected: connected.has(s.id),
+      }))
+      .sort(byCurrentThenNewest);
   }
 
   // 모든 기기에서 로그아웃. 현재 세션도 포함되므로 쿠키를 정리한다.

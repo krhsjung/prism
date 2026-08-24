@@ -5,6 +5,7 @@ import {
   sessionCookieOptions,
   sessionTokenOf,
   type CookiePolicy,
+  type HeaderCarrier,
 } from './session-cookie';
 
 // 이름 규칙의 입력은 CookiePolicy 하나뿐이다 — 테스트도 같은 값을 쓴다.
@@ -132,5 +133,20 @@ describe('cookie namespace', () => {
     expect(
       sessionTokenOf(reqWith('__Host-prism_admin_session=mine'), ADMIN),
     ).toBe('mine');
+  });
+
+  // WebSocket 업그레이드는 express를 거치지 않고 http.IncomingMessage로 도착한다.
+  // sessionTokenOf가 헤더 두 개만 보는 구조적 타입(HeaderCarrier)을 받는 덕에 소켓
+  // 핸드셰이크가 **같은 규칙**으로 토큰을 찾는다 — 규칙이 둘이면 한쪽만 고쳐진다.
+  it('express Request가 아닌 헤더 운반체에서도 토큰을 찾는다', () => {
+    const upgrade: HeaderCarrier = {
+      headers: { cookie: 'prism_session=tok-ws' },
+    };
+    expect(sessionTokenOf(upgrade, LOCAL)).toBe('tok-ws');
+
+    const native: HeaderCarrier = {
+      headers: { authorization: 'Bearer tok-native-ws' },
+    };
+    expect(sessionTokenOf(native, PROD)).toBe('tok-native-ws');
   });
 });

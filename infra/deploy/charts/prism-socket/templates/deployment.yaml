@@ -1,0 +1,71 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "prism-socket.fullname" . }}
+  labels:
+    {{- include "prism-socket.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "prism-socket.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        # 이 값이 바뀌면 파드 템플릿이 바뀐 것이므로 쿠버네티스가 롤아웃한다.
+        # (`latest` 태그만으로는 새 이미지를 밀어 넣어도 스펙이 그대로다)
+        prism.dev/revision: {{ .Values.deployRevision | quote }}
+      labels:
+        {{- include "prism-socket.selectorLabels" . | nindent 8 }}
+    spec:
+      imagePullSecrets:
+        - name: {{ .Values.imagePullSecret }}
+      containers:
+        - name: {{ .Chart.Name }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.targetPort }}
+              protocol: TCP
+          env:
+            - name: PRISM_SOCKET_PORT
+              value: {{ .Values.env.socketPort | quote }}
+            - name: PRISM_CORS_ORIGIN
+              value: {{ .Values.env.corsOrigin | quote }}
+            # socket은 이 값을 쓰지 않지만(OAuth redirect는 auth만) 공통 설정 로더가
+            # 운영에서 필수로 검증한다 — 미설정이면 부팅에 실패한다.
+            - name: PRISM_WEB_APP_URL
+              value: {{ .Values.env.webAppUrl | quote }}
+            # 세션 쿠키 이름 네임스페이스 — auth와 같은 값이어야 쿠키를 찾는다.
+            - name: PRISM_COOKIE_NAMESPACE
+              value: {{ .Values.env.cookieNamespace | quote }}
+            # 세션 검증용 — auth가 발급한 토큰을 같은 키·같은 저장소로 확인한다.
+            - name: PRISM_JWT_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "prism-socket.fullname" . }}-secret
+                  key: jwt-secret-key
+            - name: PRISM_REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "prism-socket.fullname" . }}-secret
+                  key: redis-url
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 15
+          # ⚠️ readiness는 /readyz다(liveness의 /healthz와 다르다).
+          # 이 서비스는 Redis 없이는 아무 일도 못 하는데 프로세스는 살아 있으므로,
+          # 둘 다 /healthz를 보면 Redis가 끊긴 파드가 계속 트래픽을 받는다 —
+          # 그러면 모든 세션이 조용히 "연결 없음"으로 보인다.
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}

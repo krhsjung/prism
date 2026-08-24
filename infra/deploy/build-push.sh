@@ -8,7 +8,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/config.sh"
 echo "==> docker login $PRISM_REGISTRY (user: $PRISM_REGISTRY_USER)"
 printf '%s' "$PRISM_REGISTRY_PASSWORD" | docker login "$PRISM_REGISTRY" -u "$PRISM_REGISTRY_USER" --password-stdin
 
-for app in auth api; do
+for app in auth api socket; do
   img="$PRISM_REGISTRY/prism-$app:$PRISM_IMAGE_TAG"
   echo "==> build & push $img"
   docker build --build-arg "APP=$app" -t "$img" "$SERVER_DIR"

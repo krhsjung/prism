@@ -13,9 +13,11 @@ import type {
 export type Env = Record<string, string | undefined>;
 
 export interface HttpConfig {
-  // auth는 3000, api는 3001로 독립 실행 — 웹의 기본 호출 대상(:3000)은 auth다.
+  // auth는 3000, api는 3001, socket은 3002로 독립 실행 —
+  // 웹의 기본 호출 대상(:3000)은 auth다.
   authPort: number;
   apiPort: number;
+  socketPort: number;
   // 쉼표 구분 허용 origin 목록. 미설정이면 undefined(호출부에서 전체 허용 판단).
   corsOrigins: string[] | undefined;
   // 로그인 완료 후 브라우저를 돌려보낼 웹 앱 주소.
@@ -116,6 +118,7 @@ export function loadHttpConfig(env: Env): HttpConfig {
   return {
     authPort: Number(str(env, 'PRISM_AUTH_PORT')) || 3000,
     apiPort: Number(str(env, 'PRISM_API_PORT')) || 3001,
+    socketPort: Number(str(env, 'PRISM_SOCKET_PORT')) || 3002,
     corsOrigins: corsRaw
       ? corsRaw
           .split(',')

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Helm 차트 설치 (env 치환 방식).
-#   ./install.sh <prism-auth|prism-api>             # 설치/업그레이드
+#   ./install.sh <prism-auth|prism-api|prism-socket>  # 설치/업그레이드
 #   ./install.sh <chart> --template                 # 렌더 미리보기 (클러스터 불필요)
 #   ./install.sh <chart> --uninstall                # 제거
 #
@@ -11,7 +11,7 @@ source ~/.zshenv 2>/dev/null || true
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 NS="${PRISM_NAMESPACE:-prism}"
-CHART="${1:?usage: install.sh <prism-auth|prism-api> [--template|--uninstall]}"
+CHART="${1:?usage: install.sh <prism-auth|prism-api|prism-socket> [--template|--uninstall]}"
 ACTION="${2:-install}"
 CHART_PATH="$HERE/charts/$CHART"
 [ -d "$CHART_PATH" ] || { echo "chart not found: $CHART_PATH"; exit 1; }

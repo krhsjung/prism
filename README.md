@@ -67,7 +67,7 @@
 - **운영**: `/healthz`(liveness) · `/readyz`(DB·세션 저장소 인지 readiness),
   Docker + Helm(kind) 배포, nginx 경로 라우팅.
 - **품질**: TypeScript `unknown`/`any` 키워드 금지(lint 강제) · strict +
-  `noUncheckedIndexedAccess` · 자동 테스트 **서버 226 · 웹 93 · iOS 65 · Android 55**
+  `noUncheckedIndexedAccess` · 자동 테스트 **서버 298 · 웹 128 · iOS 98 · Android 101**
   (그 밖에 실제 Redis를 요구하는 통합 스펙 17개는 `PRISM_REDIS_URL`이 있을 때만 실행).
 
 ## 구조
@@ -75,7 +75,7 @@
 ```
 prism/
 ├── apps/
-│   ├── server/   # NestJS — REST API, 도메인 소스 (auth · api 두 서비스)
+│   ├── server/   # NestJS — REST API, 도메인 소스 (auth · api · socket 세 서비스)
 │   ├── web/      # React + Vite
 │   ├── ios/      # Swift + SwiftUI
 │   └── android/  # Kotlin + Compose
@@ -133,4 +133,4 @@ iOS·Android는 각각 [apps/ios/README.md](apps/ios/README.md) ·
 
 ## 배포
 
-web(정적) · auth · api 빌드/배포 방법은 [infra/deploy/README.md](infra/deploy/README.md)를 참고하세요.
+web(정적) · auth · api · socket 빌드/배포 방법은 [infra/deploy/README.md](infra/deploy/README.md)를 참고하세요.

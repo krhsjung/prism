@@ -81,6 +81,13 @@ export interface SessionInfo {
 // 알 방법이 없기 때문이다(세션 id는 HttpOnly 쿠키 안의 토큰에만 있다).
 export interface SessionListItem extends SessionInfo {
   isCurrent: boolean;
+  // 이 세션이 **지금 소켓을 붙들고 있는가.** 세션의 유효성이 아니라 연결의 유무다 —
+  // 백그라운드로 내린 앱은 유효한 세션이지만 연결은 없다.
+  //
+  // ⚠️ 값을 그대로 화면에 옮기지 않는다. 소켓 서비스가 죽으면 presence가 통째로 비어
+  // "아무도 안 붙음"과 구별되지 않으므로, 클라이언트는 **자기 소켓이 ready일 때만**
+  // 이 값을 믿고 아니면 예전 2상태(Current/Active)로 후퇴한다.
+  isConnected: boolean;
 }
 
 export function decodeSessionListItem(
@@ -95,6 +102,10 @@ export function decodeSessionListItem(
     startedAt: decodeString(obj.startedAt, 'SessionListItem.startedAt'),
     expiresAt: decodeString(obj.expiresAt, 'SessionListItem.expiresAt'),
     isCurrent: obj.isCurrent,
+    // isCurrent와 달리 **없어도 거부하지 않는다.** 이 필드가 생기기 전 서버 응답과
+    // 섞이는 순간(롤링 배포)에 목록 전체가 실패하면 안 된다 — device를 unknown으로
+    // 접는 것과 같은 규칙이다. 배지 하나 때문에 카드가 통째로 오류가 되는 쪽이 손해가 크다.
+    isConnected: obj.isConnected === true,
     device: decodeDeviceKind(obj.device),
   };
 }
@@ -208,6 +219,66 @@ export type ClientErrorCode =
 
 // 클라이언트 오류 처리 분기가 다루는 전체 코드 공간.
 export type ApiErrorCode = AuthErrorCode | ClientErrorCode;
+
+// ── 세션 소켓(presence) 프로토콜 ──
+//
+// socket 서비스가 여는 WebSocket. 대시보드의 "지금 붙어 있는가"(SessionListItem.isConnected)를
+// 실시간으로 알리는 것이 유일한 용도다.
+//
+// **이 소켓은 데이터를 나르지 않는다. 신호만 나른다.**
+// 목록을 실어 보내면 편할 것 같지만, 그러면 클라이언트가 세션 목록을 얻는 경로가 둘이 된다.
+// 그런데 스탬핑·공유 회전·stale 응답 거부·중앙화된 "세션 종료" 공지는 **HTTP 경로에만**
+// 붙어 있다(plan/auth.md §6.3). 소켓이 목록을 직접 주입하면 그 넷을 전부 우회하고,
+// 특히 **세션 N이 연 소켓이 세션 N+1의 화면에 목록을 밀어 넣는** 경로가 열린다.
+// 신호만 나르고 목록은 늘 GET /auth/sessions로 다시 가져오면 그 문제가 존재할 수 없다.
+export const SOCKET_PATH = '/socket';
+
+export const SOCKET_SERVER_MESSAGE_TYPES = [
+  'ready',
+  'sessionsChanged',
+  'heartbeat',
+  'error',
+] as const;
+export type SocketServerMessageType =
+  (typeof SOCKET_SERVER_MESSAGE_TYPES)[number];
+
+// 서버 → 클라. **클라 → 서버 메시지는 없다.**
+//
+// presence는 서버가 소켓의 존재만 보고 판단한다 — 클라이언트가 "나 살아 있다"고 주장하게
+// 두면 반쯤 죽은 소켓이 계속 Active로 남는다.
+export type SocketServerMessage =
+  // 인증을 통과했다. 클라이언트가 isConnected를 **믿어도 되는 시점**의 신호다 —
+  // ready 전에는 소켓 서비스가 살아 있는지 알 수 없어 빈 presence가 "아무도 안 붙음"과
+  // 구별되지 않는다(그래서 그때까지는 두 갈래로 후퇴한다).
+  //
+  // ⚠️ **목록을 가져오라는 신호가 아니다.** 연결 직후 서버가 보내는 sessionsChanged가
+  // 방금 붙은 이 연결에게도 오므로, 양쪽이 다 가져오면 조회가 두 번 나간다.
+  // 재연결 때도 같다 — 뒤따르는 sessionsChanged 하나가 곧 새로고침이 된다.
+  | { type: 'ready' }
+  // 이 사용자의 연결 구성이 바뀌었다(누가 붙었거나·끊겼거나·폐기됐다). 다시 가져와라.
+  // 페이로드가 없으므로 멱등하고 순서 문제가 없다.
+  | { type: 'sessionsChanged' }
+  // 살아 있다는 신호(PRESENCE_RENEW_MS 주기). 브라우저 JS는 프로토콜 ping/pong을
+  // 보내지도 관찰하지도 못해서, 이것이 없으면 웹이 죽은 서버를 몇 시간이고 붙들고 있는다.
+  // 클라이언트는 일정 시간 침묵을 죽음으로 보고 재연결한다.
+  | { type: 'heartbeat' }
+  // 직후 close(1008)이 따라온다. 코드는 HTTP와 **같은** AUTH_ERROR_CODES다 —
+  // 클라이언트가 이미 "갱신하면 살아나는가"(SESSION_EXPIRED) 분기를 갖고 있다.
+  | { type: 'error'; code: AuthErrorCode };
+
+export function decodeSocketServerMessage(
+  v: JsonValue | undefined,
+): SocketServerMessage {
+  const obj = decodeObject(v, 'SocketServerMessage');
+  const type = SOCKET_SERVER_MESSAGE_TYPES.find((t) => t === obj.type);
+  // 모르는 type은 거부한다 — DeviceKind와 달리 이것은 화면 라벨이 아니라 **동작**이라,
+  // 접어서 아무 갈래로 보내면 하지 말아야 할 일을 한다.
+  if (!type) throw new Error('SocketServerMessage.type: unknown type');
+  if (type !== 'error') return { type };
+  const code = Object.values(AUTH_ERROR_CODES).find((c) => c === obj.code);
+  if (!code) throw new Error('SocketServerMessage.code: unknown error code');
+  return { type, code };
+}
 
 // ── 경계 디코딩 (parse, don't validate) ──
 // 외부(네트워크)에서 파싱된 JSON을 계약 타입으로 "구성"한다. 형식이 어긋나면 throw —

@@ -24,7 +24,11 @@
     "test:e2e": "jest --config ./services/api/test/jest-e2e.json",
     "sync:contracts": "node scripts/sync-contracts.mjs && node scripts/gen-native-contracts.mjs",
     "gen:contracts": "node scripts/gen-native-contracts.mjs",
-    "check:contracts": "node scripts/gen-native-contracts.mjs --check"
+    "check:contracts": "node scripts/gen-native-contracts.mjs --check",
+    "build:socket": "nest build socket",
+    "start:socket": "nest start socket",
+    "start:socket:dev": "nest start socket --watch",
+    "start:socket:prod": "node dist/services/socket/main"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",
@@ -37,7 +41,8 @@
     "jose": "^6.2.5",
     "pg": "^8.22.0",
     "reflect-metadata": "^0.2.2",
-    "rxjs": "^7.8.1"
+    "rxjs": "^7.8.1",
+    "ws": "^8.21.3"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.2.0",
@@ -50,6 +55,7 @@
     "@types/node": "^24.0.0",
     "@types/pg": "^8.20.0",
     "@types/supertest": "^7.0.0",
+    "@types/ws": "^8.18.1",
     "eslint": "^9.18.0",
     "eslint-config-prettier": "^10.0.1",
     "eslint-plugin-prettier": "^5.2.2",

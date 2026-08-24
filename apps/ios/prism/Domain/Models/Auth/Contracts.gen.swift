@@ -41,3 +41,15 @@ enum DeviceKind: String, Codable, Sendable {
         self = DeviceKind(rawValue: raw) ?? .unknown
     }
 }
+
+/// 세션 소켓이 내려보내는 메시지의 종류.
+///
+/// `DeviceKind`와 달리 **모르는 값은 접지 않고 거부한다** — 이것은 화면 라벨이 아니라
+/// 동작이라, 아무 갈래로 접으면 하지 말아야 할 일을 한다. 합성된 `init(from:)`이
+/// 모르는 raw 값에 throw하는 것이 바로 그 동작이다.
+enum SocketServerMessageType: String, Codable, Sendable {
+    case ready
+    case sessionsChanged
+    case heartbeat
+    case error
+}

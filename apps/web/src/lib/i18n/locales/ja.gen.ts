@@ -55,7 +55,10 @@ export const messages: Messages = {
   'dashboard.col_expires': '有効期限',
   'dashboard.col_status': 'ステータス',
   'dashboard.status_current': '現在',
+  // status_active는 지금 소켓이 붙어 있다는 뜻이다 — 세션의 유효성이 아니다
+  // 소켓이 없으면 유효한 세션도 inactive로 읽힌다(백그라운드로 내린 앱이 그렇다)
   'dashboard.status_active': 'アクティブ',
+  'dashboard.status_inactive': '非アクティブ',
   // 세션을 만든 기기의 종류(계약의 DeviceKind와 1:1). 모델·버전·위치는 담지 않는다
   // 브랜드명은 고유명사라 옮기지 않는다 — 옮길 것은 device_desktop·device_unknown뿐이다
   'dashboard.device_iphone': 'iPhone',

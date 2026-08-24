@@ -8,6 +8,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 "$HERE/build-push.sh"
 "$HERE/install.sh" prism-auth
 "$HERE/install.sh" prism-api
+"$HERE/install.sh" prism-socket
 "$HERE/deploy-web.sh"
 
 echo "==> all deployed"

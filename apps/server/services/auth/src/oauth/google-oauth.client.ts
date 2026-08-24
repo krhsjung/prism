@@ -59,7 +59,10 @@ export class GoogleOAuthClient implements OAuthClient {
     if (audience.length === 0) {
       throw new Error('Google native login requires a configured audience');
     }
-    const ticket = await this.client.verifyIdToken({ idToken: token, audience });
+    const ticket = await this.client.verifyIdToken({
+      idToken: token,
+      audience,
+    });
     const payload = ticket.getPayload();
     if (!payload?.sub) {
       throw new Error('Google id_token missing sub');

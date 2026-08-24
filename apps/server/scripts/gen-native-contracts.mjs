@@ -64,6 +64,7 @@ function extractRecord(name) {
 const contract = {
   authProviders: extractStringArray('AUTH_PROVIDERS'),
   deviceKinds: extractStringArray('DEVICE_KINDS'),
+  socketServerMessageTypes: extractStringArray('SOCKET_SERVER_MESSAGE_TYPES'),
   authErrorCodes: extractRecord('AUTH_ERROR_CODES'),
   clientErrorCodes: extractRecord('CLIENT_ERROR_CODES'),
 };
@@ -74,6 +75,11 @@ function camelCase(screamingSnake) {
   return screamingSnake
     .toLowerCase()
     .replace(/_([a-z0-9])/g, (_, c) => c.toUpperCase());
+}
+
+// 반대 방향 — 와이어 값이 camelCase인 목록(소켓 메시지 type)을 Kotlin enum 상수로 옮긴다.
+function screamingSnake(camel) {
+  return camel.replace(/[A-Z]/g, (c) => `_${c}`).toUpperCase();
 }
 
 const HEADER = [
@@ -109,6 +115,15 @@ function emitSwift() {
     '        let raw = try decoder.singleValueContainer().decode(String.self)',
     '        self = DeviceKind(rawValue: raw) ?? .unknown',
     '    }',
+    '}',
+    '',
+    '/// 세션 소켓이 내려보내는 메시지의 종류.',
+    '///',
+    '/// `DeviceKind`와 달리 **모르는 값은 접지 않고 거부한다** — 이것은 화면 라벨이 아니라',
+    '/// 동작이라, 아무 갈래로 접으면 하지 말아야 할 일을 한다. 합성된 `init(from:)`이',
+    '/// 모르는 raw 값에 throw하는 것이 바로 그 동작이다.',
+    'enum SocketServerMessageType: String, Codable, Sendable {',
+    ...contract.socketServerMessageTypes.map((t) => `    case ${t}`),
     '}',
     '',
   ];
@@ -147,6 +162,23 @@ function emitKotlin() {
     '         */',
     '        fun from(wire: String?): DeviceKind =',
     '            entries.firstOrNull { it.wire == wire } ?: UNKNOWN',
+    '    }',
+    '}',
+    '',
+    '/** 세션 소켓이 내려보내는 메시지의 종류. */',
+    'enum class SocketServerMessageType(val wire: String) {',
+    ...contract.socketServerMessageTypes.map(
+      (t) => `    ${screamingSnake(t)}("${t}"),`,
+    ),
+    '    ;',
+    '',
+    '    companion object {',
+    '        /**',
+    '         * [DeviceKind]와 달리 **모르는 값은 접지 않고 null을 준다** — 이것은 화면',
+    '         * 라벨이 아니라 동작이라, 아무 갈래로 접으면 하지 말아야 할 일을 한다.',
+    '         */',
+    '        fun from(wire: String?): SocketServerMessageType? =',
+    '            entries.firstOrNull { it.wire == wire }',
     '    }',
     '}',
     '',

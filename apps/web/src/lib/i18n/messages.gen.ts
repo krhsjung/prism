@@ -62,6 +62,7 @@ export const MESSAGE_KEYS = [
   'dashboard.col_status',
   'dashboard.status_current',
   'dashboard.status_active',
+  'dashboard.status_inactive',
   'dashboard.device_iphone',
   'dashboard.device_ipad',
   'dashboard.device_galaxy',

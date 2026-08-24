@@ -7,6 +7,7 @@ import { LocaleSwitcher } from '../components/LocaleSwitcher';
 import { ThemeSwitcher } from '../components/ThemeSwitcher';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/auth-context';
+import { useSessionSocket } from '../lib/session-socket-context';
 import { useI18n } from '../lib/i18n/i18n-context';
 import { useMediaQuery } from '../lib/useMediaQuery';
 import type { DeviceKind, SessionListItem } from '../lib/contracts.gen';
@@ -70,6 +71,23 @@ const DEVICE_SHAPES: Record<DeviceKind, DeviceShape> = {
   unknown: 'monitor',
 };
 
+// 배지가 말하는 것은 **연결 여부**지 세션의 유효성이 아니다(목록에는 유효한 세션만 온다).
+//
+// ⚠️ `socketReady`가 false면 `isConnected`를 믿지 않고 두 갈래로 물러난다.
+// 내 소켓이 붙어 있지 않으면 서버가 내려준 빈 presence가 "아무도 안 붙었다"인지
+// "소켓 서비스가 죽었다"인지 구별할 수 없고, 후자를 전자로 읽으면 멀쩡한 기기들을
+// 전부 "비활성"이라고 지어내게 된다 — 모를 때는 지어내지 않는 쪽으로 실패한다.
+function statusOf(
+  session: SessionListItem,
+  socketReady: boolean,
+): { variant: 'success' | 'info' | 'neutral'; key: MessageKey } {
+  if (session.isCurrent)
+    return { variant: 'success', key: 'dashboard.status_current' };
+  if (!socketReady || session.isConnected)
+    return { variant: 'info', key: 'dashboard.status_active' };
+  return { variant: 'neutral', key: 'dashboard.status_inactive' };
+}
+
 export function DashboardPage() {
   const navigate = useNavigate();
   const { state, signOut, refresh } = useAuth();
@@ -97,8 +115,13 @@ export function DashboardPage() {
   // 언마운트 뒤 도착한 응답이 상태를 건드리지 않게 한다(경합·누수 방지). 이 가드가
   // await 뒤 setState를 조건부로 만들어, 효과에서의 동기 setState 경고도 함께 없앤다
   // (AuthProvider가 generation으로 하는 것과 같은 방식).
+  // 소켓은 **신호만** 준다 — 목록은 아래 fetchSessions가 기존 HTTP 경로로 다시 가져온다.
+  const { ready: socketReady, changed } = useSessionSocket();
   const alive = useRef(true);
   const started = useRef(false);
+  // 이미 반영한 신호 번호. 0에서 시작하므로 마운트 시의 첫 조회와 겹치지 않고,
+  // 같은 신호로 두 번 가져오지도 않는다(started ref와 같은 역할이다).
+  const handled = useRef(0);
   // 드로어 열림 시 포커스를 옮길 닫기 버튼, 닫힐 때 되돌릴 햄버거 버튼.
   const menuBtnRef = useRef<HTMLButtonElement>(null);
   const closeBtnRef = useRef<HTMLButtonElement>(null);
@@ -135,6 +158,18 @@ export function DashboardPage() {
       alive.current = false;
     };
   }, [fetchSessions]);
+
+  // 소켓이 "바뀌었다"고 하면 다시 가져온다.
+  //
+  // **비우지 않는다**(load가 아니라 fetchSessions) — 다른 기기가 하나 붙었다고 카드가
+  // "불러오는 중"으로 접혔다 펴지면 목록 전체가 깜빡인다(plan/dashboard.md §4).
+  // changed는 0에서 시작하고 소켓의 첫 ready가 1로 올리므로, 마운트 시의 첫 조회와
+  // 겹치지 않는다.
+  useEffect(() => {
+    if (changed === handled.current) return;
+    handled.current = changed;
+    void fetchSessions();
+  }, [changed, fetchSessions]);
 
   // 드로어가 열리면: 포커스를 안으로 옮기고, Esc로 닫고, 배경 스크롤을 잠근다.
   // 닫힐 때(cleanup) 포커스를 햄버거로 되돌린다 — 키보드 사용자가 위치를 잃지 않는다.
@@ -410,11 +445,9 @@ export function DashboardPage() {
                       </span>
                       <span className="session__status">
                         <span
-                          className={`badge badge--${s.isCurrent ? 'success' : 'info'}`}
+                          className={`badge badge--${statusOf(s, socketReady).variant}`}
                         >
-                          {s.isCurrent
-                            ? t('dashboard.status_current')
-                            : t('dashboard.status_active')}
+                          {t(statusOf(s, socketReady).key)}
                         </span>
                       </span>
                       <span className="session__action">

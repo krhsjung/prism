@@ -105,20 +105,26 @@ Auth·Dashboard와 동일 파일/디자인 시스템을 쓴다. 테마는 변수
                       STUN(공개) / TURN(coturn·env)
 ```
 
-- **시그널링 = api 서비스의 WebSocket 게이트웨이.** api는 "도메인 기능" 담당이고
-  기본이 보호(APP_GUARD)다 — WS 연결도 **세션 쿠키로 인증**해 로그인 사용자만 방을
-  만들고 참여한다(`@app/session`의 검증 로직 재사용). 서버는 **SDP·ICE만 릴레이**하며
-  미디어 트랙은 절대 지나가지 않는다.
-- **방 상태**는 프로세스 메모리로 시작(단일 kind 노드). 다중 인스턴스로 가면 `@app/redis`
-  pub/sub으로 승격(세션 저장소가 이미 redis라 결이 맞는다).
+- **시그널링 = socket 서비스의 WebSocket 게이트웨이.** 대시보드의 세션 presence를 위해
+  이미 만들어 둔 서비스이고([dashboard.md](./dashboard.md) 참고), 거기에 업그레이드 인증 ·
+  Origin 허용목록 · 연결 레지스트리 · 백오프 클라이언트가 이미 있다 — api에 두 번째
+  게이트웨이를 세우면 그 한 벌을 통째로 다시 만들게 된다.
+  WS 연결은 **세션으로 인증**한다(`@app/session`의 `SessionAuthenticator` 재사용 —
+  웹은 쿠키, 네이티브는 Bearer). 서버는 **SDP·ICE만 릴레이**하며 미디어 트랙은 절대
+  지나가지 않는다. 방 발급(`POST /api/rooms`)만 api에 남길지, 그것도 socket으로 옮길지는
+  착수 시점에 정한다.
+- **방 상태**는 프로세스 메모리로 시작(단일 kind 노드, `replicaCount: 1`). 다중
+  인스턴스로 가면 `@app/redis` pub/sub으로 승격 — presence의 `ConnectionRegistry`가
+  이미 같은 자리에서 같은 승격을 기다리고 있다.
 - **STUN/TURN**: 공개 STUN + **TURN(coturn)을 v1부터 포함**(대칭 NAT/방화벽에서도 연결).
   TURN 호스트·자격증명은 **env로만** 주입한다(레포에 금지, no-secrets 원칙). ICE 서버
   목록은 서버가 방 발급 시 내려주거나 설정에서 읽는다.
-- **신규 의존성**: `@nestjs/websockets` + 전송(`ws` 권장 — 얕고 계약을 우리가 쥔다;
-  socket.io는 재연결/룸이 편하지만 클라 런타임이 붙는다). 클라는 브라우저 표준
-  `RTCPeerConnection`/`getUserMedia`(추가 라이브러리 없음).
-- **nginx**: `/api` location에 **WebSocket Upgrade** 헤더 프록시 추가(또는 `/rtc` 전용
-  location). 배포 문서([infra/deploy/README.md])에 WS 예외를 한 줄 더한다.
+- **신규 의존성 없음**: 전송은 이미 들어와 있는 `ws`다(`@nestjs/websockets`는 쓰지
+  않는다 — `{event,data}` 봉투가 우리 `type` 판별 유니온과 맞지 않고, 업그레이드 **전**
+  훅이 없어 Origin 거절이 HTTP 상태가 아니라 close 코드가 된다. `services/socket/src/
+  socket.server.ts` 주석 참고). 클라는 브라우저 표준 `RTCPeerConnection`/`getUserMedia`.
+- **nginx**: `/socket` location에 **WebSocket Upgrade**가 이미 적용돼 있다
+  ([infra/deploy/README.md]). 시그널링을 같은 서비스에 두면 추가 설정이 없다.
 
 ---
 
@@ -173,7 +179,8 @@ type ServerMsg =
 
 1. ✅ 기획 확정 (§9)
 2. ⏳ Figma 시안 (Lobby · In-call · 상태들, 테마 대응)
-3. ⏳ 시그널링 게이트웨이 (api WS + 세션 인증 + 방 상태 + 계약 디코더)
+3. ⏳ 시그널링 게이트웨이 (`services/socket`에 방 상태 + 계약 디코더 추가 —
+   WS 서버·세션 인증·Origin 검사·연결 레지스트리는 presence가 이미 만들어 두었다)
 4. ⏳ `apps/web` 구현 (`getUserMedia` · `RTCPeerConnection` · 시그널링 · 컨트롤 · stats)
 5. ⏳ TURN(coturn) 프로비저닝 + ICE 서버 구성(env) — 시그널링과 함께
 6. ⏳ nginx WS Upgrade + 배포 (사이드바 `WebRTC` 활성화)
@@ -187,6 +194,9 @@ type ServerMsg =
 1. **미디어 콜 vs 데이터 채널** → **1:1 화상/음성 콜**로 확정(임팩트 큼).
 2. **TURN** → **v1부터 TURN(coturn) 포함**(env 주입). 대칭 NAT/방화벽에서도 연결되게 한다.
 3. **시그널링 전송** → **`ws`**(얕고 계약을 우리가 쥔다). socket.io 미사용.
+4. **게이트웨이 위치** → **`services/socket`**. 원래 api로 잡았으나, 대시보드의 세션
+   presence가 그 서비스를 먼저 만들면서 인증·Origin·레지스트리·재연결이 모두 거기에
+   생겼다 — 두 번째 게이트웨이를 세울 이유가 없다(2026-08-23 갱신).
 
 ## 10. 오픈 이슈
 

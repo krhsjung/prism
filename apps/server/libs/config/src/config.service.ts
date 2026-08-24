@@ -30,6 +30,10 @@ export class PrismConfigService {
     return this.app.http.apiPort;
   }
 
+  get socketPort(): number {
+    return this.app.http.socketPort;
+  }
+
   get corsOrigins(): string[] | undefined {
     return this.app.http.corsOrigins;
   }

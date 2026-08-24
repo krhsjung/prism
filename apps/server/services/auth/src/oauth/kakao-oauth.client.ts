@@ -7,8 +7,7 @@ import type { OAuthProfile } from './oauth-profile';
 const KAKAO_AUTHORIZE_URL = 'https://kauth.kakao.com/oauth/authorize';
 const KAKAO_TOKEN_URL = 'https://kauth.kakao.com/oauth/token';
 const KAKAO_USER_URL = 'https://kapi.kakao.com/v2/user/me';
-const KAKAO_TOKEN_INFO_URL =
-  'https://kapi.kakao.com/v1/user/access_token_info';
+const KAKAO_TOKEN_INFO_URL = 'https://kapi.kakao.com/v1/user/access_token_info';
 
 // Kakao 토큰 응답에서 실제로 쓰는 필드만(access_token). 나머지는 무시한다.
 interface KakaoTokenResponse {
@@ -83,7 +82,10 @@ export class KakaoOAuthClient implements OAuthClient {
       throw new Error(`Kakao access_token_info failed (${res.status})`);
     }
     const obj = decodeObject(await jsonBodyOf(res), 'Kakao access_token_info');
-    if (typeof obj.app_id !== 'number' || String(obj.app_id) !== expectedAppId) {
+    if (
+      typeof obj.app_id !== 'number' ||
+      String(obj.app_id) !== expectedAppId
+    ) {
       throw new Error('Kakao access token app_id mismatch');
     }
   }
@@ -137,8 +139,7 @@ export class KakaoOAuthClient implements OAuthClient {
         : {};
     return {
       sub: String(obj.id),
-      nickname:
-        typeof props.nickname === 'string' ? props.nickname : undefined,
+      nickname: typeof props.nickname === 'string' ? props.nickname : undefined,
     };
   }
 }

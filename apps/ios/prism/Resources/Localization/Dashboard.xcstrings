@@ -507,6 +507,29 @@
         }
       }
     },
+    "dashboard.status_inactive": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inactive"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "비활성"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "非アクティブ"
+          }
+        }
+      }
+    },
     "dashboard.device_iphone": {
       "extractionState": "manual",
       "localizations": {

@@ -6,4 +6,6 @@ export * from './i18n';
 export * from './types/user';
 export * from './repositories/users.repository';
 export * from './repositories/sessions.repository';
+export * from './repositories/presence.repository';
 export * from './repositories/users.module';
+export * from './repositories/sessions.module';

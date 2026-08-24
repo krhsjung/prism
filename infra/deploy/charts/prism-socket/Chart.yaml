@@ -1,0 +1,5 @@
+apiVersion: v2
+name: prism-socket
+description: Prism socket service (NestJS + ws) Helm chart
+type: application
+version: 0.1.0

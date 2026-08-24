@@ -1,7 +1,6 @@
 import { Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { PrismConfigModule, PrismConfigService } from '@app/config';
-import { DatabaseModule } from '@app/database';
 import { RedisModule } from '@app/redis';
 import { JwtAuthGuard, SessionModule } from '@app/session';
 import { AppController } from './app.controller';
@@ -19,12 +18,11 @@ import { AppController } from './app.controller';
 @Module({
   imports: [
     PrismConfigModule,
-    // 세션 검증에 필요한 저장소들. 가드가 매 요청 세션 행을 확인하므로
-    // 둘이 없으면 인증 자체가 불가능하다(전역 토큰이라 앱 루트에서 구성해야 한다).
-    DatabaseModule.forRootAsync({
-      inject: [PrismConfigService],
-      useFactory: (config: PrismConfigService) => config.postgresConfig,
-    }),
+    // 세션 저장소. 가드가 매 요청 세션 행을 확인하므로 이것이 없으면 인증 자체가
+    // 불가능하다(전역 토큰이라 앱 루트에서 구성해야 한다).
+    //
+    // **Postgres는 구성하지 않는다.** 이 서비스는 세션을 검증만 하고 사용자 행을 조회하지
+    // 않는다 — 세션은 Redis에만 있다(@app/common의 SessionsModule / UsersModule 분리).
     RedisModule.forRootAsync({
       inject: [PrismConfigService],
       useFactory: (config: PrismConfigService) => config.redisConfig,

@@ -47,3 +47,21 @@ enum class DeviceKind(val wire: String) {
             entries.firstOrNull { it.wire == wire } ?: UNKNOWN
     }
 }
+
+/** 세션 소켓이 내려보내는 메시지의 종류. */
+enum class SocketServerMessageType(val wire: String) {
+    READY("ready"),
+    SESSIONS_CHANGED("sessionsChanged"),
+    HEARTBEAT("heartbeat"),
+    ERROR("error"),
+    ;
+
+    companion object {
+        /**
+         * [DeviceKind]와 달리 **모르는 값은 접지 않고 null을 준다** — 이것은 화면
+         * 라벨이 아니라 동작이라, 아무 갈래로 접으면 하지 말아야 할 일을 한다.
+         */
+        fun from(wire: String?): SocketServerMessageType? =
+            entries.firstOrNull { it.wire == wire }
+    }
+}

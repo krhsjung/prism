@@ -5,7 +5,8 @@ web·services 빌드/배포 자동화 (셸 스크립트 + Helm).
 ## 대상 구조
 
 `<your-domain>`(nginx, TLS) →
-`/` web(정적), `/auth` auth(kind NodePort 30000), `/api` api(kind NodePort 30001).
+`/` web(정적), `/auth` auth(kind NodePort 30000), `/api` api(kind NodePort 30001),
+`/socket` socket(kind NodePort 30002, WebSocket).
 이미지는 레지스트리(`<your-registry>/prism-*`)에 푸시, kind가 pull.
 자세한 그림은 [../architecture.drawio](../architecture.drawio).
 
@@ -106,7 +107,7 @@ DB 옵션: `PRISM_DATABASE_URL`(기본 `postgres://prism@host.docker.internal:54
 목록)로 지정하며, 이 값이 있으면 replica 토폴로지·없으면 single로 동작한다.
 
 옵션(기본값): `PRISM_IMAGE_TAG`(latest) · `PRISM_AUTH_NODEPORT`(30000) ·
-`PRISM_API_NODEPORT`(30001) · `KIND_CLUSTER`(kind).
+`PRISM_API_NODEPORT`(30001) · `PRISM_SOCKET_NODEPORT`(30002) · `KIND_CLUSTER`(kind).
 
 ## 사용법
 
@@ -154,7 +155,7 @@ template:
 
 - kind 클러스터 가동 (`infra/docker/kind/create-cluster.sh`)
 - 레지스트리 가동 + `docker login <your-registry>`
-- nginx에 `/auth`·`/api` 프록시 location (이미 적용됨)
+- nginx에 `/auth`·`/api` 프록시 location (이미 적용됨) + `/socket` **WebSocket** location (아래)
 
 ### nginx: `/auth/callback`은 SPA로 예외 처리
 
@@ -173,6 +174,59 @@ location /auth { proxy_pass http://localhost:30000; ... }
 ```
 
 > 웹에 `/auth` 하위 라우트를 새로 추가하면 같은 예외가 하나씩 더 필요하다.
+
+### nginx: `/socket`은 WebSocket으로 프록시한다
+
+세션 소켓은 일반 프록시로는 **동작하지 않는다.** 업그레이드 헤더를 넘겨주지 않으면
+nginx가 101을 평범한 응답으로 다뤄 핸드셰이크가 깨진다. (**적용 완료**)
+
+`http` 블록에:
+
+```nginx
+# Connection 헤더는 업그레이드 요청일 때만 `upgrade`여야 한다 —
+# 늘 붙이면 일반 요청의 keep-alive가 깨진다.
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
+}
+```
+
+`server` 블록에:
+
+```nginx
+location /socket {
+    proxy_pass http://127.0.0.1:30002;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection $connection_upgrade;
+    proxy_set_header Host $host;
+    # 서버가 Origin 허용목록을 이 헤더로 검사한다(WebSocket은 CORS의 보호를 받지
+    # 않으므로 서버가 막지 않으면 아무도 못 막는다).
+    proxy_set_header Origin $http_origin;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    # 기본 60s면 유휴 소켓이 프록시에서 끊긴다. 서버가 20초마다 하트비트를 보내 실제로
+    # 유휴는 아니지만, 수명을 프록시가 정하지 않게 상한을 넉넉히 둔다.
+    proxy_read_timeout 3600s;
+    proxy_send_timeout 3600s;
+    # 신호는 즉시 흘러야 한다 — 버퍼링하면 sessionsChanged가 묶여서 늦게 도착한다.
+    proxy_buffering off;
+}
+```
+
+- **접두어를 떼지 않는다**(`/api/`와 다르다). 서버가 경로를 `/socket`으로 검사해 우리 것이
+  아닌 업그레이드를 404로 거절하기 때문이다(`services/socket/src/upgrade.ts`).
+- **`localhost`가 아니라 `127.0.0.1`이다.** kind NodePort는 IPv4만 리스닝하는데 `localhost`는
+  `::1`로 먼저 해석돼, 매 연결이 실패한 connect 한 번을 지불하고 에러 로그를 남긴다
+  (`/auth`·`/api`가 같은 이유로 이미 그렇게 되어 있다).
+- **운영에서는 반드시 `wss://`.** 세션 쿠키가 `__Host-` 접두어라 Secure를 요구하고,
+  평문 `ws://`로는 쿠키가 실리지 않아 웹이 전부 인증에 실패한다.
+- `/socket`은 웹 SPA 라우트·`/auth`·`/api`와 겹치지 않아 `/auth/callback` 같은 예외가 없다.
+
+> ⚠️ **설정 백업을 `servers/` 안에 두지 말 것.** `include servers/*`가 `.bak` 파일까지
+> 읽어 `duplicate upstream`으로 nginx가 뜨지 않는다(실제로 한 번 그렇게 멈췄다).
+> 백업은 디렉터리 **밖**에 둔다.
 
 ### nginx: `index.html`은 캐시하지 않는다
 
