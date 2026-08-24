@@ -13,8 +13,10 @@ export interface AuthContextValue {
   // 이유 없이 대시보드에서 튕기면 무슨 일인지 알 수 없다 — 로그인 화면이 한 줄 알려 준다.
   endedUnexpectedly: boolean;
   // 서버가 방금 세션을 발급한 경우(데모 로그인) — 쿠키는 이미 심겼고 사용자만 반영한다.
-  // accessTokenTtlMs로 선제 갱신 스케줄을 곧바로 건다(로그인 직후부터 세션이 밀린다).
-  signIn(user: User, accessTokenTtlMs: number): void;
+  //
+  // 토큰 수명은 받지 않는다. 회전을 예약하지 않으므로 여기서 알 필요가 없고, 만료 시각은
+  // 로그인 응답을 디코딩하는 그 자리에서 api 계층이 이미 찍어 뒀다(api.ts).
+  signIn(user: User): void;
   // 쿠키 세션을 서버(/auth/me)에 확인해 상태를 갱신한다. 성공 여부 반환.
   // 세션이 HttpOnly 쿠키라 클라이언트는 서버에 묻는 것 외에 알 방법이 없다.
   refresh(): Promise<boolean>;

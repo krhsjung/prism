@@ -134,9 +134,10 @@ export function LoginPage() {
     setPending('demo');
     log.auth('signin', { outcome: 'started', provider: 'demo', method: 'demo' });
     try {
-      // 세션 쿠키는 서버가 응답에 심는다 — 웹은 사용자와 액세스 토큰 수명만 채택한다.
-      const { user, accessTokenTtlMs } = await api.demoLogin();
-      signIn(user, accessTokenTtlMs);
+      // 세션 쿠키는 서버가 응답에 심는다 — 웹은 사용자만 채택한다.
+      // (토큰 수명은 api 계층이 같은 응답에서 이미 만료 시각으로 바꿔 뒀다)
+      const { user } = await api.demoLogin();
+      signIn(user);
       log.auth('signin', { outcome: 'success', provider: 'demo', method: 'demo' });
       navigate('/dashboard', { replace: true });
     } catch (e) {

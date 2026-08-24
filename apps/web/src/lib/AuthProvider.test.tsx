@@ -112,7 +112,7 @@ describe('AuthProvider 경합 방어', () => {
     expect(result.current.state.status).toBe('loading');
 
     // 확인이 끝나기 전에 사용자가 데모 로그인.
-    act(() => result.current.signIn(user, ACCESS_TTL_MS));
+    act(() => result.current.signIn(user));
     expect(result.current.state.status).toBe('authenticated');
 
     // 이제야 도착한 이전 확인의 실패 — 새 로그인을 건드리면 안 된다.
@@ -306,7 +306,7 @@ describe('AuthProvider 세션 종료 알림', () => {
     expect(result.current.endedUnexpectedly).toBe(true);
 
     await act(async () => {
-      result.current.signIn(user, ACCESS_TTL_MS);
+      result.current.signIn(user);
     });
 
     expect(result.current.state.status).toBe('authenticated');
@@ -406,7 +406,7 @@ describe('AuthProvider 세션 종료 알림', () => {
     const stale = authority.mark();
     // 새 로그인이 앞질렀다 — 표식이 오른다.
     await act(async () => {
-      result.current.signIn(user, ACCESS_TTL_MS);
+      result.current.signIn(user);
     });
 
     await act(async () => {
@@ -415,184 +415,5 @@ describe('AuthProvider 세션 종료 알림', () => {
 
     expect(result.current.state.status).toBe('authenticated');
     expect(result.current.endedUnexpectedly).toBe(false);
-  });
-});
-
-describe('AuthProvider 선제 갱신', () => {
-  const LEAD_MS = ACCESS_TTL_MS * 0.75; // REFRESH_LEAD_RATIO
-
-  beforeEach(() => {
-    vi.resetAllMocks();
-    vi.useFakeTimers();
-    vi.mocked(api.me).mockResolvedValue(sessionUser);
-    vi.mocked(api.logout).mockResolvedValue(undefined);
-    vi.mocked(api.refreshSession).mockResolvedValue({
-      ok: true,
-      ttlMs: ACCESS_TTL_MS,
-      rejected: false,
-    });
-  });
-
-  afterEach(() => {
-    vi.clearAllTimers();
-    vi.useRealTimers();
-  });
-
-  it('수명의 75% 지점에 세션을 회전하고 다시 예약한다', async () => {
-    const { result } = renderHook(() => useAuth(), { wrapper });
-    await act(async () => {
-      await Promise.resolve();
-    });
-    expect(result.current.state.status).toBe('authenticated');
-    expect(vi.mocked(api.refreshSession)).not.toHaveBeenCalled();
-
-    // 75% 지점: 첫 회전.
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(LEAD_MS);
-    });
-    expect(vi.mocked(api.refreshSession)).toHaveBeenCalledTimes(1);
-
-    // 회전이 성공하면 새 수명으로 다시 예약된다 — 다음 주기에 또 회전.
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(LEAD_MS);
-    });
-    expect(vi.mocked(api.refreshSession)).toHaveBeenCalledTimes(2);
-  });
-
-  it('데모 로그인(signIn) 직후부터 회전이 예약된다', async () => {
-    // 초기 me는 매달아 두고, signIn으로 곧장 인증시킨다.
-    let hang = false;
-    vi.mocked(api.me).mockImplementation(
-      () =>
-        new Promise(() => {
-          hang = true;
-        }),
-    );
-    const { result } = renderHook(() => useAuth(), { wrapper });
-    act(() => result.current.signIn(user, ACCESS_TTL_MS));
-    expect(result.current.state.status).toBe('authenticated');
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(LEAD_MS);
-    });
-    expect(vi.mocked(api.refreshSession)).toHaveBeenCalledTimes(1);
-    expect(hang).toBe(true); // me는 여전히 매달린 채 — 회전은 signIn이 건 예약이다
-  });
-
-  // 서버가 확정 거부한 경우만 재검증으로 넘긴다 — 다른 탭이 먼저 회전한 경합일 수 있어
-  // 곧장 anonymous로 끊지 않고 me로 확인한다.
-  it('선제 회전이 확정 거부되면 재검증(me)으로 세션을 확인한다', async () => {
-    vi.mocked(api.refreshSession).mockResolvedValue({
-      ok: false,
-      ttlMs: null,
-      rejected: true,
-    });
-    const { result } = renderHook(() => useAuth(), { wrapper });
-    await act(async () => {
-      await Promise.resolve();
-    });
-    expect(result.current.state.status).toBe('authenticated');
-
-    // 다음 me(재검증)는 세션이 사라진 것으로 응답한다.
-    vi.mocked(api.me).mockRejectedValueOnce(new Error('gone'));
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(LEAD_MS);
-    });
-    expect(vi.mocked(api.refreshSession)).toHaveBeenCalledTimes(1);
-    expect(result.current.state.status).toBe('anonymous');
-  });
-
-  // 회전이 도는 도중 로그아웃하면 그 회전은 **끝난 세션**의 것이다. 그 수명으로 다음
-  // 타이머를 심으면 로그인 화면 뒤에서 회전이 영영 돌아간다.
-  it('회전 중에 로그아웃하면 다음 회전을 예약하지 않는다', async () => {
-    let settleRefresh: (() => void) | null = null;
-    vi.mocked(api.refreshSession).mockImplementation(
-      () =>
-        new Promise((resolve) => {
-          settleRefresh = () =>
-            resolve({ ok: true, ttlMs: ACCESS_TTL_MS, rejected: false });
-        }),
-    );
-    const { result } = renderHook(() => useAuth(), { wrapper });
-    await act(async () => {
-      await Promise.resolve();
-    });
-
-    // 예약된 회전이 시작되고, 응답을 받기 전에 로그아웃한다.
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(LEAD_MS);
-    });
-    await act(async () => {
-      await result.current.signOut();
-    });
-    expect(result.current.state.status).toBe('anonymous');
-
-    await act(async () => {
-      settleRefresh?.();
-      await Promise.resolve();
-    });
-
-    // 늦게 도착한 회전이 타이머를 심었다면 여기서 두 번째 회전이 나갔을 것이다.
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(LEAD_MS * 2);
-    });
-    expect(vi.mocked(api.refreshSession)).toHaveBeenCalledTimes(1);
-  });
-
-  // 오프라인에서 예약 회전이 실패했다고 로그인 화면으로 쫓아내면, 잠깐 끊긴 것이 곧
-  // 로그아웃이 된다(네이티브는 세션을 유지한다). 타이머는 이미 소모됐으니 다시 걸어야
-  // 연결이 돌아왔을 때 세션이 다시 밀린다.
-  it('일시적 회전 실패는 세션을 유지하고 다시 시도한다', async () => {
-    vi.mocked(api.refreshSession).mockResolvedValue({
-      ok: false,
-      ttlMs: null,
-      rejected: false,
-    });
-    const { result } = renderHook(() => useAuth(), { wrapper });
-    await act(async () => {
-      await Promise.resolve();
-    });
-    expect(result.current.state.status).toBe('authenticated');
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(LEAD_MS);
-    });
-    expect(vi.mocked(api.refreshSession)).toHaveBeenCalledTimes(1);
-    // me로 확인하러 가지 않고, 화면도 그대로다.
-    expect(vi.mocked(api.me)).toHaveBeenCalledTimes(1); // 초기 확인 한 번뿐
-    expect(result.current.state.status).toBe('authenticated');
-
-    // 연결이 돌아왔다 — 다음 시도에서 세션이 다시 밀린다.
-    vi.mocked(api.refreshSession).mockResolvedValue({
-      ok: true,
-      ttlMs: ACCESS_TTL_MS,
-      rejected: false,
-    });
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(60_000);
-    });
-    expect(vi.mocked(api.refreshSession)).toHaveBeenCalledTimes(2);
-    expect(result.current.state.status).toBe('authenticated');
-  });
-
-  it('탭 복귀 시 직전 회전이 오래됐으면 즉시 회전한다', async () => {
-    const { result } = renderHook(() => useAuth(), { wrapper });
-    await act(async () => {
-      await Promise.resolve();
-    });
-    expect(result.current.state.status).toBe('authenticated');
-
-    // 예약 회전(75%)에는 못 미치지만 wake 창(60초)은 넘는 시간만 흐른다.
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(120_000);
-    });
-    expect(vi.mocked(api.refreshSession)).not.toHaveBeenCalled();
-
-    // 탭이 다시 보이면 즉시 회전한다(백그라운드 타이머 억제·절전 복귀 보정).
-    await act(async () => {
-      document.dispatchEvent(new Event('visibilitychange'));
-      await Promise.resolve();
-    });
-    expect(vi.mocked(api.refreshSession)).toHaveBeenCalledTimes(1);
   });
 });

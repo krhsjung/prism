@@ -3,6 +3,7 @@ import {
   CLIENT_ERROR_CODES,
   decodeSessionList,
   decodeSessionUser,
+  type SessionUser,
   jsonBodyOf,
   type JsonValue,
   type SocialFlow,
@@ -68,6 +69,35 @@ export interface RefreshResult {
   rejected: boolean;
 }
 
+// 액세스 토큰이 만료되기까지 이만큼 남았으면 **보내기 전에** 회전한다.
+// 왕복 한 번을 덮을 정도면 충분하다 — 못 덮어도 반응형 401 경로가 받아 내므로
+// 이 값은 정확성이 아니라 최적화다.
+const TOKEN_REFRESH_MARGIN_MS = 5_000;
+
+// 액세스 토큰의 만료 시각(epoch ms). 0이면 모른다.
+//
+// 토큰은 HttpOnly 쿠키라 JS가 exp를 읽을 수 없다 — 서버가 응답에 실어 주는
+// accessTokenTtlMs를 받은 그 순간에 시각으로 바꿔 둔다.
+let accessTokenExpiresAt = 0;
+
+// 세션이 끝났다 — 다음 요청이 낡은 만료 시각을 보고 헛 회전하지 않게 잊는다.
+function forgetAccessToken(): void {
+  accessTokenExpiresAt = 0;
+}
+
+function isNearExpiry(): boolean {
+  if (accessTokenExpiresAt === 0) return false;
+  return accessTokenExpiresAt - Date.now() <= TOKEN_REFRESH_MARGIN_MS;
+}
+
+// 로그인·세션 확인 응답도 수명을 실어 온다 — 디코딩하는 그 자리에서 시각으로 바꾼다.
+// (회전 응답은 refreshSession이 직접 찍는다)
+function decodeAndNoteSession(v: JsonValue): SessionUser {
+  const session = decodeSessionUser(v);
+  accessTokenExpiresAt = Date.now() + session.accessTokenTtlMs;
+  return session;
+}
+
 let refreshing: Promise<RefreshResult> | null = null;
 
 function refreshSession(): Promise<RefreshResult> {
@@ -78,15 +108,15 @@ function refreshSession(): Promise<RefreshResult> {
         log.auth('refresh', { outcome: 'rejected', status: res.status });
         // 401·403은 리프레시 자격증명 자체가 죽었다는 뜻이다 — 되살릴 수 있는 세션이
         // 아니다. 5xx는 서버 사정일 뿐이라 세션을 끊지 않는다.
-        return {
-          ok: false,
-          ttlMs: null,
-          rejected: res.status === 401 || res.status === 403,
-        };
+        const rejected = res.status === 401 || res.status === 403;
+        // 확정 거부면 이 세션의 토큰은 다시 살아나지 않는다.
+        if (rejected) forgetAccessToken();
+        return { ok: false, ttlMs: null, rejected };
       }
       // 쿠키 흐름의 갱신 응답은 { user, accessTokenTtlMs }(토큰은 쿠키로만).
       try {
         const { accessTokenTtlMs } = decodeSessionUser(await jsonBodyOf(res));
+        accessTokenExpiresAt = Date.now() + accessTokenTtlMs;
         log.auth('refresh', { outcome: 'rotated' });
         return { ok: true, ttlMs: accessTokenTtlMs, rejected: false };
       } catch {
@@ -144,6 +174,7 @@ function isDefinitiveAuthFailure(code: string): boolean {
 // 세션의 주인에게 "이 세션은 끝났다"고 알린다. 뒷일을 스스로 쥔 경로는 알리지 않는다
 // (위 SESSION_OWNED_PATHS 참고).
 function notifyRejected(path: string, mark: number | null): void {
+  forgetAccessToken();
   if (mark === null || SESSION_OWNED_PATHS.has(path)) return;
   authority?.reject(mark);
 }
@@ -158,8 +189,21 @@ async function fetchWithRefresh(
   path: string,
   init?: RequestInit,
 ): Promise<Response> {
+  // 만료가 임박했으면 **보내기 전에** 회전한다.
+  //
+  // 타이머로 미리 돌지 않는 이유: 요청이 없는 동안에도 세션을 밀면 idle 타임아웃이
+  // 무의미해진다 — 탭만 열어두면 absolute 상한까지 살아 있게 된다. 요청이 있을 때만
+  // 보므로 유휴 상태에서는 아무 트래픽도 나가지 않고, 그러면서도 만료된 요청을 보내
+  // 401을 받고 되돌리는 왕복을 아낀다.
+  //
+  // 실패해도 그대로 보낸다 — 정말 만료였다면 아래 반응형 경로가 받아 낸다.
+  // 여기는 정확성이 아니라 최적화다. (single-flight라 겹쳐 불려도 요청은 한 번이다)
+  if (!SESSION_OWNED_PATHS.has(path) && isNearExpiry()) {
+    await refreshSession();
+  }
   // 표식은 **보내기 전에** 찍는다 — 응답이 돌아왔을 때 그사이 세션이 갈렸는지는
-  // 이 값으로만 알 수 있다.
+  // 이 값으로만 알 수 있다. 위 회전을 기다리는 동안에도 세션은 갈릴 수 있으므로
+  // 찍는 것은 회전 **뒤**다.
   const mark = authority?.mark() ?? null;
   const res = await fetchOrThrow(path, init);
   // 갱신 경로 자체만 재시도에서 뺀다 — 여기서 갱신하면 무한 루프가 된다.
@@ -237,16 +281,17 @@ async function requestEmpty(path: string, init?: RequestInit): Promise<void> {
 export const api = {
   // 응답에 토큰이 없다 — 세션은 서버가 심은 HttpOnly 쿠키에만 있다.
   demoLogin: () =>
-    requestJson('/auth/demo', decodeSessionUser, { method: 'POST' }),
+    requestJson('/auth/demo', decodeAndNoteSession, { method: 'POST' }),
   // 소셜 로그인은 fetch가 아니라 브라우저 이동(전체 페이지 또는 popup)으로 시작한다.
   // flow는 서버가 서명된 state에 실어 콜백까지 가져가고, 결과 전달 방식을 결정한다.
   socialLoginUrl: (provider: SocialProvider, flow: SocialFlow) =>
     `${API_URL}/auth/${provider}?flow=${flow}`,
   // 쿠키 세션의 유효성은 서버만 알 수 있다(JS가 HttpOnly 쿠키를 못 읽는다). 응답에는
   // 사용자와 액세스 토큰 수명(accessTokenTtlMs)이 담긴다 — 후자로 선제 갱신을 스케줄한다.
-  me: () => requestJson('/auth/me', decodeSessionUser),
+  me: () => requestJson('/auth/me', decodeAndNoteSession),
   // 서버가 쿠키를 지워야 로그아웃이 성립한다.
-  logout: () => requestEmpty('/auth/logout', { method: 'POST' }),
+  logout: () =>
+    requestEmpty('/auth/logout', { method: 'POST' }).finally(forgetAccessToken),
   // 세션을 선제적으로 회전(idle 창 연장)한다. 반응형 401 경로와 같은 single-flight를
   // 공유하므로, 동시에 겹쳐 불려도 실제 /auth/refresh는 한 번만 나간다.
   refreshSession: () => refreshSession(),

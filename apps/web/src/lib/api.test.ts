@@ -240,3 +240,96 @@ describe('401 갱신 판단', () => {
     await expect(api.me()).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
   });
 });
+
+// 만료 임박 시의 **보내기 전** 회전.
+//
+// 타이머로 미리 돌지 않는 것이 이 설계의 요점이다: 요청이 없는 동안에도 세션을 밀면
+// idle 타임아웃이 무의미해진다(탭만 열어두면 absolute 상한까지 산다). 요청이 있을 때만
+// 보므로 유휴 상태에서는 트래픽이 0이고, 그러면서도 만료된 요청을 보내 401을 받고
+// 되돌리는 왕복이 없다.
+describe('보내기 전 선제 회전', () => {
+  // 만료 시각은 모듈 안에 남으므로, 각 테스트가 자기 상태를 직접 만든다.
+  const primeSession = async (ttlMs: number) => {
+    mockFetch({ '/auth/me': [json(200, { user, accessTokenTtlMs: ttlMs })] });
+    await api.me();
+    vi.unstubAllGlobals();
+  };
+
+  it('수명이 넉넉하면 회전하지 않고 그대로 보낸다', async () => {
+    await primeSession(ACCESS_TTL_MS);
+
+    const calls = mockFetch({ '/auth/sessions': [json(200, [])] });
+    await api.sessions();
+
+    expect(calls).toEqual(['/auth/sessions']);
+  });
+
+  it('만료가 임박하면 먼저 회전하고 나서 보낸다', async () => {
+    await primeSession(1_000); // 여유(5초)보다 짧다
+
+    const calls = mockFetch({
+      '/auth/refresh': [json(200, sessionUser)],
+      '/auth/sessions': [json(200, [])],
+    });
+    await api.sessions();
+
+    // 회전이 **먼저** 나가야 한다 — 뒤면 만료된 요청을 이미 보낸 것이다.
+    expect(calls).toEqual(['/auth/refresh', '/auth/sessions']);
+  });
+
+  // 회전 응답이 새 수명을 실어 오므로, 다음 요청은 다시 조용해야 한다.
+  it('회전 뒤에는 다시 회전하지 않는다', async () => {
+    await primeSession(1_000);
+
+    mockFetch({
+      '/auth/refresh': [json(200, sessionUser)],
+      '/auth/sessions': [json(200, [])],
+    });
+    await api.sessions();
+    vi.unstubAllGlobals();
+
+    const calls = mockFetch({ '/auth/sessions': [json(200, [])] });
+    await api.sessions();
+
+    expect(calls).toEqual(['/auth/sessions']);
+  });
+
+  // 여기는 최적화지 정확성이 아니다 — 회전이 실패해도 요청은 나가고, 정말 만료였다면
+  // 반응형 401 경로가 받아 낸다.
+  it('선제 회전이 실패해도 요청은 그대로 보낸다', async () => {
+    await primeSession(1_000);
+
+    const calls = mockFetch({
+      '/auth/refresh': [json(500, {})],
+      '/auth/sessions': [json(200, [])],
+    });
+    await api.sessions();
+
+    expect(calls).toEqual(['/auth/refresh', '/auth/sessions']);
+  });
+
+  // /auth/refresh 앞에서 또 회전하면 무한 루프다. me·logout도 세션의 뒷일을 스스로 쥔다.
+  it('세션이 자기 뒷일을 쥐는 경로에는 선제 회전을 걸지 않는다', async () => {
+    await primeSession(1_000);
+
+    const calls = mockFetch({ '/auth/me': [json(200, sessionUser)] });
+    await api.me();
+
+    expect(calls).toEqual(['/auth/me']);
+  });
+
+  // 확정 거부·로그아웃 뒤에는 만료 시각을 잊는다 — 남겨 두면 다음 세션의 첫 요청이
+  // 낡은 값을 보고 헛 회전한다.
+  it('로그아웃 뒤에는 만료 시각을 잊는다', async () => {
+    await primeSession(1_000);
+
+    mockFetch({ '/auth/logout': [new Response(null, { status: 204 })] });
+    await api.logout();
+    vi.unstubAllGlobals();
+
+    const calls = mockFetch({ '/auth/sessions': [json(200, [])] });
+    await api.sessions();
+
+    expect(calls).toEqual(['/auth/sessions']);
+  });
+});
