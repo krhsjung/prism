@@ -10,6 +10,7 @@
 | [auth.md](auth.md) | 인증 | 구현 완료(4플랫폼) | 소셜 로그인 · 데모 로그인 · API 계약 · **세션 정책**(§6) · 보안 체크리스트 |
 | [dashboard.md](dashboard.md) | 대시보드 | 구현(web) | 로그인 이후 화면 · 활성 세션 관리 · 앱 셸 |
 | [webrtc.md](webrtc.md) | WebRTC | 기획 확정 | 1:1 P2P 화상/음성 통화 · 시그널링 · TURN |
+| [push.md](push.md) | 푸시 | 뼈대 | FCM 푸시 · 토큰을 세션에 담는 정책 · 대상은 세션 목록 |
 
 ## 읽는 순서
 
@@ -18,6 +19,7 @@
 2. [dashboard.md](dashboard.md) — 인증 이후의 화면. §1 기능 로그가 "무엇이 언제 왜
    추가됐는지"의 시간순 요약입니다.
 3. [webrtc.md](webrtc.md) — 다음 슬라이스 제안서.
+4. [push.md](push.md) — 그다음 후보의 뼈대. 정해진 것은 §5 결정뿐입니다.
 
 ## 규칙
 

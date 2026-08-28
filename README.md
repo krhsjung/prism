@@ -41,11 +41,23 @@
   Bearer를 안전 저장소(Keychain · EncryptedSharedPreferences)에 담습니다.
   수명은 활동 기준 sliding idle(기본 12h) + 연장 불가 absolute 상한(7일, 코드 상수)이고,
   세션 행을 지우면 발급된 토큰이 **즉시** 무효가 됩니다.
+  **유휴 창을 미는 것은 "활동"이지 회전이 아닙니다** — 클라이언트가 사용자의 요청에만
+  `X-Prism-Activity: 1`을 달고, 서버는 그 표식이 붙은 요청에만 창을 밉니다. 회전은
+  `SET ... KEEPTTL`로 남은 수명을 그대로 물려받습니다. 표식이 **있을 때만** 미는 쪽으로
+  잡은 것은 `SameSite=Lax` 쿠키를 타고 나가는 요청이 세션을 대신 연장하지 못하게 하기
+  위해서입니다(커스텀 헤더는 단순 요청으로 붙일 수 없습니다).
 - **세션 관리**: 대시보드에서 내 활성 세션을 보고 개별·전체로 원격 폐기합니다
   (`GET /auth/sessions` · `POST /auth/sessions/:id/revoke` · `.../revoke-all`).
   목록에는 기기 **종류**(iPhone·iPad·Galaxy·Mac·Windows 등)만 둡니다 — User-Agent는 로그인 시점에
   그 enum 하나로 접고 버리며, IP는 읽지 않습니다. 기기명·브라우저·위치를 담으려면 그것을
   저장해야 하고, 그러면 개인정보 미저장 원칙이 깨집니다([plan/dashboard.md](plan/dashboard.md)).
+- **실시간 세션 presence**: 별도 WebSocket 서비스(`services/socket`)가 "지금 붙어 있는
+  세션"을 관리합니다. 연결이 곧 presence(60초 TTL을 20초마다 갱신)이고, 서버가 보내는 것은
+  `sessionsChanged` **신호 하나**뿐 — 목록은 클라이언트가 기존 `GET /auth/sessions`로 다시
+  가져옵니다(회전·401 처리가 전부 그 경로에 있어 소켓이 우회하면 안 됩니다). 같은 20초
+  스윕이 세션을 재검증해, 다른 기기에서 해제하면 **아무 조작 없이** 로그인 화면으로
+  돌아갑니다. 이 재조회는 활동으로 세지 않으므로 화면을 열어 둔 것만으로 세션이 연장되지
+  않습니다.
 - **보안**: 리프레시 **재사용 탐지**(유예 창 밖의 재제시는 탈취로 보고 세션 폐기) ·
   login-CSRF 방어(흐름별 nonce 쿠키 ↔ 서명된 state 바인딩, 콜백에서 일회 소진) ·
   쿠키를 심고 지우는 요청의 출처 검증 · OAuth 종료 페이지의 CSP nonce ·
@@ -67,8 +79,11 @@
 - **운영**: `/healthz`(liveness) · `/readyz`(DB·세션 저장소 인지 readiness),
   Docker + Helm(kind) 배포, nginx 경로 라우팅.
 - **품질**: TypeScript `unknown`/`any` 키워드 금지(lint 강제) · strict +
-  `noUncheckedIndexedAccess` · 자동 테스트 **서버 298 · 웹 128 · iOS 98 · Android 101**
-  (그 밖에 실제 Redis를 요구하는 통합 스펙 17개는 `PRISM_REDIS_URL`이 있을 때만 실행).
+  `noUncheckedIndexedAccess` · 자동 테스트 **서버 300 · 웹 137 · iOS 101 · Android 110**.
+  그 밖에 환경을 요구하는 것들은 있을 때만 실행됩니다 — 실제 Redis를 쓰는 서버 통합 스펙
+  26개(`PRISM_REDIS_URL`), 실제 서버에 붙는 iOS UI 테스트와 Android 라이브 프로브
+  (`PRISM_API_URL` · `PRISM_LIVE_API_URL`). 유휴 창처럼 **프록시·서버까지 함께 있어야
+  드러나는 동작**은 가짜 서버로는 확인되지 않기 때문입니다.
 
 ## 구조
 
@@ -113,6 +128,10 @@ cd ../redis && docker compose up -d
 # 3) 서버(auth) · 웹
 cd apps/server && pnpm install && pnpm start:auth:dev
 cd apps/web && pnpm install && pnpm dev
+
+# 4) (선택) 세션 presence 소켓 — 없어도 로그인·목록은 동작하고, "연결됨" 배지와
+#     실시간 갱신만 빠집니다.
+cd apps/server && pnpm start:socket:dev
 ```
 
 iOS·Android는 각각 [apps/ios/README.md](apps/ios/README.md) ·
@@ -123,7 +142,7 @@ iOS·Android는 각각 [apps/ios/README.md](apps/ios/README.md) ·
 
 | 문서 | 내용 |
 | --- | --- |
-| [plan/](plan/) | 기획·설계 — [auth](plan/auth.md) · [dashboard](plan/dashboard.md) · [webrtc](plan/webrtc.md) |
+| [plan/](plan/) | 기획·설계 — [auth](plan/auth.md) · [dashboard](plan/dashboard.md) · [webrtc](plan/webrtc.md) · [push](plan/push.md) |
 | [apps/server/](apps/server/README.md) | 서비스 경계, 세션, 서버 다국어 |
 | [apps/web/](apps/web/README.md) | 웹 인증·세션 관리, 다국어, 테마 |
 | [apps/ios/](apps/ios/README.md) · [apps/android/](apps/android/README.md) | 앱 구조, 네이티브 로그인 설정 |
