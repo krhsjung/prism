@@ -28,6 +28,8 @@
     "info": { "$value": "#5B8FC7", "$type": "color" },
     "info-foreground": { "$value": "#FFFFFF", "$type": "color" },
     "info-bg": { "$value": "#E8F0FA", "$type": "color" },
+    "stage": { "$value": "#162338", "$type": "color" },
+    "stage-foreground": { "$value": "#FFFFFF", "$type": "color" },
     "navy": { "$value": "#162338", "$type": "color" },
     "kakao": { "$value": "#FEE500", "$type": "color" },
     "kakao-foreground": { "$value": "#000000D9", "$type": "color" }
