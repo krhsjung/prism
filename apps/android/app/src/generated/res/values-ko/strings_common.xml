@@ -6,4 +6,5 @@
     <string name="common_language">언어</string>
     <string name="common_theme">테마</string>
     <string name="common_cancel">취소</string>
+    <string name="common_retry">다시 시도</string>
 </resources>

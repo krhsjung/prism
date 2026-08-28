@@ -299,7 +299,7 @@ struct DashboardView: View {
         if let key = viewModel.loadErrorKey {
             VStack(alignment: .leading, spacing: AppDimension.Spacing.md) {
                 PrismErrorAlert(message: t(key))
-                PrismButton(title: t(.dashboardRetry), variant: .secondary, fillsWidth: false) {
+                PrismButton(title: t(.commonRetry), variant: .secondary, fillsWidth: false) {
                     Task { await viewModel.load() }
                 }
             }

@@ -48,5 +48,4 @@
     <string name="dashboard_a_session">サインイン中のセッション</string>
     <string name="dashboard_revoke">解除</string>
     <string name="dashboard_only_this_session">この端末でのみサインインしています。</string>
-    <string name="dashboard_retry">もう一度試す</string>
 </resources>

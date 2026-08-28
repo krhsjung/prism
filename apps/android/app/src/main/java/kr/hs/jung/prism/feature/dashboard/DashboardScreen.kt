@@ -377,7 +377,7 @@ private fun SessionsCard(
                 ) {
                     PrismErrorAlert(message = stringResource(state.loadErrorRes))
                     PrismButton(
-                        text = stringResource(R.string.dashboard_retry),
+                        text = stringResource(R.string.common_retry),
                         variant = PrismButtonVariant.SECONDARY,
                         onClick = onRetry,
                         fillWidth = false,

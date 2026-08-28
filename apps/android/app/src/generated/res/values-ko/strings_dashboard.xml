@@ -48,5 +48,4 @@
     <string name="dashboard_a_session">로그인된 세션</string>
     <string name="dashboard_revoke">해제</string>
     <string name="dashboard_only_this_session">이 기기에서만 로그인되어 있습니다.</string>
-    <string name="dashboard_retry">다시 시도</string>
 </resources>

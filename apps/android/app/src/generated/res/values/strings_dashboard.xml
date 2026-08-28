@@ -48,5 +48,4 @@
     <string name="dashboard_a_session">Signed-in session</string>
     <string name="dashboard_revoke">Revoke</string>
     <string name="dashboard_only_this_session">You’re only signed in on this device.</string>
-    <string name="dashboard_retry">Try again</string>
 </resources>

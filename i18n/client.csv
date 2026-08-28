@@ -4,6 +4,7 @@ common,loading,Loading…,불러오는 중…,読み込み中…
 common,language,Language,언어,言語
 common,theme,Theme,테마,テーマ
 common,cancel,Cancel,취소,キャンセル
+common,retry,Try again,다시 시도,もう一度試す
 theme,"# 테마 선택 — System은 ""고르지 않음""이자 기기 설정을 따르겠다는 선택이다",,,
 theme,system,System,시스템,システム
 theme,light,Light,라이트,ライト
@@ -61,7 +62,6 @@ dashboard,this_session,This session,현재 세션,このセッション
 dashboard,a_session,Signed-in session,로그인된 세션,サインイン中のセッション
 dashboard,revoke,Revoke,해제,解除
 dashboard,only_this_session,You’re only signed in on this device.,이 기기에서만 로그인되어 있습니다.,この端末でのみサインインしています。
-dashboard,retry,Try again,다시 시도,もう一度試す
 error,# 오류 메시지 — 키는 계약의 오류 코드와 1:1로 대응한다 (contracts.ts),,,
 error,generic,Something went wrong. Please try again in a moment.,문제가 발생했습니다. 잠시 후 다시 시도해 주세요.,問題が発生しました。しばらくしてからもう一度お試しください。
 error,signin_failed,Couldn’t sign you in. Try again or use another method.,로그인하지 못했습니다. 다시 시도하거나 다른 방법을 이용해 주세요.,サインインできませんでした。もう一度お試しになるか別の方法をご利用ください。

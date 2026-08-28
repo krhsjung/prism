@@ -11,6 +11,7 @@ export const messages: Messages = {
   'common.language': '言語',
   'common.theme': 'テーマ',
   'common.cancel': 'キャンセル',
+  'common.retry': 'もう一度試す',
 
   // ── theme ──
   // 테마 선택 — System은 "고르지 않음"이자 기기 설정을 따르겠다는 선택이다
@@ -74,7 +75,6 @@ export const messages: Messages = {
   'dashboard.a_session': 'サインイン中のセッション',
   'dashboard.revoke': '解除',
   'dashboard.only_this_session': 'この端末でのみサインインしています。',
-  'dashboard.retry': 'もう一度試す',
 
   // ── error ──
   // 오류 메시지 — 키는 계약의 오류 코드와 1:1로 대응한다 (contracts.ts)

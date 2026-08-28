@@ -6,4 +6,5 @@
     <string name="common_language">Language</string>
     <string name="common_theme">Theme</string>
     <string name="common_cancel">Cancel</string>
+    <string name="common_retry">Try again</string>
 </resources>

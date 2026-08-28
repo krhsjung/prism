@@ -28,6 +28,7 @@ enum MessageKey: String, CaseIterable, Sendable {
     case commonLanguage = "common.language"
     case commonTheme = "common.theme"
     case commonCancel = "common.cancel"
+    case commonRetry = "common.retry"
     // Theme
     case themeSystem = "theme.system"
     case themeLight = "theme.light"
@@ -79,7 +80,6 @@ enum MessageKey: String, CaseIterable, Sendable {
     case dashboardASession = "dashboard.a_session"
     case dashboardRevoke = "dashboard.revoke"
     case dashboardOnlyThisSession = "dashboard.only_this_session"
-    case dashboardRetry = "dashboard.retry"
     // Error
     case errorGeneric = "error.generic"
     case errorSigninFailed = "error.signin_failed"
@@ -97,7 +97,8 @@ enum MessageKey: String, CaseIterable, Sendable {
         case .commonLoading,
              .commonLanguage,
              .commonTheme,
-             .commonCancel:
+             .commonCancel,
+             .commonRetry:
             "Common"
         case .themeSystem,
              .themeLight,
@@ -148,8 +149,7 @@ enum MessageKey: String, CaseIterable, Sendable {
              .dashboardThisSession,
              .dashboardASession,
              .dashboardRevoke,
-             .dashboardOnlyThisSession,
-             .dashboardRetry:
+             .dashboardOnlyThisSession:
             "Dashboard"
         case .errorGeneric,
              .errorSigninFailed,

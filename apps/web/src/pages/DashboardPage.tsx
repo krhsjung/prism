@@ -402,7 +402,7 @@ export function DashboardPage() {
                   className="btn--compact"
                   onClick={() => void reload()}
                 >
-                  {t('dashboard.retry')}
+                  {t('common.retry')}
                 </Button>
               </div>
             )}
