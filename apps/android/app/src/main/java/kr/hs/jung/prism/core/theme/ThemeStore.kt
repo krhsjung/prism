@@ -15,7 +15,12 @@ import kr.hs.jung.prism.R
  *
  * 아이콘은 선택 메뉴가 줄마다 그린다(웹 THEME_ICONS와 같은 짝: 모니터 · 해 · 달).
  */
-enum class AppTheme(@StringRes val labelRes: Int, @DrawableRes val iconRes: Int) {
+// 사용처를 `param:`으로 못박는다 — 표시가 없으면 코틀린이 지금은 파라미터에만,
+// 앞으로는 필드에도 붙이겠다고 경고한다(의미가 조용히 바뀔 자리다).
+enum class AppTheme(
+    @param:StringRes val labelRes: Int,
+    @param:DrawableRes val iconRes: Int,
+) {
     SYSTEM(R.string.theme_system, R.drawable.ic_monitor),
     LIGHT(R.string.theme_light, R.drawable.ic_sun),
     DARK(R.string.theme_dark, R.drawable.ic_moon),

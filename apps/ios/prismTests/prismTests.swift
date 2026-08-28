@@ -104,15 +104,19 @@ struct LocalizationStoreTests {
         let store = LocalizationStore(defaults: makeDefaults())
         store.setLocale(.en)
 
-        var invalidated = false
+        // onChange는 @Sendable이라 지역 변수를 그냥 건드릴 수 없다(Swift 6에서는 오류).
+        // 잠금 대신 상자 하나를 쓴다 — 이 관찰은 setLocale이 값을 바꾸는 그 자리에서
+        // **동기로** 불리고, 확인은 그 뒤에 하므로 경쟁이 성립하지 않는다.
+        final class Flag: @unchecked Sendable { var raised = false }
+        let invalidated = Flag()
         withObservationTracking {
             _ = store(.authWelcomeBack)
         } onChange: {
-            invalidated = true
+            invalidated.raised = true
         }
 
         store.setLocale(.ja)
-        #expect(invalidated)
+        #expect(invalidated.raised)
     }
 }
 
@@ -157,7 +161,10 @@ struct APIErrorTests {
 
 // 네트워크 경계 디코딩 — 빈 문자열·비양수 수명값을 거부한다(서버 계약과 같은 규칙).
 // 합성 Codable이 그대로 통과시키면 빈 토큰이 자격증명으로 저장돼 매 요청이 401로 돈다.
+// 계약 타입은 프로젝트 기본 격리(MainActor)를 따르므로 그 Decodable 적합성도 MainActor의
+// 것이다 — 비격리 문맥에서 디코딩하면 Swift 6에서는 오류가 된다.
 @Suite("contract decoding")
+@MainActor
 struct ContractDecodingTests {
     private let decoder = JSONDecoder()
 

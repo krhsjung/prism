@@ -45,19 +45,25 @@ export class NativeAuthCodeStore {
 
   // 우리가 저장한 값이지만, 저장소가 예기치 않은 값을 주면 세션으로 오인하지 않도록
   // 최소 형태(토큰·사용자)만 확인한다.
+  //
+  // `JSON.parse`는 any를 주므로 **받는 자리에서** 형태를 정해 좁힌다(프로젝트 방침:
+  // unknown/any 키워드 대신 구체 타입 + `as object as`). 필드가 전부 optional이라
+  // 아래 확인을 통과하기 전까지는 무엇도 있다고 가정하지 않는다.
   private parse(raw: string): AuthSession | null {
+    type Stored = {
+      accessToken?: string;
+      refreshToken?: string;
+      user?: AuthSession['user'];
+    };
     try {
-      const v: unknown = JSON.parse(raw);
+      const v = JSON.parse(raw) as object as Stored | null;
       if (
-        typeof v === 'object' &&
         v !== null &&
-        'accessToken' in v &&
-        'refreshToken' in v &&
-        'user' in v &&
-        typeof (v as { accessToken: unknown }).accessToken === 'string' &&
-        typeof (v as { refreshToken: unknown }).refreshToken === 'string'
+        typeof v.accessToken === 'string' &&
+        typeof v.refreshToken === 'string' &&
+        v.user !== undefined
       ) {
-        return v as AuthSession;
+        return v as object as AuthSession;
       }
     } catch {
       /* 손상된 값 — 아래에서 null */
