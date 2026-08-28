@@ -6,6 +6,7 @@ import {
   type RedisClient,
   type RedisConfig,
   type ScoredMember,
+  type SlideSession,
 } from '../redis.types';
 
 // ioredis 기반 RedisClient 구현. 도메인은 RedisClient 인터페이스만 보므로
@@ -143,9 +144,27 @@ export class IoredisService implements RedisClient, OnModuleDestroy {
       if redis.call('EXISTS', KEYS[1 + i]) == 0 then return 0 end
     end
     local ttl = ARGV[3]
-    redis.call('SET', KEYS[1], ARGV[2], 'EX', ttl)
+    -- 배경 회전: 값만 교체하고 **수명은 손대지 않는다**(SET ... KEEPTTL).
+    --
+    -- 남은 수명을 읽어 다시 써 넣지 않는 이유가 둘이다: TTL은 초 단위라 되쓰면 1초 미만이
+    -- 잘려 회전할 때마다 세션이 조금씩 짧아지고, 읽은 값을 쓰는 사이의 간극도 없앨 수 없다.
+    -- KEEPTTL은 그 둘을 모두 피한다 — 만료 시각이 **그대로** 남는다.
+    --
+    -- PTTL은 검사에만 쓴다. 양수가 아니면(0 = 1ms 미만 · -1 = 만료 없음 · -2 = 없음)
+    -- **아무것도 바꾸지 않고 실패로 답한다.** 여기서 부르는 쪽이 준 TTL로 떨어지면,
+    -- 밀지 않겠다던 회전이 만료 직전에 오히려 창을 가득 채운다(경계에서 버그가 되살아난다).
+    local keepTtl = ARGV[10] == '1'
+    local pttl = nil
+    if keepTtl then
+      pttl = redis.call('PTTL', KEYS[1])
+      if not pttl or pttl <= 0 then return 0 end
+      redis.call('SET', KEYS[1], ARGV[2], 'KEEPTTL')
+    else
+      redis.call('SET', KEYS[1], ARGV[2], 'EX', ttl)
+    end
     for i = 1, renew do
-      redis.call('EXPIRE', KEYS[1 + i], ttl)
+      -- 배경 회전은 딸린 키(세션 본체)의 수명도 그대로 둔다. 존재 확인은 위에서 이미 했다.
+      if not keepTtl then redis.call('EXPIRE', KEYS[1 + i], ttl) end
     end
     local slot = 1 + renew
     if ARGV[5] ~= '' then
@@ -168,11 +187,100 @@ export class IoredisService implements RedisClient, OnModuleDestroy {
       if keep > 0 then
         redis.call('ZREMRANGEBYRANK', consumed, 0, -1 - keep)
       end
-      -- 이력은 세션보다 오래 살 이유가 없다.
-      redis.call('EXPIRE', consumed, ttl)
+      -- 이력은 세션보다 오래 살 이유가 없다. 배경 회전에서는 방금 읽은 남은 수명에 맞춘다.
+      -- ⚠️ 이 블록에는 이미 keep(이력 보관 개수)이 있다. 이름이 겹치면 가려지고,
+      -- Lua에서 숫자는 0도 참이라 조건이 늘 성립해 엉뚱한 가지를 탄다(실제로 그랬다).
+      -- (이 스크립트는 TS 템플릿 리터럴 안이라 주석에도 백틱을 쓸 수 없다)
+      if keepTtl then
+        redis.call('PEXPIRE', consumed, pttl)
+      else
+        redis.call('EXPIRE', consumed, ttl)
+      end
     end
     return 1
   `;
+
+  // 유휴 창 밀기. 세 가지가 **한 번에** 일어나야 한다 — 두 키의 수명과 인덱스 score가
+  // 갈리면, 살아 있는데 목록에 없거나(전체 폐기가 놓친다) 목록에는 있는데 죽은 세션이 된다.
+  private static readonly SLIDE_SCRIPT = `
+    local count = tonumber(ARGV[3])
+    -- 하나라도 없으면 세션이 아니다(만료·폐기) — 되살리지 않는다.
+    for i = 1, count do
+      if redis.call('EXISTS', KEYS[i]) == 0 then return 0 end
+    end
+    local ttl = tonumber(ARGV[1])
+    -- 너무 잦은 쓰기를 막는다: 창이 아직 그만큼 줄지 않았으면 건너뛴다.
+    --
+    -- 판단은 **가장 적게 남은 키**를 기준으로 한다. 키 하나만 보면 그 키만 넉넉할 때
+    -- 건너뛰게 되는데, 정작 만료가 임박한 것은 다른 키다(둘의 수명은 각각 쓰였으므로
+    -- 어긋날 수 있다).
+    local shortest = nil
+    for i = 1, count do
+      local remaining = redis.call('PTTL', KEYS[i])
+      if remaining > 0 and (shortest == nil or remaining < shortest) then
+        shortest = remaining
+      end
+    end
+    -- score(만료 시각)는 **Redis 시계**로 찍는다 — 앱 시계로 받으면 왕복 시간만큼
+    -- 실제 키 수명보다 이르게 남아, 그 틈에 목록·전체 폐기가 살아 있는 세션을 놓친다.
+    local now = redis.call('TIME')
+    local nowMs = tonumber(now[1]) * 1000 + math.floor(tonumber(now[2]) / 1000)
+    local index = KEYS[count + 1]
+
+    if shortest ~= nil and (ttl - shortest) < tonumber(ARGV[4]) then
+      -- 밀지는 않지만 **인덱스는 점검한다.** score가 없거나 실제 수명과 어긋나 있으면,
+      -- 다음 밀기까지 그 세션은 목록에서 사라진 채로 남는다(전체 폐기도 놓친다).
+      local expected = nowMs + shortest
+      local current = redis.call('ZSCORE', index, ARGV[2])
+      if current == false or math.abs(tonumber(current) - expected) > 1000 then
+        redis.call('ZADD', index, expected, ARGV[2])
+        local repaired = redis.call('ZRANGE', index, -1, -1, 'WITHSCORES')
+        if repaired[2] then
+          redis.call('PEXPIREAT', index, string.format('%d', math.floor(tonumber(repaired[2]))))
+        end
+      end
+      return 0
+    end
+
+    for i = 1, count do
+      redis.call('PEXPIRE', KEYS[i], ttl)
+    end
+    local expiresAt = nowMs + ttl
+    redis.call('ZADD', index, expiresAt, ARGV[2])
+    -- 집합 키의 수명도 마지막 항목에 맞춘다(zAdd·compareAndRenew와 같은 규칙).
+    local top = redis.call('ZRANGE', index, -1, -1, 'WITHSCORES')
+    if top[2] then
+      redis.call('PEXPIREAT', index, string.format('%d', math.floor(tonumber(top[2]))))
+    end
+    return 1
+  `;
+
+  // 지나간 인덱스 항목을 걷어낸다. **Redis 시계**로 자른다 — score도 Redis가 찍으므로
+  // 앱 시계와 섞으면 시계 차이만큼 살아 있는 항목을 지우거나 죽은 항목을 남긴다.
+  private static readonly PRUNE_SCRIPT = `
+    local now = redis.call('TIME')
+    local nowMs = tonumber(now[1]) * 1000 + math.floor(tonumber(now[2]) / 1000)
+    return redis.call('ZREMRANGEBYSCORE', KEYS[1], 0, nowMs)
+  `;
+
+  async pruneExpired(key: string): Promise<number> {
+    const removed = await this.conn.eval(IoredisService.PRUNE_SCRIPT, 1, key);
+    return typeof removed === 'number' ? removed : 0;
+  }
+
+  async slideSession(input: SlideSession): Promise<boolean> {
+    const keys = [...input.keys, input.index.key];
+    const slid = await this.conn.eval(
+      IoredisService.SLIDE_SCRIPT,
+      keys.length,
+      ...keys,
+      String(Math.max(1, Math.ceil(input.ttlMs))),
+      input.index.member,
+      String(input.keys.length),
+      String(Math.max(0, Math.floor(input.minIntervalMs))),
+    );
+    return slid === 1;
+  }
 
   async compareAndRenew(input: CompareAndRenew): Promise<boolean> {
     const ttl = String(Math.max(1, Math.ceil(input.ttlSeconds)));
@@ -194,6 +302,7 @@ export class IoredisService implements RedisClient, OnModuleDestroy {
       input.consumed?.member ?? '',
       String(Math.floor(input.consumed?.score ?? 0)),
       String(input.consumed?.keep ?? 0),
+      input.keepTtl ? '1' : '',
     );
     return swapped === 1;
   }

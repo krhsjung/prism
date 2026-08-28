@@ -40,6 +40,10 @@ describe('SessionsRepository (Redis)', () => {
 
   // 회전 성공만 좁혀 꺼낸다 — 실패면 그 자리에서 테스트를 끊는다(뒤에서 옵셔널 체이닝으로
   // 조용히 undefined가 흘러가는 것을 막는다).
+  /** 가드가 인증에서 얻은 값을 그대로 넘긴다 — 상한은 create가 준 기본값과 같다. */
+  const touch = (id: string, absoluteMs = WEEK, idle = HOUR) =>
+    repo.touch(id, user.id, Date.now() + absoluteMs, idle);
+
   const rotateOk = async (credential: string, idleMs = HOUR) => {
     const result = await repo.rotate(credential, idleMs);
     if (result.status !== 'rotated') {
@@ -258,16 +262,84 @@ describe('SessionsRepository (Redis)', () => {
     await expect(rotateStatus('ghost.secret')).resolves.toBe('rejected');
   });
 
-  // idle은 회전할 때마다 다시 채워진다 — 활동이 있는 한 끊기지 않는다.
-  it('회전하면 idle 수명이 다시 채워진다', async () => {
+  // ⚠️ 회귀 방지: **회전은 창을 밀지 않는다.** 자격증명 교체는 활동이 아니다 — 사용자가
+  // 눌러서 나간 요청일 수도, 서버가 밀어 준 신호 때문에 나간 재조회일 수도 있어 이 자리에서
+  // 둘을 구분할 수 없다. 미는 것은 `touch`뿐이다(plan/auth.md §6).
+  it('회전해도 idle 수명은 그대로다', async () => {
     const issued = await create('s-1', HOUR);
     jest.advanceTimersByTime(HOUR - 60_000); // 만료 1분 전
 
     await rotateOk(issued.refreshCredential);
 
-    // 원래대로면 1분 뒤 죽지만, 연장됐으므로 살아 있어야 한다.
+    // 회전했다고 살아나지 않는다 — 원래 만료 시각에 죽는다.
+    jest.advanceTimersByTime(2 * 60_000);
+    await expect(repo.findValid('s-1')).resolves.toBeNull();
+  });
+
+  // 미는 것은 활동이다. 그 활동이 실제로 창을 채우는지 본다.
+  it('touch가 idle 수명을 다시 채운다', async () => {
+    const issued = await create('s-1', HOUR);
+    expect(issued.sessionId).toBe('s-1');
+    jest.advanceTimersByTime(HOUR - 60_000); // 만료 1분 전
+
+    await touch('s-1');
+
+    // 원래대로면 1분 뒤 죽지만, 밀렸으므로 살아 있어야 한다.
     jest.advanceTimersByTime(2 * 60_000);
     await expect(repo.findValid('s-1')).resolves.toEqual(user);
+  });
+
+  // 자격증명도 함께 밀려야 한다 — 본체만 밀면 "살아 있는데 회전할 수 없는" 세션이 된다.
+  it('touch는 자격증명도 함께 민다', async () => {
+    const issued = await create('s-1', HOUR);
+    jest.advanceTimersByTime(HOUR - 60_000);
+    await touch('s-1');
+
+    jest.advanceTimersByTime(2 * 60_000);
+    await expect(rotateStatus(issued.refreshCredential)).resolves.toBe(
+      'rotated',
+    );
+  });
+
+  // 목록·전체 폐기가 보는 인덱스 score도 함께 밀려야 실제 수명과 어긋나지 않는다.
+  it('touch 뒤에도 목록이 그 세션을 본다', async () => {
+    await create('s-1', HOUR);
+    jest.advanceTimersByTime(HOUR - 60_000);
+    await touch('s-1');
+    jest.advanceTimersByTime(2 * 60_000);
+
+    const list = await repo.listForUser('u-1');
+    expect(list.map((entry) => entry.id)).toEqual(['s-1']);
+    await expect(repo.deleteAllForUser('u-1')).resolves.toBe(1);
+  });
+
+  // 활동마다 미는 규칙을 그대로 두면 요청 하나에 쓰기가 셋씩 붙는다. 창이 조금밖에 줄지
+  // 않았으면 건너뛴다 — 정확성이 아니라 쓰기 절약이라, 건너뛴 뒤에도 수명은 유효하다.
+  it('touch는 방금 민 세션을 다시 밀지 않는다', async () => {
+    await create('s-1', HOUR);
+    jest.advanceTimersByTime(1_000); // 아직 1초밖에 안 지났다
+    await touch('s-1');
+
+    // 건너뛰었으므로 만료 시각은 여전히 생성 시점 기준이다.
+    jest.advanceTimersByTime(HOUR - 500);
+    await expect(repo.findValid('s-1')).resolves.toBeNull();
+  });
+
+  // 없는 세션을 되살리지 않는다 — 밀기는 살아 있는 세션에만 하는 일이다.
+  it('없는 세션의 touch는 아무 일도 하지 않는다', async () => {
+    await expect(touch('ghost')).resolves.toBeUndefined();
+    await expect(repo.findValid('ghost')).resolves.toBeNull();
+  });
+
+  // 활동이 있어도 상한은 넘지 못한다 — rotate와 같은 규칙이다.
+  it('touch도 absolute 상한을 넘지 않는다', async () => {
+    const absoluteAt = Date.now() + 90 * 60_000; // 상한 90분
+    await create('s-1', HOUR, user, 90 * 60_000);
+    jest.advanceTimersByTime(80 * 60_000);
+    await repo.touch('s-1', user.id, absoluteAt, HOUR); // idle 60분을 요청해도
+
+    jest.advanceTimersByTime(11 * 60_000); // 총 91분
+    await expect(repo.findValid('s-1')).resolves.toBeNull();
   });
 
   // absolute는 활동과 무관한 상한이다 — 이게 없으면 리프레시로 영원히 연장된다.

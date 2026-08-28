@@ -143,6 +143,206 @@ describeIfRedis('IoredisService.compareAndRenew (실제 Redis)', () => {
     ]);
   });
 
+  // 유휴 창 밀기(slideSession). 회전과 분리된 연산이라 여기서 따로 못박는다 —
+  // 두 키와 인덱스가 **함께** 밀려야 목록·전체 폐기가 실제 수명과 어긋나지 않는다.
+  it('밀기는 두 키와 인덱스를 함께 민다', async () => {
+    await redis.setEx(casKey, 'cred', 60);
+    await redis.setEx(renewKey, 'body', 60);
+    const slid = await redis.slideSession({
+      keys: [renewKey, casKey],
+      ttlMs: 600_000,
+      index: { key: indexKey, member: 'm-1' },
+      minIntervalMs: 0,
+    });
+
+    expect(slid).toBe(true);
+    await expectTtlNear(renewKey, 600);
+    await expectTtlNear(casKey, 600);
+    // score는 Redis가 자기 시계로 찍는다 — 실제 키 만료와 같은 시각이어야 한다.
+    const [entry] = await redis.zRangeWithScores(indexKey);
+    expect(entry?.member).toBe('m-1');
+    const keyExpiresAt = Date.now() + (await probe.pttl(renewKey));
+    expect(Math.abs((entry?.score ?? 0) - keyExpiresAt)).toBeLessThan(5_000);
+  });
+
+  // 하나라도 없으면 세션이 아니다(만료·폐기) — 되살리지 않는다.
+  it('키가 하나라도 없으면 아무것도 밀지 않는다', async () => {
+    await redis.setEx(renewKey, 'body', 60);
+
+    const slid = await redis.slideSession({
+      keys: [renewKey, casKey], // casKey는 없다
+      ttlMs: 600_000,
+      index: { key: indexKey, member: 'm-1' },
+      minIntervalMs: 0,
+    });
+
+    expect(slid).toBe(false);
+    // 남아 있던 키의 수명도 그대로여야 한다.
+    await expectTtlNear(renewKey, 60);
+    await expect(redis.zRangeWithScores(indexKey)).resolves.toEqual([]);
+  });
+
+  // 활동마다 미는 규칙을 그대로 두면 요청 하나에 쓰기가 셋씩 붙는다. 창이 조금밖에
+  // 줄지 않았으면 건너뛴다 — 정확성이 아니라 쓰기 절약이다.
+  it('창이 아직 줄지 않았으면 밀지 않는다', async () => {
+    // ⚠️ 남은 수명(570초)을 요청 수명(600초)과 **다르게** 둔다. 같게 두면 실수로 민
+    // 구현도 600초가 나와 통과한다 — 건너뛴 것과 민 것이 구분되지 않는다.
+    await redis.setEx(casKey, 'cred', 570);
+    await redis.setEx(renewKey, 'body', 570);
+
+    const slid = await redis.slideSession({
+      keys: [renewKey, casKey],
+      ttlMs: 600_000,
+      index: { key: indexKey, member: 'm-1' },
+      minIntervalMs: 60_000, // 1분은 지나야 민다(30초밖에 안 줄었다)
+    });
+
+    expect(slid).toBe(false);
+    // 570초 그대로여야 한다 — 600초면 건너뛴다면서 민 것이다.
+    await expectTtlNear(renewKey, 570);
+    await expectTtlNear(casKey, 570);
+  });
+
+  // ⚠️ 건너뛸 때도 **인덱스는 점검한다.** score가 없거나 어긋난 채로 두면 다음 밀기까지
+  // 그 세션이 목록에서 사라진 채로 남고, 전체 폐기도 놓친다.
+  it('건너뛰어도 어긋난 인덱스는 고친다', async () => {
+    await redis.setEx(casKey, 'cred', 600);
+    await redis.setEx(renewKey, 'body', 600);
+    // 실제 수명보다 한참 이른 값이 남아 있는 상태(그대로 두면 곧 잘려 나간다).
+    await redis.zAdd(indexKey, Date.now() + 5_000, 'm-1');
+
+    const slid = await redis.slideSession({
+      keys: [renewKey, casKey],
+      ttlMs: 600_000,
+      index: { key: indexKey, member: 'm-1' },
+      minIntervalMs: 60_000,
+    });
+
+    expect(slid).toBe(false);
+    const [entry] = await redis.zRangeWithScores(indexKey);
+    const keyExpiresAt = Date.now() + (await probe.pttl(renewKey));
+    expect(Math.abs((entry?.score ?? 0) - keyExpiresAt)).toBeLessThan(5_000);
+  });
+
+  // ⚠️ 정리도 같은 시계를 봐야 한다. 앱 시계가 앞서 있으면 아직 살아 있는 세션이
+  // 목록에서 통째로 사라진다 — score를 Redis 시계로 찍어 둔 의미가 없어진다.
+  it('정리 기준시각도 앱 시계가 아니라 Redis 시계를 따른다', async () => {
+    const real = Date.now();
+    // ⚠️ 살아 있는 것을 **먼저** 넣는다. 인덱스 키 자체의 수명은 가장 늦은 항목을 따라가므로
+    // (ZADD_SCRIPT), 지난 항목만 있는 순간이 생기면 키가 통째로 만료돼 버린다.
+    await redis.zAdd(indexKey, real + 600_000, 'alive'); // 10분 남은 것
+    await redis.zAdd(indexKey, real - 1_000, 'gone'); // 이미 지난 것
+
+    const skew = jest.spyOn(Date, 'now').mockReturnValue(real + 3_600_000);
+    let removed: number;
+    try {
+      removed = await redis.pruneExpired(indexKey);
+    } finally {
+      skew.mockRestore();
+    }
+
+    // 앱 시계(한 시간 앞)를 쓰면 둘 다 지난 것으로 보여 2가 지워진다.
+    expect(removed).toBe(1);
+    await expect(redis.zRangeWithScores(indexKey)).resolves.toEqual([
+      { member: 'alive', score: real + 600_000 },
+    ]);
+  });
+
+  // 두 키의 수명은 각각 쓰이므로 어긋날 수 있다. 판단이 한 키만 보면, 그 키만 넉넉할 때
+  // 정작 만료가 임박한 다른 키를 두고 건너뛴다.
+  it('건너뛸지는 가장 적게 남은 키로 정한다', async () => {
+    await redis.setEx(renewKey, 'body', 600); // 넉넉
+    await redis.setEx(casKey, 'cred', 60); // 임박
+
+    const slid = await redis.slideSession({
+      keys: [renewKey, casKey],
+      ttlMs: 600_000,
+      index: { key: indexKey, member: 'm-1' },
+      minIntervalMs: 60_000,
+    });
+
+    // 가장 적게 남은 키(60초)를 기준으로 보면 창이 이미 540초 줄었다 — 밀어야 한다.
+    expect(slid).toBe(true);
+    await expectTtlNear(casKey, 600);
+  });
+
+  // ⚠️ score는 **Redis 시계**로 찍혀야 한다. 앱 시계로 찍으면 두 기계의 시차만큼 실제
+  // 수명과 어긋나고, 인덱스만 보는 목록·전체 폐기가 살아 있는 세션을 놓친다.
+  it('score는 앱 시계가 아니라 Redis 시계를 따른다', async () => {
+    await redis.setEx(casKey, 'cred', 600);
+    await redis.setEx(renewKey, 'body', 600);
+    // 앱 시계를 한 시간 앞으로 돌려 둔다 — 앱 시계를 쓰면 score가 그만큼 밀린다.
+    const real = Date.now();
+    const skew = jest.spyOn(Date, 'now').mockReturnValue(real + 3_600_000);
+    try {
+      await redis.slideSession({
+        keys: [renewKey, casKey],
+        ttlMs: 600_000,
+        index: { key: indexKey, member: 'm-1' },
+        minIntervalMs: 0,
+      });
+    } finally {
+      skew.mockRestore();
+    }
+
+    const [entry] = await redis.zRangeWithScores(indexKey);
+    // Redis 시계를 따랐다면 실제 지금+600초 근처다(앱 시계를 따랐다면 한 시간 뒤).
+    expect(Math.abs((entry?.score ?? 0) - (real + 600_000))).toBeLessThan(
+      5_000,
+    );
+  });
+
+  // ⚠️ 이 갈래는 **여기서만** 검증된다. 리포지토리 스펙의 가짜 Redis는 의도를 재진술할 뿐,
+  // KEEPTTL·PTTL의 실제 의미(초 절삭·비양수 반환값)를 재현하지 못한다.
+  it('배경 회전은 값만 갈고 수명은 건드리지 않는다', async () => {
+    await redis.setEx(casKey, 'old', 600);
+    await redis.setEx(renewKey, 'body', 600);
+    const before = await probe.pttl(casKey);
+    const bodyBefore = await probe.pttl(renewKey);
+
+    const ok = await redis.compareAndRenew({
+      key: casKey,
+      expected: 'old',
+      next: 'new',
+      // 밀지 않는 회전이라 이 값은 쓰이지 않아야 한다 — 쓰이면 수명이 한 시간으로 뛴다.
+      ttlSeconds: 3_600,
+      keepTtl: true,
+      renewKeys: [renewKey],
+    });
+
+    expect(ok).toBe(true);
+    await expect(redis.get(casKey)).resolves.toBe('new');
+    // 왕복 시간만큼만 줄어야 한다. 되밀렸다면 3600초에 가깝다.
+    const after = await probe.pttl(casKey);
+    expect(after).toBeLessThanOrEqual(before);
+    expect(after).toBeGreaterThan(before - 5_000);
+    // 딸린 키(세션 본체)도 그대로다.
+    const bodyAfter = await probe.pttl(renewKey);
+    expect(bodyAfter).toBeLessThanOrEqual(bodyBefore);
+    expect(bodyAfter).toBeGreaterThan(bodyBefore - 5_000);
+  });
+
+  // 만료가 걸려 있지 않은 키는 비정상이다. 여기서 부르는 쪽의 TTL로 떨어지면 "밀지 않겠다"던
+  // 회전이 오히려 창을 가득 채운다 — **아무것도 바꾸지 않고** 실패해야 한다.
+  it('수명이 없는 키의 배경 회전은 아무것도 바꾸지 않고 실패한다', async () => {
+    await redis.setEx(casKey, 'old', 600);
+    await probe.persist(casKey);
+
+    const ok = await redis.compareAndRenew({
+      key: casKey,
+      expected: 'old',
+      next: 'new',
+      ttlSeconds: 3_600,
+      keepTtl: true,
+      renewKeys: [],
+    });
+
+    expect(ok).toBe(false);
+    // 값도 수명도 그대로여야 한다(교체만 하고 실패로 답하는 일이 없어야 한다).
+    await expect(redis.get(casKey)).resolves.toBe('old');
+    await expect(probe.pttl(casKey)).resolves.toBe(-1);
+  });
+
   // score가 만료 시각이라는 규약의 자연스러운 귀결 — 남은 항목이 전부 지나간 집합은
   // 통째로 사라진다. 이게 "다시 오지 않는 사용자의 인덱스가 영구히 남던" 문제를 닫는다.
   it('모든 항목이 지나간 인덱스는 키째 사라진다', async () => {

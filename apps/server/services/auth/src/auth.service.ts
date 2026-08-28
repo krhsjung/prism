@@ -235,7 +235,18 @@ export class AuthService {
   // **보안 이벤트로 남기고** 호출부에 알린다 — 자격증명이 두 곳에 존재했다는
   // 신호라, 사후에 "언제 어느 세션이 그랬는가"를 되짚을 수 있어야 한다.
   // (응답으로는 구분해 주지 않는다. 탐지됐다는 사실 자체가 공격자에게 줄 정보다)
-  async refreshSession(credential: string): Promise<RefreshResult> {
+  //
+  // **회전 자체는 유휴 창을 밀지 않는다.** 자격증명 교체는 활동이 아니다 — 미는 일은
+  // 인증된 요청이 서버에 닿을 때 `JwtAuthGuard`가 한다(plan/auth.md §6).
+  //
+  // @param activity 이 회전을 **사용자가 시켰는가**(요청의 활동 표시). 참이면 회전 뒤
+  //   창도 민다. 네이티브의 앱 복원이 이 자리다: `/auth/me`가 만료로 실패하면 회전으로
+  //   끝나고 다시 보호된 요청을 보내지 않아, 여기서 밀지 않으면 앱을 다시 연 것이
+  //   활동으로 계산되지 않는다.
+  async refreshSession(
+    credential: string,
+    activity = false,
+  ): Promise<RefreshResult> {
     const sessionId = credential.slice(0, credential.indexOf('.'));
     const rotated = await this.sessions.rotate(
       credential,
@@ -249,6 +260,24 @@ export class AuthService {
       return { status: 'reuse-detected' };
     }
     if (rotated.status !== 'rotated') return { status: 'failed' };
+
+    if (activity) {
+      // 실패해도 회전 결과를 버리지 않는다 — 미는 데 실패했다고 로그인을 되돌릴 이유가
+      // 없다(세션이 예정대로 만료될 뿐이고, 그것은 안전한 쪽의 실패다).
+      try {
+        await this.sessions.touch(
+          sessionId,
+          rotated.user.id,
+          rotated.absoluteExpiresAt,
+          this.config.refreshTokenTtlMs,
+        );
+      } catch (error) {
+        // catch 바인딩으로 받는다 — `unknown`을 적지 않고도 좁힐 수 있다(프로젝트 방침).
+        this.logger.warn(
+          `failed to slide session on refresh: ${String(error)}`,
+        );
+      }
+    }
 
     return {
       status: 'rotated',

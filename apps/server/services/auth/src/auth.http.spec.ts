@@ -1,6 +1,7 @@
 import { INestApplication } from '@nestjs/common';
 import { JwtModule, JwtService } from '@nestjs/jwt';
 import { ThrottlerModule } from '@nestjs/throttler';
+import { Logger } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { PrismConfigService } from '@app/config';
@@ -38,7 +39,11 @@ const user: User = {
 //  - 콜백 페이지의 보안 헤더가 실제 응답에 실리는가
 describe('auth HTTP 경계', () => {
   let app: INestApplication;
-  let sessions: { findValid: jest.Mock };
+  let sessions: {
+    findValid: jest.Mock;
+    findValidSession: jest.Mock;
+    touch: jest.Mock;
+  };
   let auth: {
     issueDemoSession: jest.Mock;
     revokeSession: jest.Mock;
@@ -51,7 +56,17 @@ describe('auth HTTP 경계', () => {
   let tokens: SessionTokenService;
 
   beforeEach(async () => {
-    sessions = { findValid: jest.fn(() => Promise.resolve(user)) };
+    sessions = {
+      findValid: jest.fn(() => Promise.resolve(user)),
+      findValidSession: jest.fn(() =>
+        Promise.resolve({
+          user,
+          absoluteExpiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000,
+        }),
+      ),
+      // 가드가 활동마다 유휴 창을 민다 — 더블에도 있어야 요청이 500으로 죽지 않는다.
+      touch: jest.fn(() => Promise.resolve()),
+    };
     auth = {
       issueDemoSession: jest.fn(
         (): Promise<AuthSession> =>
@@ -169,7 +184,8 @@ describe('auth HTTP 경계', () => {
     const res = await server().post('/auth/demo/native').expect(201);
 
     expect(res.body).toEqual({
-      accessToken: expect.any(String),
+      // 매처는 any라 그대로 대입하면 방침에 걸린다 — 받는 자리의 타입으로 좁혀 둔다.
+      accessToken: expect.any(String) as string,
       refreshToken: 'sess-1.secret-1',
       user,
       // 네이티브는 이 값으로 선제 갱신을 스케줄한다 — 토큰을 열어 보지 않으므로
@@ -210,7 +226,7 @@ describe('auth HTTP 경계', () => {
   // 사용자가 실제로 겪은 경로: Redis를 비운 뒤 로그아웃.
   // 세션 조회가 null이어도 쿠키는 반드시 만료돼야 한다.
   it('logout: 저장소에 세션이 없어도 쿠키를 만료시킨다', async () => {
-    sessions.findValid.mockResolvedValue(null);
+    sessions.findValidSession.mockResolvedValue(null);
     const token = tokens.signSession(user.id, 'sess-gone');
     const res = await server()
       .post('/auth/logout')
@@ -253,7 +269,7 @@ describe('auth HTTP 경계', () => {
 
   // 세션이 사라지면 서명이 유효해도 인증되지 않는다 — 즉시 폐기의 핵심.
   it('me: 세션이 없으면 401 (서명은 유효하더라도)', async () => {
-    sessions.findValid.mockResolvedValue(null);
+    sessions.findValidSession.mockResolvedValue(null);
     const token = tokens.signSession(user.id, 'gone');
     await server()
       .get('/auth/me')
@@ -339,7 +355,7 @@ describe('auth HTTP 경계', () => {
       .set('Cookie', 'prism_refresh=sess-1.secret-1')
       .expect(200);
 
-    expect(auth.refreshSession).toHaveBeenCalledWith('sess-1.secret-1');
+    expect(auth.refreshSession).toHaveBeenCalledWith('sess-1.secret-1', false);
     const cookies = res.get('Set-Cookie') ?? [];
     expect(cookies.find((c) => c.startsWith('prism_refresh='))).toContain(
       'sess-2.secret-2',
@@ -351,7 +367,70 @@ describe('auth HTTP 경계', () => {
       .post('/auth/refresh')
       .send({ refreshToken: 'sess-9.secret-9' })
       .expect(200);
-    expect(auth.refreshSession).toHaveBeenCalledWith('sess-9.secret-9');
+    expect(auth.refreshSession).toHaveBeenCalledWith('sess-9.secret-9', false);
+  });
+
+  // ⚠️ 회귀 방지: 유휴 창을 미는 것은 **회전이 아니라 활동**이다. 사용자가 시킨 요청만
+  // 표시를 달고 오고, 그 표시가 있을 때만 민다(plan/auth.md §6).
+  it('활동 표시가 붙은 요청은 유휴 창을 민다', async () => {
+    const token = tokens.signSession(user.id, 'sess-1');
+    await server()
+      .get('/auth/me')
+      .set('Cookie', `prism_session=${token}`)
+      .set('X-Prism-Activity', '1')
+      .expect(200);
+
+    expect(sessions.touch).toHaveBeenCalledWith(
+      'sess-1',
+      user.id,
+      expect.any(Number),
+      12 * 60 * 60 * 1000,
+    );
+  });
+
+  // ⚠️ **표시가 없으면 밀지 않는다**(fail-closed). 소켓 신호로 나가는 재조회가 그렇고,
+  // 다른 `*.asuscomm.com` 호스트가 유발한 ambient 쿠키 GET도 그렇다 — 후자를 활동으로
+  // 읽으면 남의 세션을 상한까지 살려 주게 된다(WebOriginGuard가 POST에서 막는 위협).
+  it('표시가 없는 요청은 유휴 창을 밀지 않는다', async () => {
+    const token = tokens.signSession(user.id, 'sess-1');
+    await server()
+      .get('/auth/me')
+      .set('Cookie', `prism_session=${token}`)
+      .expect(200);
+
+    expect(sessions.touch).not.toHaveBeenCalled();
+  });
+
+  // ⚠️ 미는 데 실패해도 요청은 성공해야 한다 — 그것 때문에 화면을 막을 이유가 없다.
+  // 다만 **조용히 삼키지는 않는다**: 계속 실패하면 쓰는 도중 세션이 끊기는 것으로만
+  // 나타나는데, 로그가 없으면 원인을 알 수 없다.
+  it('밀기가 실패해도 요청은 통과하고 경고를 남긴다', async () => {
+    sessions.touch.mockRejectedValueOnce(new Error('redis down'));
+    const warn = jest
+      .spyOn(Logger.prototype, 'warn')
+      .mockImplementation(() => undefined);
+    const token = tokens.signSession(user.id, 'sess-1');
+
+    await server()
+      .get('/auth/me')
+      .set('Cookie', `prism_session=${token}`)
+      .set('X-Prism-Activity', '1')
+      .expect(200);
+
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('slide'));
+    warn.mockRestore();
+  });
+
+  // 네이티브 앱의 복원은 만료 시 `/auth/refresh`로 끝나고 다시 보호된 요청을 보내지
+  // 않는다 — 여기서 밀지 않으면 "앱을 다시 연 것"이 활동으로 계산되지 않는다.
+  it('활동 표시가 붙은 회전은 유휴 창도 민다', async () => {
+    await server()
+      .post('/auth/refresh')
+      .set('X-Prism-Activity', '1')
+      .send({ refreshToken: 'sess-9.secret-9' })
+      .expect(200);
+
+    expect(auth.refreshSession).toHaveBeenCalledWith('sess-9.secret-9', true);
   });
 
   it('refresh: 자격증명이 없으면 401', async () => {

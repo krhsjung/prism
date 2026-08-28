@@ -33,11 +33,25 @@ class FutureDomainController {
 // "라우트에 적용됐는가"를 알 수 없다.
 describe('api 서비스 인증 경계', () => {
   let app: INestApplication;
-  let sessions: { findValid: jest.Mock };
+  let sessions: {
+    findValid: jest.Mock;
+    findValidSession: jest.Mock;
+    touch: jest.Mock;
+  };
   let tokens: SessionTokenService;
 
   beforeEach(async () => {
-    sessions = { findValid: jest.fn(() => Promise.resolve(user)) };
+    sessions = {
+      findValid: jest.fn(() => Promise.resolve(user)),
+      findValidSession: jest.fn(() =>
+        Promise.resolve({
+          user,
+          absoluteExpiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000,
+        }),
+      ),
+      // 가드가 활동마다 유휴 창을 민다 — 더블에도 있어야 요청이 500으로 죽지 않는다.
+      touch: jest.fn(() => Promise.resolve()),
+    };
 
     const moduleRef = await Test.createTestingModule({
       imports: [
@@ -91,7 +105,7 @@ describe('api 서비스 인증 경계', () => {
   // 서명이 유효해도 세션이 없으면(로그아웃·폐기) 인증되지 않는다 — auth 서비스와 같은 규칙이
   // 적용되는지 확인한다(검증 로직이 갈리면 한쪽에서만 폐기가 반영된다).
   it('세션이 폐기됐으면 서명이 유효해도 401', async () => {
-    sessions.findValid.mockResolvedValue(null);
+    sessions.findValidSession.mockResolvedValue(null);
     const token = tokens.signSession(user.id, 'gone');
     await server()
       .get('/things')

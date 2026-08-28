@@ -16,6 +16,7 @@ import { ThrottlerGuard } from '@nestjs/throttler';
 import { randomBytes, randomUUID } from 'crypto';
 import type { Request, Response } from 'express';
 import { PrismConfigService } from '@app/config';
+import { ACTIVITY_HEADER } from '@app/session';
 import { AuthService } from './auth.service';
 import { WebOriginGuard } from './web-origin.guard';
 import {
@@ -415,7 +416,10 @@ export class AuthController {
       throw new HttpException({ error: AUTH_ERROR_CODES.UNAUTHORIZED }, 401);
     }
 
-    const result = await this.auth.refreshSession(credential);
+    // 사용자가 시킨 회전인가(가드가 보는 것과 같은 표시). 네이티브 앱의 복원은 이
+    // 요청으로 끝나므로, 여기서 읽지 않으면 앱을 다시 연 것이 활동으로 계산되지 않는다.
+    const activity = req.headers[ACTIVITY_HEADER] === '1';
+    const result = await this.auth.refreshSession(credential, activity);
 
     // 재사용 탐지 — 세션은 이미 폐기됐다. 여기서는 쿠키를 지우는 것이 맞다:
     // 살아 있는 세션이 없으므로 "성공한 탭의 새 자격증명"이라는 보호 대상 자체가 없고,
@@ -723,7 +727,8 @@ export class AuthController {
   // 실패를 남기되, 원시 오류 메시지는 **개발에서만** 남긴다.
   // e.message는 google-auth-library·jose·Kakao HTTP 등 서드파티 경계에서 와서 토큰·URL을
   // 품을 수 있다 — 운영/공개 로그에는 provider 스코프만 남기고 원인은 dev debug로만 흘린다.
-  private logFailure(scope: string, e: unknown): void {
+  // reason과 같은 이유로 제네릭이다 — catch 변수를 타입 키워드 없이 받는다(프로젝트 방침).
+  private logFailure<E>(scope: string, e: E): void {
     this.logger.error(`${scope} failed`);
     if (!this.config.isProduction) {
       this.logger.debug(`${scope} reason: ${this.reason(e)}`);

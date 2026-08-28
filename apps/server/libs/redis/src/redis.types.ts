@@ -20,6 +20,13 @@ export interface CompareAndRenew {
   expected: string;
   next: string;
   ttlSeconds: number;
+  // 값은 교체하되 **수명은 밀지 않는다**(남은 TTL을 그대로 쓴다).
+  //
+  // 세션의 유휴 창은 "사용자가 손을 뗀 지 얼마나 됐나"를 재는 값인데, 서버가 밀어 준
+  // 신호 때문에 도는 배경 회전까지 창을 밀면 그 값이 사용자 활동을 말하지 않게 된다
+  // (기기가 둘이면 서로가 서로의 세션을 영원히 살려낸다 — plan/auth.md §6).
+  // 그렇다고 회전을 건너뛸 수는 없다: 자격증명은 1회용이라 교체 자체는 일어나야 한다.
+  keepTtl?: boolean;
   // 같은 TTL로 함께 밀 키들.
   renewKeys: string[];
   // 함께 갱신할 정렬 집합 항목(선택).
@@ -32,6 +39,35 @@ export interface CompareAndRenew {
   //
   // keep은 남길 최근 항목 수 — 이력이 세션 수명 내내 무한정 쌓이지 않게 자른다.
   consumed?: { key: string; member: string; score: number; keep: number };
+}
+
+/**
+ * 세션의 유휴 창을 **민다**(sliding idle).
+ *
+ * 회전(compareAndRenew)과 분리되어 있는 것이 핵심이다 — 창을 미는 것은 자격증명 교체가
+ * 아니라 **사용자 활동**이기 때문이다(plan/auth.md §6). 회전은 활동일 수도, 서버가 밀어 준
+ * 신호 때문일 수도 있어 그 자리에서 판단할 수 없다.
+ */
+export interface SlideSession {
+  /** 함께 밀 키들(세션 본체 · 리프레시 자격증명). 하나라도 없으면 아무것도 하지 않는다. */
+  keys: string[];
+  /** 새 수명(ms). 부르는 쪽이 absolute 상한으로 이미 잘라서 준다. */
+  ttlMs: number;
+  /**
+   * 사용자 인덱스 — score가 만료 시각이므로 함께 밀어야 목록·전체 폐기가 맞는다.
+   *
+   * score는 **Redis가 자기 시계로** 계산한다(여기서 주지 않는다). 앱 시계로 찍으면
+   * 왕복 시간만큼 실제 키 수명보다 이른 값이 남고, 그 틈에 목록·전체 폐기가 살아 있는
+   * 세션을 놓친다 — 둘 다 인덱스만 보기 때문이다.
+   */
+  index: { key: string; member: string };
+  /**
+   * 마지막으로 민 뒤 이만큼도 지나지 않았으면 건너뛴다.
+   *
+   * 정확성이 아니라 **쓰기 절약**이다: 활동마다 미는 규칙을 그대로 두면 요청 하나에
+   * 쓰기가 셋씩 붙는다. 창이 이 값만큼 줄어든 뒤에만 밀어도 유휴 만료의 의미는 같다.
+   */
+  minIntervalMs: number;
 }
 
 export const REDIS = Symbol('REDIS');
@@ -75,6 +111,13 @@ export interface RedisClient {
   //  2) 딸린 갱신 — 교체만 성공하고 나머지가 누락되면 자격증명은 새것인데 본체는
   //     옛 수명이거나, 살아 있는데 인덱스에 없는 세션이 생긴다(목록·전체 폐기에서 누락)
   compareAndRenew(input: CompareAndRenew): Promise<boolean>;
+
+  // 유휴 창을 민다(위 SlideSession). 밀었으면 true, 건너뛰었거나 세션이 없으면 false.
+  slideSession(input: SlideSession): Promise<boolean>;
+
+  // 지나간 정렬 집합 항목을 **Redis 시계 기준으로** 걷어낸다. score를 Redis가 찍으므로
+  // 자르는 기준도 같은 시계여야 한다(앱 시계와 섞으면 시계 차이만큼 어긋난다).
+  pruneExpired(key: string): Promise<number>;
 
   // 연결 확인(readiness).
   ping(): Promise<void>;

@@ -11,6 +11,7 @@ import type {
   CompareAndRenew,
   RedisClient,
   ScoredMember,
+  SlideSession,
 } from '../redis.types';
 
 export class FakeRedis implements RedisClient {
@@ -94,6 +95,45 @@ export class FakeRedis implements RedisClient {
   }
 
   // 실제 구현은 단일 Lua라 전부 성공하거나 아무것도 안 한다 — 그 성질을 재현한다.
+  // 지나간 항목 걷어내기 — 가짜는 시계가 하나뿐이라 Date.now()가 곧 Redis 시계다.
+  pruneExpired(key: string): Promise<number> {
+    return this.zRemRangeByScore(key, 0, Date.now());
+  }
+
+  // 유휴 창 밀기 — 실제 Lua와 같은 규칙(전부 있거나 아무것도 안 하거나).
+  slideSession(input: SlideSession): Promise<boolean> {
+    const live = (key: string) => {
+      const entry = this.values.get(key);
+      return entry && entry.expiresAt > Date.now() ? entry : undefined;
+    };
+    const targets = input.keys.map(live);
+    if (targets.some((entry) => !entry)) return Promise.resolve(false);
+
+    // 창이 아직 그만큼 줄지 않았으면 건너뛴다(쓰기 절약). 판단은 **가장 적게 남은 키**로.
+    const shortest = Math.min(
+      ...targets.map((entry) => (entry?.expiresAt ?? 0) - Date.now()),
+    );
+    if (shortest > 0 && input.ttlMs - shortest < input.minIntervalMs) {
+      // 밀지 않아도 인덱스는 점검한다(실제 스크립트와 같은 규칙).
+      const set = this.zsets.get(input.index.key) ?? new Map<string, number>();
+      const expected = Date.now() + shortest;
+      const current = set.get(input.index.member);
+      if (current === undefined || Math.abs(current - expected) > 1000) {
+        set.set(input.index.member, expected);
+        this.zsets.set(input.index.key, set);
+      }
+      return Promise.resolve(false);
+    }
+
+    const expiresAt = Date.now() + input.ttlMs;
+    for (const entry of targets) if (entry) entry.expiresAt = expiresAt;
+    const set = this.zsets.get(input.index.key) ?? new Map<string, number>();
+    // score도 실제 만료와 같은 시각이다(실제 스크립트는 Redis 시계로 찍는다).
+    set.set(input.index.member, expiresAt);
+    this.zsets.set(input.index.key, set);
+    return Promise.resolve(true);
+  }
+
   compareAndRenew(input: CompareAndRenew): Promise<boolean> {
     const entry = this.values.get(input.key);
     const current =
@@ -108,11 +148,26 @@ export class FakeRedis implements RedisClient {
     if (input.renewKeys.some((key) => !live(key)))
       return Promise.resolve(false);
 
-    const expiresAt = Date.now() + input.ttlSeconds * 1000;
-    this.values.set(input.key, { value: input.next, expiresAt });
-    for (const key of input.renewKeys) {
-      const target = live(key);
-      if (target) target.expiresAt = expiresAt;
+    // 배경 회전(keepTtl)은 값만 갈고 **수명은 손대지 않는다**(실제 Lua의 SET ... KEEPTTL).
+    //
+    // 남은 수명이 양수가 아니면 아무것도 바꾸지 않고 실패한다 — 만료 직전(1ms 미만)이나
+    // 만료가 걸려 있지 않은 비정상 키에서 부르는 쪽의 TTL로 떨어지면, 밀지 않겠다던 회전이
+    // 오히려 창을 가득 채운다. 실제 스크립트가 PTTL로 같은 검사를 한다.
+    if (input.keepTtl) {
+      const remaining = (entry?.expiresAt ?? 0) - Date.now();
+      if (remaining <= 0) return Promise.resolve(false);
+      // 값만 바꾼다. 딸린 키(세션 본체)의 수명도 그대로 둔다.
+      this.values.set(input.key, {
+        value: input.next,
+        expiresAt: entry!.expiresAt,
+      });
+    } else {
+      const expiresAt = Date.now() + input.ttlSeconds * 1000;
+      this.values.set(input.key, { value: input.next, expiresAt });
+      for (const key of input.renewKeys) {
+        const target = live(key);
+        if (target) target.expiresAt = expiresAt;
+      }
     }
     if (input.index) {
       const set = this.zsets.get(input.index.key) ?? new Map<string, number>();

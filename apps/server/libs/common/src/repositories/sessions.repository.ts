@@ -53,6 +53,10 @@ const SECRET_BYTES = 32;
 // 그만큼 탈취 탐지가 늦어진다.
 export const REFRESH_REUSE_GRACE_MS = 30_000;
 
+// 유휴 창을 다시 미는 최소 간격. 활동마다 밀면 요청 하나에 쓰기가 셋씩 붙는데, 창이
+// 이만큼 줄어든 뒤에만 밀어도 유휴 만료의 의미는 같다 — 정확성이 아니라 쓰기 절약이다.
+const TOUCH_MIN_INTERVAL_MS = 10_000;
+
 // 세션 하나가 남기는 소비 이력의 상한. 이력은 갱신 횟수만큼 쌓이므로
 // "짧은 액세스 수명 + 긴 세션" 조합에서는 상한이 없으면 수만 건이 된다.
 // 넘쳐서 밀려난 아주 오래된 자격증명은 탐지 대신 단순 거부로 처리된다(안전한 쪽으로 실패).
@@ -64,7 +68,14 @@ const CONSUMED_HISTORY_LIMIT = 128;
 //  - reused:   유예 창 밖의 재사용. 탈취 신호로 보고 **세션을 폐기했다**
 //  - rejected: 발급된 적 없는 값·세션 없음·상한 초과. 세션은 건드리지 않는다
 export type RotateOutcome =
-  | { status: 'rotated'; user: User; refreshCredential: string }
+  // absoluteExpiresAt를 함께 주는 이유는 `touch`와 같다 — 회전한 요청이 활동이면 바로
+  // 창을 밀어야 하는데, 그 값은 방금 읽은 레코드에 이미 있다.
+  | {
+      status: 'rotated';
+      user: User;
+      refreshCredential: string;
+      absoluteExpiresAt: number;
+    }
   | { status: 'raced' }
   | { status: 'reused' }
   | { status: 'rejected' };
@@ -116,7 +127,15 @@ export class SessionsRepository {
     await this.redis.setEx(sessionKey(id), JSON.stringify(record), ttlSeconds);
     await this.redis.setEx(refreshKey(id), sha256(secret), ttlSeconds);
     await this.pruneIndex(user.id);
-    await this.redis.zAdd(userIndexKey(user.id), Date.now() + idleTtlMs, id);
+    // 인덱스 score는 **Redis 시계**로 찍는다(slideSession과 같은 자리에서). 여기서 앱
+    // 시계로 찍으면 이 세션만 다른 시계의 값을 갖게 되고, 밀기·정리와 어긋난다.
+    await this.redis.slideSession({
+      keys: [sessionKey(id), refreshKey(id)],
+      ttlMs: idleTtlMs,
+      index: { key: userIndexKey(user.id), member: id },
+      // 방금 만든 세션이라 "너무 이르다"로 건너뛰면 안 된다.
+      minIntervalMs: 0,
+    });
 
     return {
       sessionId: id,
@@ -124,18 +143,68 @@ export class SessionsRepository {
     };
   }
 
+  /**
+   * 세션의 **유휴 창을 민다**(sliding idle).
+   *
+   * 창을 미는 것은 회전이 아니라 **활동**이다. 자격증명 교체(rotate)는 사용자가 눌러서
+   * 일어날 수도, 서버가 밀어 준 신호 때문에 일어날 수도 있어 그 자리에서는 둘을 구분할 수
+   * 없다 — 그래서 미는 일을 떼어 내 "인증된 요청이 서버에 닿는 순간"에 붙였다
+   * (`JwtAuthGuard`, plan/auth.md §6).
+   *
+   * 실패해도 던지지 않는다. 미는 데 실패했다고 요청을 막을 이유가 없다 — 최악이라도
+   * 세션이 예정대로 만료될 뿐이고, 그것은 안전한 쪽의 실패다.
+   */
+  async touch(
+    id: string,
+    userId: string,
+    absoluteExpiresAt: number,
+    idleTtlMs: number,
+  ): Promise<void> {
+    // 레코드를 다시 읽지 않는다 — 부르는 쪽(가드)이 방금 인증하며 읽은 값을 그대로 준다.
+    // idle 연장이 absolute 상한을 넘지 않도록 자른다(rotate와 같은 규칙).
+    const ttlMs = Math.min(idleTtlMs, absoluteExpiresAt - Date.now());
+    if (ttlMs <= 0) return;
+
+    await this.redis.slideSession({
+      // 세션 본체와 자격증명은 **함께** 밀어야 한다. 한쪽만 밀면 "본체는 살아 있는데
+      // 회전할 수 없는" 또는 그 반대의 세션이 생긴다.
+      keys: [sessionKey(id), refreshKey(id)],
+      ttlMs,
+      // score(만료 시각)는 **Redis가 자기 시계로** 계산한다 — 앱 시계로 찍으면 왕복
+      // 시간만큼 실제 키 수명보다 이르게 남아, 그 틈에 목록·전체 폐기가 살아 있는 세션을
+      // 놓친다(둘 다 인덱스만 본다).
+      index: { key: userIndexKey(userId), member: id },
+      minIntervalMs: TOUCH_MIN_INTERVAL_MS,
+    });
+  }
+
   // 유효한 세션이면 사용자로 복원한다. 만료는 키 TTL이 처리하므로 조회되면 유효한 것이다.
   async findValid(id: string): Promise<User | null> {
+    return (await this.findValidSession(id))?.user ?? null;
+  }
+
+  /**
+   * `findValid`와 같되 **상한도 함께** 준다.
+   *
+   * 인증한 요청이 유휴 창을 밀려면 상한을 알아야 하는데, 그 값은 여기서 읽은 레코드에
+   * 이미 있다 — 따로 읽으면 요청마다 Redis 왕복이 하나 더 붙는다.
+   */
+  async findValidSession(
+    id: string,
+  ): Promise<{ user: User; absoluteExpiresAt: number } | null> {
     const record = await this.readRecord(id);
     if (!record) return null;
     // 상한은 TTL과 별개로 직접 확인한다 — TTL은 초 단위로 올림되고 인덱스 score는
     // 밀리초라, 저장소 수명에만 기대면 상한을 잠깐 넘겨 살아 있을 수 있다.
     if (record.absoluteExpiresAt <= Date.now()) return null;
     return {
-      id: record.userId,
-      provider: record.provider,
-      displayName: record.displayName,
-      createdAt: record.createdAt,
+      user: {
+        id: record.userId,
+        provider: record.provider,
+        displayName: record.displayName,
+        createdAt: record.createdAt,
+      },
+      absoluteExpiresAt: record.absoluteExpiresAt,
     };
   }
 
@@ -179,12 +248,14 @@ export class SessionsRepository {
       expected: presented,
       next: sha256(nextSecret),
       ttlSeconds,
+      // **회전은 창을 밀지 않는다.** 자격증명 교체는 활동이 아니다 — 사용자가 눌러서 나간
+      // 요청일 수도, 서버가 밀어 준 신호 때문에 나간 재조회일 수도 있고 이 자리에서는 둘을
+      // 구분할 수 없다. 미는 것은 아래 `touch`이고, 그것은 **요청이 인증될 때** 일어난다
+      // (plan/auth.md §6). 그래서 ttlSeconds는 여기서 쓰이지 않고 남은 수명이 유지된다.
+      keepTtl: true,
       renewKeys: [sessionKey(id)],
-      index: {
-        key: userIndexKey(record.userId),
-        member: id,
-        score: Date.now() + ttlMs,
-      },
+      // 만료 시각이 그대로이므로 인덱스 score도 다시 쓸 것이 없다.
+      index: undefined,
       consumed: {
         key: consumedKey(id),
         member: presented,
@@ -198,6 +269,7 @@ export class SessionsRepository {
 
     return {
       status: 'rotated',
+      absoluteExpiresAt: record.absoluteExpiresAt,
       user: {
         id: record.userId,
         provider: record.provider,
@@ -335,6 +407,8 @@ export class SessionsRepository {
 
   // 지나간 항목을 인덱스에서 걷어낸다. 본체는 TTL로 이미 사라졌으므로 인덱스만 정리하면 된다.
   private async pruneIndex(userId: string): Promise<void> {
-    await this.redis.zRemRangeByScore(userIndexKey(userId), 0, Date.now());
+    // 자르는 기준도 **Redis 시계**다 — score를 Redis가 찍으므로 섞으면 시계 차이만큼
+    // 살아 있는 항목을 지우거나 죽은 항목을 남긴다.
+    await this.redis.pruneExpired(userIndexKey(userId));
   }
 }

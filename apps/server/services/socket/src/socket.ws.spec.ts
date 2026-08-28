@@ -42,12 +42,20 @@ const ALLOWED = 'https://prism.example';
 // 쿠키와 Bearer가 **같은 규칙**으로 읽히는가, 인증 실패가 코드를 실어 보내고 닫는가.
 describe('세션 소켓 경계', () => {
   let app: INestApplication;
-  let sessions: { findValid: jest.Mock };
+  let sessions: { findValid: jest.Mock; findValidSession: jest.Mock };
   let tokens: SessionTokenService;
   let url: string;
 
   beforeEach(async () => {
-    sessions = { findValid: jest.fn(() => Promise.resolve(user)) };
+    sessions = {
+      findValid: jest.fn(() => Promise.resolve(user)),
+      findValidSession: jest.fn(() =>
+        Promise.resolve({
+          user,
+          absoluteExpiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000,
+        }),
+      ),
+    };
 
     const moduleRef = await Test.createTestingModule({
       imports: [
@@ -138,6 +146,7 @@ describe('세션 소켓 경계', () => {
   // 폐기된 세션은 서명이 멀쩡해도 인증이 아니다.
   it('폐기된 세션은 서명이 유효해도 거절된다', async () => {
     sessions.findValid.mockResolvedValue(null);
+    sessions.findValidSession.mockResolvedValue(null);
     const ws = new WebSocket(`${url}/socket`, {
       headers: { authorization: `Bearer ${token()}` },
     });

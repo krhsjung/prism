@@ -18,7 +18,10 @@ import { SessionTokenService } from './session-token.service';
 // 여기는 **판단만** 하고, 그 판단을 401로 옮기는 일은 가드가, close(1008)로 옮기는 일은
 // 소켓 게이트웨이가 맡는다.
 export type SessionAuthResult =
-  | { ok: true; user: User; sessionId: string }
+  // absoluteExpiresAt를 함께 주는 이유: 유휴 창을 미는 쪽(JwtAuthGuard)이 상한을 알아야
+  // 하는데, 그 값은 방금 읽은 세션 레코드에 이미 있다. 다시 읽으면 요청마다 Redis 왕복이
+  // 하나 더 붙는다.
+  | { ok: true; user: User; sessionId: string; absoluteExpiresAt: number }
   | { ok: false; code: AuthErrorCode };
 
 @Injectable()
@@ -53,9 +56,14 @@ export class SessionAuthenticator {
 
     // 서명이 유효해도 세션이 없으면(로그아웃·만료·폐기) 인증되지 않는다.
     // 갱신도 같은 세션 저장소를 보므로 여기서 실패한 요청은 갱신해도 실패한다.
-    const user = await this.sessions.findValid(sessionId);
-    if (!user) return { ok: false, code: AUTH_ERROR_CODES.UNAUTHORIZED };
+    const found = await this.sessions.findValidSession(sessionId);
+    if (!found) return { ok: false, code: AUTH_ERROR_CODES.UNAUTHORIZED };
 
-    return { ok: true, user, sessionId };
+    return {
+      ok: true,
+      user: found.user,
+      sessionId,
+      absoluteExpiresAt: found.absoluteExpiresAt,
+    };
   }
 }
