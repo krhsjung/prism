@@ -366,4 +366,32 @@ describe("DashboardPage", () => {
     expect(screen.getByText("Current")).toBeTruthy();
     resolve([currentSession, otherSession]);
   });
+
+  describe("소켓 신호와 재조회", () => {
+    // ⚠️ 회귀 방지: 소켓은 화면보다 오래 산다(앱 전역). 대시보드에 **다시** 들어왔을 때
+    // 이미 지나간 신호 번호를 새 신호로 읽으면, 마운트의 전경 조회 옆에 얻는 것 없는
+    // 배경 재조회가 하나 더 붙어 같은 순간의 회전을 두고 경합한다.
+    it("이미 지나간 신호 번호로는 다시 가져오지 않는다", async () => {
+      renderDashboard(async () => true, { ready: true, changed: 7 });
+
+      await waitFor(() => expect(vi.mocked(api.sessions)).toHaveBeenCalled());
+      expect(vi.mocked(api.sessions)).toHaveBeenCalledTimes(1);
+      // 그 한 번은 화면 진입이므로 **활동**이다(배경 표시가 없어야 서버가 유휴 창을 민다).
+      expect(vi.mocked(api.sessions)).toHaveBeenCalledWith(false);
+    });
+
+    // 반대로 **새** 신호는 배경 재조회를 부른다 — 그게 이 소켓의 존재 이유다.
+    it("새 신호가 오면 배경으로 다시 가져온다", async () => {
+      const { rerenderSocket } = renderDashboard(async () => true, {
+        ready: true,
+        changed: 7,
+      });
+      await waitFor(() => expect(vi.mocked(api.sessions)).toHaveBeenCalledTimes(1));
+
+      rerenderSocket({ ready: true, changed: 8 });
+
+      await waitFor(() => expect(vi.mocked(api.sessions)).toHaveBeenCalledTimes(2));
+      expect(vi.mocked(api.sessions)).toHaveBeenLastCalledWith(true);
+    });
+  });
 });

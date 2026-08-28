@@ -119,16 +119,24 @@ export function DashboardPage() {
   const { ready: socketReady, changed } = useSessionSocket();
   const alive = useRef(true);
   const started = useRef(false);
-  // 이미 반영한 신호 번호. 0에서 시작하므로 마운트 시의 첫 조회와 겹치지 않고,
-  // 같은 신호로 두 번 가져오지도 않는다(started ref와 같은 역할이다).
-  const handled = useRef(0);
+  // 이미 반영한 신호 번호.
+  //
+  // ⚠️ **0이 아니라 지금 값에서 시작한다.** 소켓은 화면보다 오래 살아(앱 전역) 카운터가
+  // 이미 올라가 있을 수 있는데, 0에서 시작하면 대시보드에 다시 들어올 때마다 **이미 지나간**
+  // 신호를 새 신호로 읽어 배경 재조회가 한 번 더 나간다. 마운트의 첫 조회가 이미 최신
+  // 목록을 가져오므로 그 재조회는 얻는 것이 없고, 같은 순간의 전경 조회와 겹쳐 회전을
+  // 두고 경합한다(plan/auth.md §6의 single-flight).
+  const handled = useRef(changed);
   // 드로어 열림 시 포커스를 옮길 닫기 버튼, 닫힐 때 되돌릴 햄버거 버튼.
   const menuBtnRef = useRef<HTMLButtonElement>(null);
   const closeBtnRef = useRef<HTMLButtonElement>(null);
 
-  const fetchSessions = useCallback(async () => {
+  // `background`는 **소켓이 시킨 재조회**라는 뜻이다 — 그 경우 세션의 유휴 창을 밀지
+  // 않는다. 사용자가 한 일이 아닌 트래픽까지 창을 밀면 기기가 둘일 때 서로가 서로의
+  // 세션을 영원히 살려낸다(plan/auth.md §6).
+  const fetchSessions = useCallback(async (background = false) => {
     try {
-      const list = await api.sessions();
+      const list = await api.sessions(background);
       if (alive.current) setSessions(list);
     } catch {
       if (alive.current) setLoadFailed(true);
@@ -168,7 +176,7 @@ export function DashboardPage() {
   useEffect(() => {
     if (changed === handled.current) return;
     handled.current = changed;
-    void fetchSessions();
+    void fetchSessions(true);
   }, [changed, fetchSessions]);
 
   // 드로어가 열리면: 포커스를 안으로 옮기고, Esc로 닫고, 배경 스크롤을 잠근다.

@@ -100,6 +100,13 @@ function decodeAndNoteSession(v: JsonValue): SessionUser {
 
 let refreshing: Promise<RefreshResult> | null = null;
 
+/**
+ * 세션을 회전한다 — **자격증명 교체가 전부다.**
+ *
+ * 회전은 유휴 창을 밀지 않는다. 미는 것은 활동이고, 활동은 인증된 요청이 서버에 닿는
+ * 것이다(아래 `BACKGROUND_HEADER`, plan/auth.md §6). 그래서 이 함수는 성격을 갖지 않는다 —
+ * 배경 회전에 사용자 요청이 합류해도 그 요청 자신이 창을 민다.
+ */
 function refreshSession(): Promise<RefreshResult> {
   refreshing ??= (async () => {
     try {
@@ -185,9 +192,22 @@ function notifyRejected(path: string, mark: number | null): void {
 // 세션은 갱신해도 똑같이 실패하므로, 요청만 한 번 더 나가고 /auth/refresh의
 // 레이트리밋을 깎는다. "갱신하면 살아나는 401"인지는 서버만 알 수 있고(HttpOnly 쿠키를
 // JS가 못 읽는다) 서버가 SESSION_EXPIRED로 알려준다 — 그때만 갱신한다.
+/**
+ * 이 요청을 **사용자가 시켰다**는 표시. 서버는 이 표시가 붙은 요청에만 세션의 유휴 창을
+ * 민다(plan/auth.md §6).
+ *
+ * ⚠️ 반대(배경일 때만 표시)로 두면 안 된다. 우리와 same-site인 다른 `*.asuscomm.com`
+ * 호스트가 `<img>`·최상위 이동으로 유발한 GET에도 세션 쿠키가 실려 오는데, 표시 없음을
+ * 활동으로 읽으면 그 요청이 남의 세션을 상한까지 살려 준다. 커스텀 헤더는 그런 요청이
+ * 붙일 수 없어(단순 요청은 헤더를 못 달고, fetch는 프리플라이트에서 막힌다) 이 표시가
+ * "우리 출처가 보냈다"의 증거가 된다.
+ */
+const ACTIVITY_HEADER = 'X-Prism-Activity';
+
 async function fetchWithRefresh(
   path: string,
   init?: RequestInit,
+  background = false,
 ): Promise<Response> {
   // 만료가 임박했으면 **보내기 전에** 회전한다.
   //
@@ -205,7 +225,11 @@ async function fetchWithRefresh(
   // 이 값으로만 알 수 있다. 위 회전을 기다리는 동안에도 세션은 갈릴 수 있으므로
   // 찍는 것은 회전 **뒤**다.
   const mark = authority?.mark() ?? null;
-  const res = await fetchOrThrow(path, init);
+  // 소켓이 시킨 재조회만 표시를 달지 않는다 — 나머지는 전부 사용자가 시킨 것이다.
+  const request: RequestInit | undefined = background
+    ? init
+    : { ...init, headers: { ...(init?.headers ?? {}), [ACTIVITY_HEADER]: '1' } };
+  const res = await fetchOrThrow(path, request);
   // 갱신 경로 자체만 재시도에서 뺀다 — 여기서 갱신하면 무한 루프가 된다.
   if (res.status !== 401 || path === '/auth/refresh') return res;
   // body는 한 번만 읽을 수 있다 — 코드 확인은 사본으로 하고 원본은 호출부에 그대로 넘긴다.
@@ -228,7 +252,7 @@ async function fetchWithRefresh(
       if (rotated.rejected) notifyRejected(path, mark);
       return res;
     }
-    const retried = await fetchOrThrow(path, init);
+    const retried = await fetchOrThrow(path, request);
     // 방금 회전한 자격증명까지 거부됐다면 되살릴 수 있는 세션이 아니다.
     if (
       retried.status === 401 &&
@@ -262,8 +286,9 @@ async function requestJson<T>(
   path: string,
   decode: (v: JsonValue) => T,
   init?: RequestInit,
+  background = false,
 ): Promise<T> {
-  const res = await fetchWithRefresh(path, init);
+  const res = await fetchWithRefresh(path, init, background);
   if (!res.ok) throw new ApiError(res.status, await errorCodeOf(res));
   try {
     return decode(await jsonBodyOf(res));
@@ -297,7 +322,10 @@ export const api = {
   refreshSession: () => refreshSession(),
   // 내 활성 세션 목록. 서버가 "지금 이 요청의 세션"을 isCurrent로 표시해 준다
   // (세션 id는 HttpOnly 쿠키 안에만 있어 클라이언트가 자기 세션을 알 방법이 없다).
-  sessions: () => requestJson('/auth/sessions', decodeSessionList),
+  // `background`는 **소켓이 부른 재조회**에만 붙인다(화면 진입·당겨 새로고침·해제 뒤의
+  // 재조회는 사용자 활동이다). 그 구분이 세션의 유휴 창을 미느냐를 가른다.
+  sessions: (background = false) =>
+    requestJson('/auth/sessions', decodeSessionList, undefined, background),
   // 다른 기기의 세션 하나를 원격 폐기. 소유자 범위는 서버가 확인한다.
   revokeSession: (id: string) =>
     requestEmpty(`/auth/sessions/${encodeURIComponent(id)}/revoke`, {

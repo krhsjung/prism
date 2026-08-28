@@ -42,8 +42,83 @@ function mockFetch(routes: { [path: string]: Response[] }) {
   return calls;
 }
 
+// 헤더·본문까지 봐야 하는 테스트용 — 경로와 함께 보낸 값을 남긴다.
+function mockFetchWithHeaders(routes: { [path: string]: Response[] }) {
+  const sent: { path: string; body: string | null; activity?: string }[] = [];
+  vi.stubGlobal(
+    'fetch',
+    vi.fn((input: string | URL | Request, init?: RequestInit) => {
+      const path = new URL(String(input)).pathname;
+      const headers = (init?.headers ?? {}) as Record<string, string>;
+      sent.push({
+        path,
+        body: (init?.body as string | undefined) ?? null,
+        activity: headers['X-Prism-Activity'],
+      });
+      const next = routes[path]?.shift();
+      if (!next) throw new Error(`예상하지 못한 요청: ${path}`);
+      return Promise.resolve(next);
+    }),
+  );
+  return sent;
+}
+
 afterEach(() => {
   vi.unstubAllGlobals();
+});
+
+// 유휴 창은 **사용자 활동**을 재는 값이다. 서버가 밀어 준 신호(`sessionsChanged`) 때문에
+// 도는 재조회까지 창을 밀면, 기기가 둘일 때 서로가 서로의 세션을 영원히 살려낸다.
+//
+// 미는 것은 회전이 아니라 **요청**이다 — 그래서 표시도 회전이 아니라 요청 헤더가 나른다
+// (plan/auth.md §6). 회전에 표시를 달던 시절에는 배경 회전에 합류한 사용자 요청이 창을
+// 잃었다.
+describe('활동 표시', () => {
+  // ⚠️ 회귀 방지: 화면 진입·해제 뒤의 재조회는 활동이다 — 표시가 있어야 서버가 창을 민다.
+  it('사용자가 시킨 재조회는 활동으로 표시된다', async () => {
+    const sent = mockFetchWithHeaders({ '/auth/sessions': [json(200, [])] });
+
+    await api.sessions();
+
+    expect(sent[0]?.activity).toBe('1');
+  });
+
+  // 소켓이 시킨 재조회에는 표시가 없다 — 사용자가 한 일이 아니다.
+  it('소켓이 시킨 재조회에는 표시가 없다', async () => {
+    const sent = mockFetchWithHeaders({ '/auth/sessions': [json(200, [])] });
+
+    await api.sessions(true);
+
+    expect(sent[0]?.activity).toBeUndefined();
+  });
+
+  // 회전은 성격을 갖지 않는다 — 자격증명 교체가 전부다.
+  it('회전 요청은 표시도 body도 싣지 않는다', async () => {
+    const sent = mockFetchWithHeaders({
+      '/auth/sessions': [json(401, { error: 'SESSION_EXPIRED' }), json(200, [])],
+      '/auth/refresh': [json(200, sessionUser)],
+    });
+
+    await api.sessions(true);
+
+    const refresh = sent.find((r) => r.path === '/auth/refresh');
+    expect(refresh?.body ?? null).toBeNull();
+  });
+
+  // 재시도도 같은 성격을 유지해야 한다 — 그러지 않으면 배경 재조회가 회전 한 번으로
+  // 슬그머니 활동이 된다.
+  it('회전 뒤 재시도도 성격을 유지한다', async () => {
+    const sent = mockFetchWithHeaders({
+      '/auth/sessions': [json(401, { error: 'SESSION_EXPIRED' }), json(200, [])],
+      '/auth/refresh': [json(200, sessionUser)],
+    });
+
+    await api.sessions(true);
+
+    const list = sent.filter((r) => r.path === '/auth/sessions');
+    expect(list).toHaveLength(2);
+    expect(list.every((r) => r.activity === undefined)).toBe(true);
+  });
 });
 
 describe('401 갱신 판단', () => {
