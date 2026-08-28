@@ -20,6 +20,8 @@ struct DashboardView: View {
 
     let user: User
     let onSignOut: () async -> Void
+    /// 세션 소켓. 목록을 나르지 않고 "바뀌었다"는 신호와 "붙어 있다"만 알려 준다.
+    let socket: SessionSocket
 
     @State private var viewModel: DashboardViewModel
     @State private var isDrawerOpen = false
@@ -30,10 +32,12 @@ struct DashboardView: View {
         user: User,
         sessions: SessionsServicing,
         accessToken: @escaping () -> String?,
+        socket: SessionSocket,
         onSignOut: @escaping () async -> Void,
     ) {
         self.user = user
         self.onSignOut = onSignOut
+        self.socket = socket
         _viewModel = State(
             initialValue: DashboardViewModel(
                 service: sessions,
@@ -43,6 +47,31 @@ struct DashboardView: View {
                 onSessionEnded: onSignOut,
             ),
         )
+    }
+
+
+    /// 배지가 말하는 것은 **연결 여부**지 세션의 유효성이 아니다(목록에는 유효한 세션만 온다).
+    ///
+    /// ⚠️ `socketReady`가 false면 `isConnected`를 믿지 않고 두 갈래로 물러난다.
+    /// 내 소켓이 붙어 있지 않으면 서버가 내려준 빈 presence가 "아무도 안 붙었다"인지
+    /// "소켓 서비스가 죽었다"인지 구별할 수 없고, 후자를 전자로 읽으면 멀쩡한 기기들을
+    /// 전부 "비활성"이라고 지어내게 된다 — 모를 때는 지어내지 않는 쪽으로 실패한다.
+    static func statusKey(
+        _ session: SessionListItem,
+        socketReady: Bool,
+    ) -> MessageKey {
+        if session.isCurrent { return .dashboardStatusCurrent }
+        if !socketReady || session.isConnected { return .dashboardStatusActive }
+        return .dashboardStatusInactive
+    }
+
+    static func statusVariant(
+        _ session: SessionListItem,
+        socketReady: Bool,
+    ) -> PrismBadge.Variant {
+        if session.isCurrent { return .success }
+        if !socketReady || session.isConnected { return .info }
+        return .neutral
     }
 
     var body: some View {
@@ -77,6 +106,16 @@ struct DashboardView: View {
         }
         .animation(.easeOut(duration: 0.25), value: isDrawerOpen)
         .task { await viewModel.load() }
+        // 소켓이 "바뀌었다"고 하면 다시 가져온다.
+        //
+        // **비우지 않는다**(load가 아니라 refresh) — 다른 기기가 하나 붙었다고 카드가
+        // "불러오는 중"으로 접혔다 펴지면 목록 전체가 깜빡인다(plan/dashboard.md §4).
+        // changed는 0에서 시작하고 소켓의 첫 ready가 1로 올리므로, 위 `.task`의 첫
+        // 조회와 겹치지 않는다.
+        .onChange(of: socket.changed) { _, _ in
+            // 소켓이 시킨 재조회다 — 사용자가 한 일이 아니므로 유휴 창을 밀지 않는다.
+            Task { await viewModel.refresh(background: true) }
+        }
         .overlay {
             if isConfirmingSignOutAll {
                 PrismConfirmDialog(
@@ -326,8 +365,8 @@ struct DashboardView: View {
                 }
                 Spacer()
                 PrismBadge(
-                    title: t(session.isCurrent ? .dashboardStatusCurrent : .dashboardStatusActive),
-                    variant: session.isCurrent ? .success : .info,
+                    title: t(Self.statusKey(session, socketReady: socket.isReady)),
+                    variant: Self.statusVariant(session, socketReady: socket.isReady),
                 )
             }
 

@@ -20,7 +20,10 @@ protocol AuthServicing: Sendable {
     func loginDemo() async throws -> AuthSession
     func exchangeNativeCode(_ code: String) async throws -> AuthSession
     func me(accessToken: String) async throws -> SessionUser
-    func refresh(refreshToken: String) async throws -> AuthSession
+    /// - Parameter activity: 이 회전을 **사용자가 시켰는가**. 앱 복원이 그렇다 —
+    ///   `/auth/me`가 만료로 실패하면 회전으로 끝나고 다시 보호된 요청을 보내지 않아,
+    ///   여기서 알리지 않으면 앱을 다시 연 것이 활동으로 계산되지 않는다.
+    func refresh(refreshToken: String, activity: Bool) async throws -> AuthSession
     func logout(accessToken: String?) async throws
 }
 
@@ -108,8 +111,13 @@ final class AuthService: AuthServicing, Sendable {
 
     /// 액세스 토큰 갱신. 자격증명은 1회용이라 성공하면 새 값으로 회전된다 —
     /// 응답으로 받은 두 토큰을 반드시 저장해야 다음 갱신이 성립한다.
-    func refresh(refreshToken: String) async throws -> AuthSession {
-        try await network.send(.refresh, body: RefreshRequest(refreshToken: refreshToken))
+    func refresh(refreshToken: String, activity: Bool) async throws -> AuthSession {
+        try await network.send(
+            .refresh,
+            body: RefreshRequest(refreshToken: refreshToken),
+            // 표시는 `background`의 반대다 — 활동이면 붙는다.
+            background: !activity,
+        )
     }
 
     /// 서버 세션 폐기. 토큰이 이미 죽었어도 서버는 멱등하게 받아 준다.

@@ -65,7 +65,10 @@ final class DashboardViewModel {
     ///
     /// 여기서 비우면 카드가 "불러오는 중"으로 접혔다가 다시 펴지며 화면이 통째로 흔들린다.
     /// 사라질 행은 하나인데 목록 전체가 깜빡이는 셈이다.
-    func refresh() async {
+    /// - Parameter background: **소켓이 시킨** 재조회인가. 그렇다면 이 요청 때문에 도는
+    ///   회전이 세션의 유휴 창을 밀지 않는다 — 사용자가 한 일이 아니기 때문이다
+    ///   (plan/auth.md §6). 화면 진입·당겨 새로고침·해제 뒤의 갱신은 활동이므로 기본값이다.
+    func refresh(background: Bool = false) async {
         loadErrorKey = nil
         guard let token = accessToken() else {
             // 토큰이 없으면 목록을 물을 수 없다. 세션 복원이 곧 로그인 화면으로 보낸다.
@@ -73,7 +76,7 @@ final class DashboardViewModel {
             return
         }
         do {
-            sessions = try await service.sessions(accessToken: token)
+            sessions = try await service.sessions(accessToken: token, background: background)
         } catch {
             Log.auth("sessions load failed")
             loadErrorKey = .errorSessionsLoadFailed

@@ -12,6 +12,14 @@
 	<key>PRISM_API_URL</key>
 	<string>$(PRISM_API_URL)</string>
 
+	<!-- 세션 소켓(= socket 서비스) 주소. API와 **다른 포트**라(로컬 3000 vs 3002)
+	     baseURL에서 유도할 수 없어 따로 둔다.
+
+	     ⚠️ Secrets.xcconfig에 넣지 말 것 — xcconfig는 `//`를 주석으로 먹어
+	     `wss://...`가 스킴에서 잘린다(PRISM_API_URL이 같은 이유로 여기 있다). -->
+	<key>PRISM_SOCKET_URL</key>
+	<string>$(PRISM_SOCKET_URL)</string>
+
 	<!-- ── 네이티브 소셜 로그인 크리덴셜 ──
 	     실제 값은 gitignore된 Config/Secrets.xcconfig가 빌드 변수로 채운다(커밋 소스에는
 	     값이 없다). GoogleSignIn은 여기 GIDClientID를 읽고, URL 스킴은 iOS가 redirect

@@ -29,9 +29,17 @@ protocol SessionAuthority: AnyObject, Sendable {
     /// 전에 로그아웃하고 다시 로그인하면 그 401은 **끝난 세션**의 것인데, 토큰만 비교해서는
     /// 회전과 구분되지 않는다 — 옛 요청이 새 세션의 토큰으로 재생되거나, 새 세션을 끊는다.
     ///
-    /// 토큰을 함께 받는 이유도 같다. 부르는 쪽이 토큰을 읽은 뒤 여기 오기까지는 `await`
-    /// 하나가 끼어 있어, 그사이 세션이 갈리면 **옛 토큰이 새 세션의 이름표를 달고** 나간다.
+    /// 토큰을 함께 받는 이유도 같다. 부르는 쪽이 토큰을 읽은 시점과 요청이 실제로 나가는
+    /// 시점 사이에는 회전·재로그인이 끼어들 수 있어, 표식만 새로 찍으면 **옛 토큰이 새
+    /// 세션의 이름표를 달고** 나간다.
     func sessionMark(usedAccessToken: String) -> Int?
+
+    /// 액세스 토큰이 곧 만료되는가 — 요청을 **보내기 전에** 회전할지 가른다.
+    ///
+    /// 타이머로 미리 돌지 않는 이유는 idle 타임아웃 때문이다: 요청이 없는 동안에도
+    /// 세션을 밀면 화면만 열어두면 세션이 영영 살아 있게 된다. 요청이 있을 때만 보면
+    /// 유휴 상태의 트래픽이 0이면서도 만료된 요청의 왕복을 아낀다.
+    func isNearExpiry() -> Bool
 
     /// 만료된 세션을 갱신한다.
     ///
@@ -54,6 +62,12 @@ protocol SessionAuthority: AnyObject, Sendable {
 }
 
 final class NetworkManager: Sendable {
+    /// 이 요청을 **사용자가 시켰다**는 표시(서버의 ACTIVITY_HEADER).
+    ///
+    /// 서버는 이 표시가 붙은 요청에만 세션의 유휴 창을 민다 — 없으면 밀지 않는다
+    /// (plan/auth.md §6). 소켓이 시킨 재조회만 표시를 달지 않는다.
+    static let activityHeader = "X-Prism-Activity"
+
     private let session: URLSession
     private let decoder = JSONDecoder()
     private let encoder = JSONEncoder()
@@ -87,8 +101,11 @@ final class NetworkManager: Sendable {
         _ endpoint: APIEndpoint,
         body: Body,
         accessToken: String? = nil,
+        background: Bool = false,
     ) async throws -> Response {
-        let data = try await perform(endpoint, body: try encode(body), accessToken: accessToken)
+        let data = try await perform(
+            endpoint, body: try encode(body), accessToken: accessToken, background: background,
+        )
         return try decode(data, as: Response.self)
     }
 
@@ -96,8 +113,13 @@ final class NetworkManager: Sendable {
     func send<Response: Decodable>(
         _ endpoint: APIEndpoint,
         accessToken: String? = nil,
+        // 이 요청이 **서버가 밀어 준 신호 때문에** 나가는가. 그때의 회전은 세션의
+        // 유휴 창을 밀지 않는다(plan/auth.md §6).
+        background: Bool = false,
     ) async throws -> Response {
-        let data = try await perform(endpoint, body: nil, accessToken: accessToken)
+        let data = try await perform(
+            endpoint, body: nil, accessToken: accessToken, background: background,
+        )
         return try decode(data, as: Response.self)
     }
 
@@ -126,18 +148,34 @@ final class NetworkManager: Sendable {
         _ endpoint: APIEndpoint,
         body: Data?,
         accessToken: String?,
+        background: Bool = false,
     ) async throws -> Data {
         // 토큰 없이 보낸 요청이나, 뒷일을 스스로 쥔 인증 자신의 호출은 손대지 않는다.
         // 표식은 **보내기 전에** 찍는다 — 응답이 돌아왔을 때 그사이 세션이 갈렸는지는
         // 이 값으로만 알 수 있다.
         var mark: Int?
+        var accessToken = accessToken
         let authority = currentAuthority
-        if endpoint.recoversSession, let accessToken, let authority {
-            mark = await authority.sessionMark(usedAccessToken: accessToken)
+        if endpoint.recoversSession, let token = accessToken, let authority {
+            mark = authority.sessionMark(usedAccessToken: token)
+            // 만료가 임박했으면 **보내기 전에** 회전한다. 반응형 경로와 같은 문을 쓰므로
+            // 그사이 다른 요청이 이미 회전시켰다면 여기서는 아무 요청도 나가지 않는다.
+            //
+            // 실패해도 그대로 보낸다 — 정말 만료였다면 아래 catch가 받아 낸다.
+            // 여기는 정확성이 아니라 최적화다.
+            if let mark, authority.isNearExpiry() {
+                if let rotated = await authority.refreshForRetry(
+                    mark: mark, usedAccessToken: token,
+                ) {
+                    accessToken = rotated
+                }
+            }
         }
 
         do {
-            return try await send(endpoint, body: body, accessToken: accessToken)
+            return try await send(
+                endpoint, body: body, accessToken: accessToken, background: background,
+            )
         } catch let error as APIError {
             guard let authority, let mark, let accessToken else { throw error }
 
@@ -149,7 +187,7 @@ final class NetworkManager: Sendable {
                 Log.network("session rotated — retrying \(endpoint.path) once")
                 return try await sendOrEndSession(
                     endpoint, body: body, accessToken: rotated,
-                    authority: authority, mark: mark,
+                    authority: authority, mark: mark, background: background,
                 )
             }
             if error.isDefinitiveAuthFailure {
@@ -167,9 +205,12 @@ final class NetworkManager: Sendable {
         accessToken: String,
         authority: any SessionAuthority,
         mark: Int,
+        background: Bool = false,
     ) async throws -> Data {
         do {
-            return try await send(endpoint, body: body, accessToken: accessToken)
+            return try await send(
+                endpoint, body: body, accessToken: accessToken, background: background,
+            )
         } catch let error as APIError where error.isDefinitiveAuthFailure {
             await authority.endSession(mark: mark, usedAccessToken: accessToken)
             throw error
@@ -181,10 +222,15 @@ final class NetworkManager: Sendable {
         _ endpoint: APIEndpoint,
         body: Data?,
         accessToken: String?,
+        background: Bool = false,
     ) async throws -> Data {
         var request = URLRequest(url: endpoint.url)
         request.httpMethod = endpoint.method
         request.setValue(NetworkManager.userAgent, forHTTPHeaderField: "User-Agent")
+        // 소켓이 시킨 재조회만 표시를 달지 않는다 — 나머지는 사용자가 시킨 것이다.
+        if !background {
+            request.setValue("1", forHTTPHeaderField: NetworkManager.activityHeader)
+        }
         request.httpBody = body
         if body != nil {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")

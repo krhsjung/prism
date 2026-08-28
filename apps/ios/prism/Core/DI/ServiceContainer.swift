@@ -28,6 +28,9 @@ final class ServiceContainer {
     let authManager: AuthManager
     /// 활성 세션 조회·폐기(`/auth/sessions*`). 인증은 Keychain의 Bearer로 한다.
     let sessionsService: SessionsService
+    /// 세션 소켓. 목록을 나르지 않고 "바뀌었다"는 신호만 준다 — 목록은 늘 위 서비스가
+    /// 가져온다(그래야 재조회가 스탬핑·공유 회전이 붙은 HTTP 경로를 탄다).
+    let sessionSocket: SessionSocket
 
     let localization: LocalizationStore
     let theme: ThemeStore
@@ -53,6 +56,13 @@ final class ServiceContainer {
         // 401의 뒷일을 맡을 고리를 **만든 뒤에** 꽂는다 — 생성 시점에 이으면
         // NetworkManager → AuthService → AuthManager → NetworkManager로 도는 순환이 된다.
         network.use(authority: authManager)
+
+        // 소켓도 만료를 만나면 **같은** 회전(refreshForRetry)을 탄다 — 리프레시
+        // 자격증명은 1회용이라, 자기 회전을 따로 시작하면 두 번 소비되어 세션이 죽는다.
+        sessionSocket = SessionSocket(
+            accessToken: { [keychain] in keychain.load().credentials?.accessToken },
+            authority: authManager,
+        )
 
         localization = LocalizationStore()
         theme = ThemeStore()

@@ -15,7 +15,11 @@ import Foundation
 ///
 /// - Note: 로컬 폴백은 http라 ATS가 막는다. 시뮬레이터에서 로컬 서버를 붙이려면
 ///   Info.plist에 `NSAllowsLocalNetworking` 예외가 필요하다(운영 빌드에는 넣지 말 것).
-enum APIConfiguration {
+// 프로젝트 기본 격리가 MainActor라(SWIFT_DEFAULT_ACTOR_ISOLATION) 아무 표시가 없으면 이
+// 상수들도 MainActor의 것이 된다. 그러면 **기본 인자**처럼 비격리 문맥에서 읽는 자리마다
+// 경고가 난다(SessionSocket.init의 url이 그랬다). 값은 Info.plist에서 한 번 읽어 굳는
+// 불변 설정이고 UI와 아무 상관이 없으므로, 격리를 벗겨 어디서나 읽게 둔다.
+nonisolated enum APIConfiguration {
     /// 값이 비어 있을 때의 개발용 주소. 웹의 `api.ts` 기본값과 같다.
     private static let developmentURL = "https://hsjung.asuscomm.com"
 
@@ -28,6 +32,25 @@ enum APIConfiguration {
             // 여기까지 오면 설정이 잘못된 것이다. 앱을 죽이는 대신 개발 주소로 떨어뜨리고
             // 로그를 남긴다 — 어차피 첫 요청이 실패해 화면에 오류로 드러난다.
             return URL(string: developmentURL)!
+        }
+        return url
+    }()
+
+    /// 값이 비어 있을 때의 개발용 소켓 주소. 웹의 `VITE_SOCKET_URL` 기본값과 같은 역할이다.
+    private static let developmentSocketURL = "wss://hsjung.asuscomm.com/socket"
+
+    /// 세션 소켓(= socket 서비스) 주소.
+    ///
+    /// **baseURL에서 유도하지 않는다.** 로컬에서 auth는 :3000이고 socket은 :3002라
+    /// 스킴만 바꿔서는 닿지 않는다. 운영에서는 반드시 `wss://` — 세션 쿠키는 앱에서
+    /// 쓰지 않지만(Bearer로 인증한다) 평문 전송으로 토큰을 흘릴 이유가 없다.
+    static let socketURL: URL = {
+        let configured = Bundle.main.object(forInfoDictionaryKey: "PRISM_SOCKET_URL") as? String
+        let trimmed = configured?.trimmingCharacters(in: .whitespaces) ?? ""
+        let raw = trimmed.isEmpty ? developmentSocketURL : trimmed
+        guard let url = URL(string: raw) else {
+            Log.error("invalid PRISM_SOCKET_URL — falling back to development server")
+            return URL(string: developmentSocketURL)!
         }
         return url
     }()

@@ -14,7 +14,11 @@ import os
 /// 액세스 토큰·리프레시 자격증명·표시 이름은 인자로 넘기지 않는다(plan/auth.md §7).
 /// os.log의 `privacy` 옵션에 기대는 대신, 민감한 값을 애초에 호출부에서 넘기지 않는
 /// 쪽을 규칙으로 둔다 — 여기 들어온 문자열은 전부 평문으로 남는다고 보면 된다.
-enum Log {
+// 로깅은 UI가 아니다 — 어느 격리에서든 부를 수 있어야 한다. 프로젝트 기본 격리가
+// MainActor라(SWIFT_DEFAULT_ACTOR_ISOLATION) 표시가 없으면 이것도 MainActor의 것이 되어,
+// 비격리 문맥(설정 상수의 초기화 등)에서 한 줄 남기는 것조차 경고가 된다. 안에 있는 것은
+// 불변 상수와 Sendable한 os.Logger뿐이라 벗겨도 안전하다.
+nonisolated enum Log {
     private static let subsystem = Bundle.main.bundleIdentifier ?? "kr.hs.jung.prism"
 
     private static let authLogger = Logger(subsystem: subsystem, category: "auth")

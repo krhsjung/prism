@@ -9,17 +9,23 @@ import SwiftUI
 
 /// 상태 배지 — 디자인의 `Atom/Badge`.
 ///
-/// 세션 목록에서 "현재 세션"(Success)과 "그 밖의 활성 세션"(Info)을 가른다. 색만으로
-/// 구분하지 않는다 — 배지 안의 문구가 같은 정보를 글로도 말한다(색각 이상·흑백 출력).
+/// 세션 목록에서 "현재 세션"(Success) · "붙어 있는 세션"(Info) · "붙어 있지 않은
+/// 세션"(Neutral)을 가른다. 색만으로 구분하지 않는다 — 배지 안의 문구가 같은 정보를
+/// 글로도 말한다(색각 이상·흑백 출력).
 struct PrismBadge: View {
     enum Variant {
         case success
         case info
+        /// 연결이 없는 세션 — 유효하지만 지금 소켓을 붙들고 있지 않다. 색도 한 단계 물러선다.
+        case neutral
 
         var background: Color {
             switch self {
             case .success: AppColor.successBackground
             case .info: AppColor.secondaryBackground
+            // surface는 카드보다 한 톤 눌린 배경이라 라이트/다크 모두에서 카드 위에 얹힌다.
+            // 새 토큰을 만들지 않고 있는 것으로 세 번째 갈래를 만든다(웹 `.badge--neutral`과 같다).
+            case .neutral: AppColor.surface
             }
         }
 
@@ -29,6 +35,16 @@ struct PrismBadge: View {
             // 웹 `.badge--info`와 같은 토큰이다 — secondaryForeground(네이비)를 쓰면
             // 같은 배지가 플랫폼마다 다른 파랑으로 나온다.
             case .info: AppColor.accent
+            case .neutral: AppColor.muted
+            }
+        }
+
+        /// 라이트에서 surface와 카드의 차이가 작아 알약 윤곽이 흐리다 — 테두리로 세운다.
+        /// (웹은 inset box-shadow로 같은 일을 한다)
+        var border: Color? {
+            switch self {
+            case .success, .info: nil
+            case .neutral: AppColor.border
             }
         }
     }
@@ -47,6 +63,11 @@ struct PrismBadge: View {
             .frame(height: AppDimension.Dashboard.badgeHeight)
             // 알약 모양 — 양끝이 완전한 반원이 된다.
             .background(variant.background, in: .capsule)
+            .overlay {
+                if let border = variant.border {
+                    Capsule().strokeBorder(border, lineWidth: 1)
+                }
+            }
     }
 }
 

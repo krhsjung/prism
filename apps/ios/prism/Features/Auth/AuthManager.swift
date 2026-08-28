@@ -23,23 +23,11 @@ import Observation
 ///    건드리지 않는다(그 결과가 우선이다).
 ///
 /// 자격증명 저장은 KeychainManager가 한 항목으로 원자 처리하므로 "반쪽만 저장"은 없다.
-/// 선제 갱신 타이머의 지연 규칙.
+/// 액세스 토큰이 만료되기까지 이만큼 남았으면 **보내기 전에** 회전한다.
 ///
-/// 값을 밖에서 꽂을 수 있게 둔 이유는 하나다 — **테스트가 가상 시계를 못 쓴다.** 아주 짧은
-/// 지연을 주어 "75% 지점에 회전한다"와 "일시적 실패 뒤 다시 시도한다"를 실제로 돌려 본다
-/// (Android가 `scope`를 주입받는 것과 같은 이음매).
-struct RefreshSchedule {
-    /// 남은 수명의 이 비율에서 미리 회전한다. 0.75면 15분 토큰을 ~11분에 갱신해,
-    /// 네트워크 지연·시계 오차가 있어도 만료 전에 여유가 있다(웹·Android와 같은 값).
-    var leadRatio = 0.75
-    /// 아주 짧은 수명·시계 튐에 스케줄이 과도하게 촘촘해지지 않게 하는 하한.
-    var minDelayMs = 30_000
-    /// 일시적 실패로 회전하지 못했을 때 다시 시도하는 간격(Android와 같은 값). 오프라인이
-    /// 길어져도 분당 한 번이라 부담이 없고, 연결이 돌아오면 그 안에 세션이 다시 밀린다.
-    var retryDelayMs = 60_000
-
-    static let `default` = RefreshSchedule()
-}
+/// 왕복 한 번을 덮을 정도면 충분하다 — 못 덮어도 반응형 401 경로가 받아 내므로
+/// 이 값은 정확성이 아니라 최적화다(웹의 TOKEN_REFRESH_MARGIN_MS와 같은 값).
+private let tokenRefreshMarginMs = 5_000
 
 @MainActor
 @Observable
@@ -106,8 +94,11 @@ final class AuthManager: SessionAuthority {
     private var supersededGeneration = 0
 
     /// 선제 갱신 타이머와, 마지막으로 서버가 알려 준 액세스 토큰 수명.
-    private var proactiveRefresh: Task<Void, Never>?
-    private var accessTokenTtlMs = 0
+    /// 액세스 토큰의 만료 시각. nil이면 모른다.
+    ///
+    /// 앱은 토큰을 열어 보지 않으므로(그럴 이유도 없다) 만료를 알 방법은 서버가 응답에
+    /// 실어 주는 `accessTokenTtlMs`뿐이다 — 받은 그 순간에 시각으로 바꿔 둔다.
+    private var accessTokenExpiresAt: Date?
 
     /// 사용자 액션(로그인/로그아웃)이 진행 중인가. 떠 있으면 백그라운드 확인은 물러난다.
     /// `authActionToken`은 그 소유자다 — 액션이 겹칠 때 오래된 액션의 `defer`가 새 액션의
@@ -134,18 +125,13 @@ final class AuthManager: SessionAuthority {
         // `@MainActor`라 메인 액터 위이므로 여기서 만드는 건 안전하다.
         social: SocialSignInProviding? = nil,
         webAuth: WebAuthController? = nil,
-        schedule: RefreshSchedule = .default,
     ) {
         self.service = service
         self.keychain = keychain
         self.appleSignIn = appleSignIn
         self.social = social ?? UnavailableSocialSignIn()
         self.webAuth = webAuth ?? WebAuthController()
-        self.schedule = schedule
     }
-
-    @ObservationIgnored
-    private let schedule: RefreshSchedule
 
     // MARK: - 세션
 
@@ -197,7 +183,7 @@ final class AuthManager: SessionAuthority {
         // 수 있으므로 거짓 signedOut을 게시하지 않는다. 사용자는 다시 시도할 수 있고, 서버가
         // 이미 폐기했다면 다음 세션 확인이 signedOut으로 정리한다(self-healing).
         if revoked || keychain.clear() {
-            cancelProactiveRefresh()
+            forgetAccessToken()
             state = .signedOut
         } else {
             Log.error("logout could not persist locally — session may remain, keeping state")
@@ -260,9 +246,8 @@ final class AuthManager: SessionAuthority {
             // 수명과 타이머는 **화면 상태와 함께** 간다. 밖에서 걸면, 앞질러진 복원이
             // 지금 세션의 수명을 덮고 남의 타이머를 심는다.
             applyFromRestore(gen) {
-                self.accessTokenTtlMs = session.accessTokenTtlMs
+                self.noteAccessToken(ttlMs: session.accessTokenTtlMs)
                 self.state = .signedIn(session.user)
-                self.scheduleProactiveRefresh()
             }
             Log.auth("session restored")
         } catch let error as APIError where error.isSessionExpired {
@@ -282,48 +267,28 @@ final class AuthManager: SessionAuthority {
 
     /// 액세스 토큰이 만료되기 **전에** 미리 세션을 회전한다.
     ///
-    /// 401을 만나고 나서 갱신하는 것만으로는 부족하다: 요청이 없는 채로 놔둔 화면은 401을
-    /// 만날 일도 없어, idle 창이 지나면 세션이 조용히 죽는다. 화면을 열어 둔 동안 세션이
-    /// 밀리도록 수명의 `RefreshSchedule.leadRatio` 지점에서 미리 돌린다(웹과 같은 규칙).
+    /// 액세스 토큰이 곧 만료되는가 — 요청을 보내기 전에 회전할지 가른다.
     ///
-    /// 앱이 백그라운드에 있는 동안 타이머가 밀려도 손해가 없다 — 포그라운드로 돌아오면
-    /// `restoreSession()`이 다시 확인하고 여기를 새로 건다.
-    private func scheduleProactiveRefresh() {
-        proactiveRefresh?.cancel()
-        let ttl = accessTokenTtlMs
-        guard ttl > 0 else { return }
-        // 예약을 건 **그 세션**의 표식을 함께 들고 간다 — 깨어났을 때 세션이 갈렸다면
-        // 이 예약은 남의 것이다.
-        let mark = generation
-        var delayMs = max(Int(Double(ttl) * schedule.leadRatio), schedule.minDelayMs)
-        let retryDelayMs = schedule.retryDelayMs
-        proactiveRefresh = Task { [weak self] in
-            while true {
-                try? await Task.sleep(for: .milliseconds(delayMs))
-                guard !Task.isCancelled, let self else { return }
-                guard mark == self.generation else { return }
-                guard let current = self.keychain.load().credentials?.accessToken else {
-                    return
-                }
-                // 반응형 경로와 같은 문을 쓴다 — 그사이 401이 먼저 갱신했다면 여기서는
-                // 아무 요청도 나가지 않는다. 회전에 성공하면 rotate가 이 자리를 새
-                // 예약으로 갈아 끼우므로 여기서 물러난다.
-                if await self.refreshForRetry(
-                    mark: mark, usedAccessToken: current,
-                ) != nil { return }
-                // 오프라인·5xx로 회전하지 못했을 뿐인데 여기서 놓아 버리면, 타이머는 이미
-                // 소모됐고 아무도 다시 걸지 않아 **선제 갱신이 영영 멈춘다.** 세션은 아직
-                // 살아 있으니 짧게 다시 시도한다.
-                delayMs = retryDelayMs
-            }
-        }
+    /// **타이머로 미리 돌지 않는다.** 요청이 없는 동안에도 세션을 밀면 idle 타임아웃이
+    /// 무의미해진다 — 화면만 열어두면 absolute 상한까지 살아 있게 된다. 요청이 있을 때만
+    /// 보므로 유휴 상태에서는 트래픽이 0이고, 그러면서도 만료된 요청을 보내 401을 받고
+    /// 되돌리는 왕복이 없다. 방치된 화면은 idle 창이 지나면 정직하게 만료된다.
+    func isNearExpiry() -> Bool {
+        guard let expiresAt = accessTokenExpiresAt else { return false }
+        return expiresAt.timeIntervalSinceNow * 1000 <= Double(tokenRefreshMarginMs)
     }
 
-    /// 세션이 끝났다 — 예약된 회전도 함께 거둔다.
-    private func cancelProactiveRefresh() {
-        proactiveRefresh?.cancel()
-        proactiveRefresh = nil
-        accessTokenTtlMs = 0
+    /// 서버가 알려 준 수명을 받은 그 자리에서 시각으로 바꿔 둔다.
+    private func noteAccessToken(ttlMs: Int) {
+        // 0은 "서버가 알려 주지 않았다"는 뜻이다(이 필드가 생기기 전 서버) — 모르는 채로
+        // 둔다. 그러면 선제 회전을 걸지 않고 반응형 401 경로가 전부 맡는다.
+        accessTokenExpiresAt =
+            ttlMs > 0 ? Date().addingTimeInterval(Double(ttlMs) / 1000) : nil
+    }
+
+    /// 세션이 끝났다 — 남겨 두면 다음 요청이 낡은 만료 시각을 보고 헛 회전한다.
+    private func forgetAccessToken() {
+        accessTokenExpiresAt = nil
     }
 
     /// 서버가 **확정한** 인증 실패를 받았다 — 다른 기기에서 이 세션을 해제한 경우가
@@ -338,7 +303,7 @@ final class AuthManager: SessionAuthority {
               keychain.load().credentials?.accessToken == usedAccessToken else { return }
         Log.auth("session rejected by the server — signing out")
         _ = keychain.clear()
-        cancelProactiveRefresh()
+        forgetAccessToken()
         // 세션이 끝났으니 표식도 넘긴다 — 아직 떠 있는 옛 요청의 응답이 돌아와도
         // 다음 세션을 건드리지 못한다.
         generation += 1
@@ -415,6 +380,7 @@ final class AuthManager: SessionAuthority {
     private func sharedRotate(
         generation gen: Int,
         using refreshToken: String,
+        activity: Bool = false,
     ) async -> RotateOutcome {
         // 여기까지는 `await`이 없어 메인 액터 위에서 확인과 등록이 한 덩어리로 일어난다 —
         // 그래서 두 요청이 각자 회전을 띄우는 틈이 없다.
@@ -423,7 +389,7 @@ final class AuthManager: SessionAuthority {
         }
         let task = Task { [weak self] () -> RotateOutcome in
             guard let self else { return .superseded }
-            return await self.rotate(generation: gen, using: refreshToken)
+            return await self.rotate(generation: gen, using: refreshToken, activity: activity)
         }
         rotateTask = task
         rotateGeneration = gen
@@ -453,7 +419,9 @@ final class AuthManager: SessionAuthority {
     /// 401 재시도와 **같은 문**(`sharedRotate`)을 쓴다. 각자 돌면 포그라운드 복귀의 복원과
     /// 화면의 401이 1회용 리프레시 자격증명을 동시에 써서 재사용 탐지에 걸린다.
     private func refreshOrSignOut(generation gen: Int, using refreshToken: String) async {
-        switch await sharedRotate(generation: gen, using: refreshToken) {
+        // 앱을 다시 여는 것은 **활동**이다. 이 경로는 회전으로 끝나고 다시 보호된 요청을
+        // 보내지 않으므로, 여기서 알리지 않으면 그 활동이 계산되지 않는다(plan/auth.md §6).
+        switch await sharedRotate(generation: gen, using: refreshToken, activity: true) {
         case .rotated, .superseded:
             break
         case .rejected:
@@ -481,10 +449,16 @@ final class AuthManager: SessionAuthority {
     /// **상태를 로그아웃으로 바꾸지 않는다.** 실패를 어떻게 다룰지는 자리마다 다르기
     /// 때문이다: 앱 시작의 복원은 확인이 안 되면 로그인 화면을 보여야 하지만, 쓰는 도중의
     /// 갱신은 잠깐 끊긴 것만으로 사용자를 쫓아내면 안 된다.
-    private func rotate(generation gen: Int, using refreshToken: String) async -> RotateOutcome {
+    /// - Parameter activity: 이 회전을 **사용자가 시켰는가**(앱 복원). 참이면 서버가
+    ///   회전 뒤 유휴 창도 민다 — 복원은 이 요청으로 끝나 다시 보호된 요청을 보내지 않는다.
+    private func rotate(
+        generation gen: Int,
+        using refreshToken: String,
+        activity: Bool = false,
+    ) async -> RotateOutcome {
         let session: AuthSession
         do {
-            session = try await service.refresh(refreshToken: refreshToken)
+            session = try await service.refresh(refreshToken: refreshToken, activity: activity)
         } catch let error as APIError where error.isDefinitiveAuthFailure {
             discardIfCurrent(refreshToken: refreshToken, reason: "refresh rejected by server")
             return .rejected
@@ -528,9 +502,8 @@ final class AuthManager: SessionAuthority {
         // 수명과 타이머는 **화면 상태와 함께** 간다 — 앞질러진 갱신이 남의 타이머를
         // 심지 않게.
         applyFromRestore(gen) {
-            self.accessTokenTtlMs = session.accessTokenTtlMs
+            self.noteAccessToken(ttlMs: session.accessTokenTtlMs)
             self.state = .signedIn(session.user)
-            self.scheduleProactiveRefresh()
         }
         Log.auth("session refreshed")
         return .rotated
@@ -593,11 +566,10 @@ final class AuthManager: SessionAuthority {
         }
         // 저장(save)이 revoked 마커를 자격증명으로 덮어썼으므로, 지난 로그아웃 의도는
         // 새 세션이 자연히 대체한다(별도 표식 관리가 필요 없다).
-        accessTokenTtlMs = session.accessTokenTtlMs
+        noteAccessToken(ttlMs: session.accessTokenTtlMs)
         endedUnexpectedly = false
         state = .signedIn(session.user)
         // 로그인 직후부터 세션이 밀리게 한다 — 다음 `/auth/me`까지 기다리지 않는다.
-        scheduleProactiveRefresh()
     }
 
     // MARK: - Private (가드·정리)
@@ -638,7 +610,7 @@ final class AuthManager: SessionAuthority {
         // 창에서 조용히 만료된다.
         guard keychain.load().credentials?.refreshToken == refreshToken else { return }
         Log.auth("discarding credentials: \(reason)")
-        cancelProactiveRefresh()
+        forgetAccessToken()
         _ = keychain.revoke()
     }
 

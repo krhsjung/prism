@@ -134,6 +134,13 @@ struct SessionListItem: Codable, Equatable, Sendable, Identifiable {
     let startedAt: String
     let expiresAt: String
     let isCurrent: Bool
+    /// 이 세션이 **지금 소켓을 붙들고 있는가.** 세션의 유효성이 아니라 연결의 유무다 —
+    /// 백그라운드로 내린 앱은 유효한 세션이지만 연결은 없다.
+    ///
+    /// ⚠️ 이 값을 그대로 화면에 옮기지 않는다. 소켓 서비스가 죽으면 presence가 통째로
+    /// 비어 "아무도 안 붙었다"와 구별되지 않으므로, 화면은 **자기 소켓이 붙어 있을 때만**
+    /// 이 값을 믿고 아니면 예전 두 갈래(Current/Active)로 물러난다.
+    let isConnected: Bool
     /// 이 세션을 만든 기기의 종류. 기기명·브라우저·위치는 계약에 없다(plan/dashboard.md §5).
     let device: DeviceKind
 
@@ -142,13 +149,32 @@ struct SessionListItem: Codable, Equatable, Sendable, Identifiable {
         startedAt: String,
         expiresAt: String,
         isCurrent: Bool,
+        isConnected: Bool = false,
         device: DeviceKind = .unknown,
     ) {
         self.id = id
         self.startedAt = startedAt
         self.expiresAt = expiresAt
         self.isCurrent = isCurrent
+        self.isConnected = isConnected
         self.device = device
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, startedAt, expiresAt, isCurrent, isConnected, device
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        startedAt = try c.decode(String.self, forKey: .startedAt)
+        expiresAt = try c.decode(String.self, forKey: .expiresAt)
+        isCurrent = try c.decode(Bool.self, forKey: .isCurrent)
+        // isCurrent와 달리 **없어도 받는다.** 나중에 더한 필드라 아직 배포되지 않은
+        // 서버는 보내지 않는다 — 여기서 거부하면 배지 하나 때문에 목록 전체가 실패한다.
+        // (device를 unknown으로 접는 것과 같은 규칙이다)
+        isConnected = try c.decodeIfPresent(Bool.self, forKey: .isConnected) ?? false
+        device = try c.decodeIfPresent(DeviceKind.self, forKey: .device) ?? .unknown
     }
 }
 
