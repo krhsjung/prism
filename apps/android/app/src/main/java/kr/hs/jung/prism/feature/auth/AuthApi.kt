@@ -35,8 +35,13 @@ interface NativeAuthApi {
     /** Bearer 세션 확인 + 사용자 정보. */
     suspend fun meBearer(accessToken: String): SessionUser
 
-    /** Bearer 세션의 자격증명 회전(refresh token을 body로 보낸다 → 새 토큰). */
-    suspend fun refreshBearer(refreshToken: String): AuthSession
+    /**
+     * Bearer 세션의 자격증명 회전(refresh token을 body로 보낸다 → 새 토큰).
+     *
+     * @param activity 이 회전을 **사용자가 시켰는가**(앱 복원). 참이면 서버가 회전 뒤
+     *   유휴 창도 민다 — 복원은 이 요청으로 끝나 다시 보호된 요청을 보내지 않는다.
+     */
+    suspend fun refreshBearer(refreshToken: String, activity: Boolean = false): AuthSession
 
     /** Bearer 세션 로그아웃(최선 노력). 이후 토큰은 로컬에서 폐기한다. */
     suspend fun logoutBearer(accessToken: String)
@@ -53,7 +58,7 @@ interface NativeAuthApi {
             throw kr.hs.jung.prism.core.network.ApiError.providerUnavailable
         override suspend fun meBearer(accessToken: String) =
             throw kr.hs.jung.prism.core.network.ApiError.providerUnavailable
-        override suspend fun refreshBearer(refreshToken: String) =
+        override suspend fun refreshBearer(refreshToken: String, activity: Boolean) =
             throw kr.hs.jung.prism.core.network.ApiError.providerUnavailable
         override suspend fun logoutBearer(accessToken: String) =
             throw kr.hs.jung.prism.core.network.ApiError.providerUnavailable
@@ -101,9 +106,15 @@ class HttpAuthApi(private val client: ApiClient) : NativeAuthApi {
         )
 
     /** body의 refresh token으로 회전하면 서버는 새 토큰을 담은 AuthSession을 돌려준다. */
-    override suspend fun refreshBearer(refreshToken: String): AuthSession =
+    override suspend fun refreshBearer(refreshToken: String, activity: Boolean): AuthSession =
         decodeAuthSession(
-            client.request("POST", "/auth/refresh", body(("refreshToken" to refreshToken))),
+            client.request(
+                "POST",
+                "/auth/refresh",
+                body(("refreshToken" to refreshToken)),
+                // 표시는 `background`의 반대다 — 활동이면 붙는다.
+                background = !activity,
+            ),
         )
 
     override suspend fun logoutBearer(accessToken: String) {

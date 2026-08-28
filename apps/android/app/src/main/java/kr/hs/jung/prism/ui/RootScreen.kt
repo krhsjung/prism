@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.Lifecycle
@@ -46,20 +47,28 @@ fun RootScreen(container: ServiceContainer) {
                 ClearSessionScope()
                 LoginScreen(auth, container.themeStore, container.localeStore)
             }
-            is AuthManager.State.SignedIn ->
+            is AuthManager.State.SignedIn -> {
                 // 로그인 뒤의 화면 상태는 **이 세션의 것**이다. 세션이 끝나면 함께 버리고,
                 // 다시 로그인하면 새로 만든다 — 그러지 않으면 앞 세션의 목록이 그대로
                 // 그려진다(ui/SessionScope.kt).
                 SessionScope(current.generation) {
+                    // 소켓도 **이 세션의 것**이다 — 세대가 바뀌면 ViewModel과 함께
+                    // 버려지고 새로 만들어진다. 컨테이너에 두면 앱과 함께 살아
+                    // 세션 N의 소켓이 세션 N+1까지 살아남는다.
+                    val socket = remember(current.generation) {
+                        container.createSessionSocket()
+                    }
                     DashboardScreen(
                         user = current.user,
                         themeStore = container.themeStore,
                         localeStore = container.localeStore,
                         sessionsApi = container.sessionsApi,
                         tokens = container.sessionTokens,
+                        socket = socket,
                         onSignOut = { scope.launch { auth.signOut() } },
                     )
                 }
+            }
         }
     }
 }

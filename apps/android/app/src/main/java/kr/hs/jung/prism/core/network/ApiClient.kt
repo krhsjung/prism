@@ -35,6 +35,15 @@ interface SessionAuthority {
     fun sessionMark(usedAccessToken: String): Long?
 
     /**
+     * 액세스 토큰이 곧 만료되는가 — 요청을 **보내기 전에** 회전할지 가른다.
+     *
+     * 타이머로 미리 돌지 않는 이유는 idle 타임아웃 때문이다: 요청이 없는 동안에도
+     * 세션을 밀면 화면만 열어두면 세션이 영영 살아 있게 된다. 요청이 있을 때만 보면
+     * 유휴 상태의 트래픽이 0이면서도 만료된 요청의 왕복을 아낀다.
+     */
+    fun isNearExpiry(): Boolean
+
+    /**
      * 만료된 세션을 갱신한다.
      *
      * @param mark 요청을 보낼 때의 세션 표식. 그사이 세션이 갈렸으면 아무것도 하지 않는다.
@@ -65,6 +74,14 @@ interface SessionAuthority {
  *
  * OkHttp의 enqueue(콜백)를 코루틴으로 감싸, 취소되면 요청도 취소되게 한다.
  */
+/**
+ * 이 요청을 **사용자가 시켰다**는 표시(서버의 ACTIVITY_HEADER).
+ *
+ * 서버는 이 표시가 붙은 요청에만 세션의 유휴 창을 민다 — 없으면 밀지 않는다
+ * (plan/auth.md §6). 소켓이 시킨 재조회만 표시를 달지 않는다.
+ */
+const val ACTIVITY_HEADER = "X-Prism-Activity"
+
 class ApiClient(
     /**
      * 이 앱이 자기를 소개하는 문자열. 기본값(`okhttp/4.x`)으로는 서버가 기기 종류를
@@ -107,6 +124,13 @@ class ApiClient(
          * 채로 이 호출을 하므로 여기서 부르면 그 락에서 교착한다.
          */
         recoverSession: Boolean = true,
+        /**
+         * 이 요청이 **서버가 밀어 준 신호 때문에** 나가는가(소켓의 `sessionsChanged`).
+         *
+         * 서버는 이 표시가 없는 인증 요청을 **활동**으로 보고 세션의 유휴 창을 민다.
+         * 소켓 신호로 목록을 다시 가져오는 그 요청 하나만 표시를 단다(plan/auth.md §6).
+         */
+        background: Boolean = false,
     ): String {
         // 요청이 **어느 세션의 것인지** 지금 붙잡아 둔다. 응답이 돌아왔을 때는 그사이
         // 로그아웃·재로그인이 끝나 있을 수 있고, 그때 옛 응답으로 새 세션을 건드리면
@@ -117,18 +141,29 @@ class ApiClient(
         } else {
             null
         }
+        // 만료가 임박했으면 **보내기 전에** 회전한다. 반응형 경로와 같은 문을 쓰므로
+        // 그사이 다른 요청이 이미 회전시켰다면 여기서는 아무 요청도 나가지 않는다.
+        //
+        // 실패해도 그대로 보낸다 — 정말 만료였다면 아래 catch가 받아 낸다.
+        // 여기는 정확성이 아니라 최적화다.
+        var token = accessToken
+        if (authority != null && mark != null && token != null && authority.isNearExpiry()) {
+            token = authority.refreshForRetry(mark, token) ?: token
+        }
         try {
-            return send(method, path, body, accessToken)
+            return send(method, path, body, token, background)
         } catch (e: ApiError) {
             // 토큰 없이 보낸 요청(로그인·갱신 자체)은 되살릴 세션이 없다.
-            if (authority == null || mark == null || accessToken == null) throw e
+            // ⚠️ 여기서 보는 것은 **실제로 보낸** 토큰이다 — 위에서 선제 회전이 돌았다면
+            // 원래 인자와 다르고, 서버가 거부한 것은 보낸 쪽이다.
+            if (authority == null || mark == null || token == null) throw e
             // 갱신하면 살아나는 401인지는 **서버만** 안다 — 코드로 받아 본다.
             if (e.isSessionExpired) {
-                val rotated = authority.refreshForRetry(mark, accessToken) ?: throw e
+                val rotated = authority.refreshForRetry(mark, token) ?: throw e
                 AppLog.d("session rotated — retrying $method $path once")
-                return sendOrEndSession(method, path, body, rotated, authority, mark)
+                return sendOrEndSession(method, path, body, rotated, authority, mark, background)
             }
-            if (e.isDefinitiveAuthFailure) authority.endSession(mark, accessToken)
+            if (e.isDefinitiveAuthFailure) authority.endSession(mark, token)
             throw e
         }
     }
@@ -144,9 +179,10 @@ class ApiClient(
         accessToken: String,
         authority: SessionAuthority,
         mark: Long,
+        background: Boolean = false,
     ): String {
         try {
-            return send(method, path, body, accessToken)
+            return send(method, path, body, accessToken, background)
         } catch (e: ApiError) {
             if (e.isDefinitiveAuthFailure) authority.endSession(mark, accessToken)
             throw e
@@ -159,6 +195,7 @@ class ApiClient(
         path: String,
         body: String?,
         accessToken: String?,
+        background: Boolean = false,
     ): String {
         val requestBody: RequestBody? = when {
             body != null -> body.toRequestBody(JSON)
@@ -171,6 +208,8 @@ class ApiClient(
             .method(method, requestBody)
             .header("User-Agent", userAgent)
             .apply { if (accessToken != null) header("Authorization", "Bearer $accessToken") }
+            // 소켓이 시킨 재조회만 표시를 달지 않는다 — 나머지는 사용자가 시킨 것이다.
+            .apply { if (!background) header(ACTIVITY_HEADER, "1") }
             .build()
 
         AppLog.d("$method $path")

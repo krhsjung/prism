@@ -12,7 +12,11 @@ import kr.hs.jung.prism.domain.model.SessionListItem
  */
 interface SessionsApi {
     /** 내 활성 세션 목록. 현재 세션은 서버가 `isCurrent`로 표시해 준다. */
-    suspend fun list(accessToken: String): List<SessionListItem>
+    /**
+     * @param background **소켓이 시킨** 재조회인가 — 그 경우 이 요청 때문에 도는 회전이
+     *   세션의 유휴 창을 밀지 않는다(plan/auth.md §6).
+     */
+    suspend fun list(accessToken: String, background: Boolean = false): List<SessionListItem>
 
     /** 세션 하나를 원격 폐기한다. 현재 세션을 지우면 이 앱의 토큰도 곧 무효가 된다. */
     suspend fun revoke(accessToken: String, id: String)
@@ -24,8 +28,15 @@ interface SessionsApi {
 /** 서버 계약을 그대로 옮긴 얇은 층. 상태는 갖지 않는다. */
 class HttpSessionsApi(private val client: ApiClient) : SessionsApi {
 
-    override suspend fun list(accessToken: String): List<SessionListItem> =
-        decodeSessionList(client.request("GET", "/auth/sessions", accessToken = accessToken))
+    override suspend fun list(accessToken: String, background: Boolean): List<SessionListItem> =
+        decodeSessionList(
+            client.request(
+                "GET",
+                "/auth/sessions",
+                accessToken = accessToken,
+                background = background,
+            ),
+        )
 
     override suspend fun revoke(accessToken: String, id: String) {
         // 세션 id는 경로에 들어간다 — 서버가 준 값만 되돌려 보내므로 그대로 쓴다.

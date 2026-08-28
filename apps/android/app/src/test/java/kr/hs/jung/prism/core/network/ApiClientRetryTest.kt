@@ -43,11 +43,51 @@ class ApiClientRetryTest {
         .setResponseCode(401)
         .setBody("""{"error":"${AuthErrorCode.UNAUTHORIZED}"}""")
 
-    /** 갱신·종료 호출을 세는 가짜 세션 주인. */
+    // ⚠️ 회귀 방지: 유휴 창을 미는 것은 회전이 아니라 **요청**이다. 서버는 표시가 없는
+    // 인증 요청을 활동으로 보고 창을 미므로, 소켓이 시킨 재조회에는 표시가 실려야 한다
+    // (plan/auth.md §6).
+    @Test
+    fun `사용자 요청은 활동 표시를 싣는다`() = runTest {
+        server.enqueue(MockResponse().setBody("""{"ok":true}"""))
+        val client = client()
+
+        client.request("GET", "/auth/sessions", accessToken = "a1")
+
+        assertEquals("1", server.takeRequest().getHeader(ACTIVITY_HEADER))
+    }
+
+    // 소켓이 시킨 재조회에는 표시가 없다 — 사용자가 한 일이 아니다.
+    @Test
+    fun `배경 요청에는 활동 표시가 없다`() = runTest {
+        server.enqueue(MockResponse().setBody("""{"ok":true}"""))
+        val client = client()
+
+        client.request("GET", "/auth/sessions", accessToken = "a1", background = true)
+
+        assertNull(server.takeRequest().getHeader(ACTIVITY_HEADER))
+    }
+
+    // 회전 뒤 재시도도 같은 표시를 달고 나가야 한다 — 그러지 않으면 배경 재조회가
+    // 회전 한 번으로 슬그머니 활동이 된다.
+    @Test
+    fun `회전 뒤 재시도도 성격을 유지한다`() = runTest {
+        server.enqueue(expired())
+        server.enqueue(MockResponse().setBody("""{"ok":true}"""))
+        val client = client().apply { sessionAuthority = FakeAuthority(rotated = "a2") }
+
+        client.request("GET", "/auth/sessions", accessToken = "a1", background = true)
+
+        assertNull(server.takeRequest().getHeader(ACTIVITY_HEADER))
+        assertNull(server.takeRequest().getHeader(ACTIVITY_HEADER))
+    }
+
+    /** 갱신·종료 호출을 세는 가짜 세션 주인. */    /** 갱신·종료 호출을 세는 가짜 세션 주인. */
     private class FakeAuthority(
         private val rotated: String?,
         /** null이면 "로그인한 세션이 없다" — 되살릴 것도 끝낼 것도 없다. */
         private val mark: Long? = 7L,
+        /** true면 요청을 보내기 **전에** 회전한다(만료 임박). */
+        private val nearExpiry: Boolean = false,
     ) : SessionAuthority {
         var refreshCount = 0
         var ended: String? = null
@@ -56,6 +96,8 @@ class ApiClientRetryTest {
         val seenMarks = mutableListOf<Long>()
 
         override fun sessionMark(usedAccessToken: String): Long? = mark
+
+        override fun isNearExpiry(): Boolean = nearExpiry
 
         override suspend fun refreshForRetry(mark: Long, usedAccessToken: String): String? {
             refreshCount++
@@ -67,6 +109,50 @@ class ApiClientRetryTest {
             seenMarks += mark
             ended = usedAccessToken
         }
+    }
+
+    // ⚠️ 회귀 방지: 타이머로 미리 회전하면 요청이 없는 동안에도 세션이 밀려 idle
+    // 타임아웃이 무의미해진다. 회전은 **요청이 있을 때만**, 만료가 임박했을 때 한다.
+    @Test
+    fun `만료가 임박하면 보내기 전에 회전하고 새 토큰으로 보낸다`() = runTest {
+        server.enqueue(MockResponse().setResponseCode(200).setBody("""{"ok":true}"""))
+        val api = client()
+        val authority = FakeAuthority(rotated = "fresh", nearExpiry = true)
+        api.sessionAuthority = authority
+
+        api.request("GET", "/auth/sessions", accessToken = "stale")
+
+        // 요청은 **한 번만** 나간다 — 만료된 토큰으로 보내고 401을 받는 왕복이 없다.
+        assertEquals(1, server.requestCount)
+        assertEquals("Bearer fresh", server.takeRequest().getHeader("Authorization"))
+        assertEquals(1, authority.refreshCount)
+    }
+
+    @Test
+    fun `수명이 넉넉하면 보내기 전에 회전하지 않는다`() = runTest {
+        server.enqueue(MockResponse().setResponseCode(200).setBody("""{"ok":true}"""))
+        val api = client()
+        val authority = FakeAuthority(rotated = "fresh", nearExpiry = false)
+        api.sessionAuthority = authority
+
+        api.request("GET", "/auth/sessions", accessToken = "current")
+
+        assertEquals("Bearer current", server.takeRequest().getHeader("Authorization"))
+        assertEquals(0, authority.refreshCount)
+    }
+
+    // 선제 회전은 최적화지 정확성이 아니다 — 실패해도 요청은 나가고, 정말 만료였다면
+    // 반응형 401 경로가 받아 낸다.
+    @Test
+    fun `선제 회전이 실패해도 원래 토큰으로 보낸다`() = runTest {
+        server.enqueue(MockResponse().setResponseCode(200).setBody("""{"ok":true}"""))
+        val api = client()
+        val authority = FakeAuthority(rotated = null, nearExpiry = true)
+        api.sessionAuthority = authority
+
+        api.request("GET", "/auth/sessions", accessToken = "stale")
+
+        assertEquals("Bearer stale", server.takeRequest().getHeader("Authorization"))
     }
 
     @Test

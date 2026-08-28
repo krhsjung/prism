@@ -134,4 +134,22 @@ class DecodeTest {
             )
         }
     }
+
+    // 배포 중에는 이 필드가 없는 서버와 섞인다 — 거부하면 배지 하나 때문에 목록 전체가
+    // 실패한다(device를 UNKNOWN으로 접는 것과 같은 규칙).
+    @Test
+    fun `folds a missing isConnected to false`() {
+        val list = decodeSessionList(
+            """[{"id":"s1","startedAt":"a","expiresAt":"b","isCurrent":true,"device":"mac"}]""",
+        )
+        assertEquals(false, list[0].isConnected)
+    }
+
+    @Test
+    fun `reads isConnected when present`() {
+        val list = decodeSessionList(
+            """[{"id":"s1","startedAt":"a","expiresAt":"b","isCurrent":false,"isConnected":true,"device":"mac"}]""",
+        )
+        assertEquals(true, list[0].isConnected)
+    }
 }

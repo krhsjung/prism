@@ -50,6 +50,7 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import kotlinx.coroutines.launch
 import kr.hs.jung.prism.R
 import kr.hs.jung.prism.core.i18n.LocaleStore
+import kr.hs.jung.prism.core.network.SessionSocket
 import kr.hs.jung.prism.core.security.SessionTokens
 import kr.hs.jung.prism.core.theme.PrismDimensions
 import kr.hs.jung.prism.core.theme.PrismTheme
@@ -87,6 +88,7 @@ fun DashboardScreen(
     localeStore: LocaleStore,
     sessionsApi: SessionsApi,
     tokens: SessionTokens,
+    socket: SessionSocket,
     onSignOut: () -> Unit,
 ) {
     // 이 ViewModel의 수명은 **세션**이다 — 로그아웃하면 저장소째 비워지고, 다시 로그인하면
@@ -101,6 +103,8 @@ fun DashboardScreen(
                     // 전체 폐기·현재 세션 해제로 이 앱의 세션이 끝나면 로그아웃과 같은
                     // 자리로 돌아간다 — 세션 상태의 진실은 AuthManager 하나뿐이다.
                     onSessionEnded = { onSignOut() },
+                    // 소켓의 수명도 이 ViewModel과 같다 — 세션이 끝나면 함께 버려진다.
+                    socket = socket,
                 )
             }
         },
@@ -300,6 +304,28 @@ private fun NavItem(label: String, active: Boolean, trailing: String? = null) {
     }
 }
 
+/**
+ * 배지가 말하는 것은 **연결 여부**지 세션의 유효성이 아니다(목록에는 유효한 세션만 온다).
+ *
+ * ⚠️ [socketReady]가 false면 [SessionListItem.isConnected]를 믿지 않고 두 갈래로 물러난다.
+ * 내 소켓이 붙어 있지 않으면 서버가 내려준 빈 presence가 "아무도 안 붙었다"인지
+ * "소켓 서비스가 죽었다"인지 구별할 수 없고, 후자를 전자로 읽으면 멀쩡한 기기들을
+ * 전부 "비활성"이라고 지어내게 된다 — 모를 때는 지어내지 않는 쪽으로 실패한다.
+ */
+@StringRes
+internal fun statusLabel(session: SessionListItem, socketReady: Boolean): Int = when {
+    session.isCurrent -> R.string.dashboard_status_current
+    !socketReady || session.isConnected -> R.string.dashboard_status_active
+    else -> R.string.dashboard_status_inactive
+}
+
+internal fun statusVariant(session: SessionListItem, socketReady: Boolean): PrismBadgeVariant =
+    when {
+        session.isCurrent -> PrismBadgeVariant.SUCCESS
+        !socketReady || session.isConnected -> PrismBadgeVariant.INFO
+        else -> PrismBadgeVariant.NEUTRAL
+    }
+
 /** 시안 `SessionsCard` — 제목 · 요약 · 세션 행들. */
 @Composable
 private fun SessionsCard(
@@ -378,6 +404,7 @@ private fun SessionsCard(
             else -> state.sessions.forEach { session ->
                 SessionRow(
                     session = session,
+                    socketReady = state.socketReady,
                     revoking = state.revokingId == session.id,
                     enabled = state.revokingId == null && !state.signingOutAll,
                     onRevoke = { onRevoke(session.id) },
@@ -420,6 +447,7 @@ private fun SessionsCard(
 @Composable
 private fun SessionRow(
     session: SessionListItem,
+    socketReady: Boolean,
     revoking: Boolean,
     enabled: Boolean,
     onRevoke: () -> Unit,
@@ -478,12 +506,8 @@ private fun SessionRow(
                 )
             }
             PrismBadge(
-                text = stringResource(
-                    if (session.isCurrent) R.string.dashboard_status_current
-                    else R.string.dashboard_status_active,
-                ),
-                variant = if (session.isCurrent) PrismBadgeVariant.SUCCESS
-                else PrismBadgeVariant.INFO,
+                text = stringResource(statusLabel(session, socketReady)),
+                variant = statusVariant(session, socketReady),
             )
         }
         // 시안에서 시작·만료는 **붙은 한 덩어리**이고(17px 줄 사이 1px), 해제 버튼은

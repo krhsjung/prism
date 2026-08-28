@@ -1,6 +1,7 @@
 package kr.hs.jung.prism.ui.component
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -10,16 +11,18 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
 import kr.hs.jung.prism.core.theme.PrismDimensions
 import kr.hs.jung.prism.core.theme.PrismTheme
 
 /**
  * 상태 배지 — 디자인의 `Atom/Badge`.
  *
- * 세션 목록에서 "현재 세션"(Success)과 "그 밖의 활성 세션"(Info)을 가른다. 색만으로
- * 구분하지 않는다 — 배지 안의 문구가 같은 정보를 글로도 말한다(색각 이상·흑백 출력).
+ * 세션 목록에서 "현재 세션"(Success) · "붙어 있는 세션"(Info) · "붙어 있지 않은
+ * 세션"(Neutral)을 가른다. 색만으로 구분하지 않는다 — 배지 안의 문구가 같은 정보를
+ * 글로도 말한다(색각 이상·흑백 출력).
  */
-enum class PrismBadgeVariant { SUCCESS, INFO }
+enum class PrismBadgeVariant { SUCCESS, INFO, NEUTRAL }
 
 @Composable
 fun PrismBadge(
@@ -31,13 +34,20 @@ fun PrismBadge(
     val background = when (variant) {
         PrismBadgeVariant.SUCCESS -> colors.successBackground
         PrismBadgeVariant.INFO -> colors.secondaryBackground
+        // surface는 카드보다 한 톤 눌린 배경이라 라이트/다크 모두에서 카드 위에 얹힌다.
+        // 새 토큰을 만들지 않고 있는 것으로 세 번째 갈래를 만든다(웹 `.badge--neutral`과 같다).
+        PrismBadgeVariant.NEUTRAL -> colors.surface
     }
     val foreground = when (variant) {
         PrismBadgeVariant.SUCCESS -> colors.success
         // 웹 `.badge--info`와 같은 토큰이다 — secondaryForeground(네이비)를 쓰면
         // 같은 배지가 플랫폼마다 다른 파랑으로 나온다.
         PrismBadgeVariant.INFO -> colors.accent
+        PrismBadgeVariant.NEUTRAL -> colors.muted
     }
+    // 라이트에서 surface와 카드의 차이가 작아 알약 윤곽이 흐리다 — 테두리로 세운다.
+    // (웹은 inset box-shadow로 같은 일을 한다)
+    val border = if (variant == PrismBadgeVariant.NEUTRAL) colors.border else null
     Box(
         contentAlignment = Alignment.Center,
         modifier = modifier
@@ -47,6 +57,13 @@ fun PrismBadge(
             .height(PrismDimensions.badgeHeight)
             // 알약 모양 — 반지름을 높이보다 크게 줘서 양끝이 완전한 반원이 된다.
             .background(background, RoundedCornerShape(percent = 50))
+            .then(
+                if (border != null) {
+                    Modifier.border(1.dp, border, RoundedCornerShape(percent = 50))
+                } else {
+                    Modifier
+                },
+            )
             .padding(horizontal = PrismDimensions.badgeHorizontalPadding),
     ) {
         Text(

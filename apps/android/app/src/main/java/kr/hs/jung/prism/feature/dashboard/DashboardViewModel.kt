@@ -7,10 +7,12 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kr.hs.jung.prism.R
 import kr.hs.jung.prism.core.network.ApiError
+import kr.hs.jung.prism.core.network.SessionSocket
 import kr.hs.jung.prism.core.security.SessionTokens
 import kr.hs.jung.prism.core.util.AppLog
 import kr.hs.jung.prism.domain.model.SessionListItem
@@ -32,6 +34,14 @@ data class DashboardUiState(
     val signingOutAll: Boolean = false,
     /** 당겨서 새로고침이 도는 중 — 목록은 그대로 두고 인디케이터만 돈다. */
     val refreshing: Boolean = false,
+    /**
+     * 내 소켓이 붙어 있는가.
+     *
+     * 배지는 이 값이 true일 때만 [SessionListItem.isConnected]를 믿는다. 붙어 있지
+     * 않으면 서버가 내려준 빈 presence가 "아무도 안 붙었다"인지 "소켓 서비스가 죽었다"인지
+     * 구별할 수 없고, 후자를 전자로 읽으면 멀쩡한 기기들을 전부 "비활성"이라고 지어내게 된다.
+     */
+    val socketReady: Boolean = false,
 ) {
     /** 나 말고 다른 세션이 있을 때만 "모두 로그아웃"이 의미가 있다. */
     val hasOthers: Boolean get() = (sessions?.size ?: 0) > 1
@@ -51,6 +61,12 @@ class DashboardViewModel(
     private val api: SessionsApi,
     private val tokens: SessionTokens,
     private val onSessionEnded: suspend () -> Unit,
+    /**
+     * 세션 소켓. **이 ViewModel이 소유한다** — 수명이 `SessionScope`(세션 세대)에 묶여
+     * 있어 재로그인하면 함께 버려진다. ServiceContainer에 두면 컨테이너가 앱과 함께 살아
+     * 세션 N이 연 소켓이 세션 N+1까지 살아남는다.
+     */
+    private val socket: SessionSocket? = null,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(DashboardUiState())
@@ -58,6 +74,29 @@ class DashboardViewModel(
 
     init {
         load()
+        socket?.let { observe(it) }
+    }
+
+    /**
+     * 소켓은 **신호만** 준다 — 목록은 아래 [refresh]가 기존 HTTP 경로로 다시 가져온다.
+     * 그 경로에만 스탬핑·공유 회전·확정 거절 처리가 붙어 있기 때문이다.
+     */
+    private fun observe(socket: SessionSocket) {
+        socket.start(viewModelScope)
+        viewModelScope.launch {
+            socket.isReady.collect { ready -> _state.update { it.copy(socketReady = ready) } }
+        }
+        viewModelScope.launch {
+            // 0에서 시작하고 소켓의 첫 ready가 1로 올린다 — init의 load()와 겹치지 않게
+            // 첫 값은 건너뛴다.
+            socket.changed.drop(1).collect {
+                // **비우지 않는다**(load가 아니라 refresh) — 다른 기기가 하나 붙었다고
+                // 카드가 "불러오는 중"으로 접혔다 펴지면 목록 전체가 깜빡인다.
+                //
+                // 소켓이 시킨 재조회다 — 사용자가 한 일이 아니므로 유휴 창을 밀지 않는다.
+                refresh(background = true)
+            }
+        }
     }
 
     /**
@@ -76,8 +115,8 @@ class DashboardViewModel(
      * 여기서 비우면 카드가 "불러오는 중"으로 접혔다가 다시 펴지며 화면이 통째로 흔들린다.
      * 사라질 행은 하나인데 목록 전체가 깜빡이는 셈이다.
      */
-    fun refresh() {
-        viewModelScope.launch { fetch() }
+    fun refresh(background: Boolean = false) {
+        viewModelScope.launch { fetch(background) }
     }
 
     /**
@@ -100,7 +139,12 @@ class DashboardViewModel(
     }
 
     /** 목록을 한 번 읽어 상태에 반영한다. 비우기·인디케이터는 부르는 쪽이 정한다. */
-    private suspend fun fetch() {
+    /**
+     * @param background **소켓이 시킨** 재조회인가. 그렇다면 이 요청 때문에 도는 회전이
+     *   세션의 유휴 창을 밀지 않는다 — 사용자가 한 일이 아니기 때문이다(plan/auth.md §6).
+     *   화면 진입·당겨 새로고침·해제 뒤의 갱신은 활동이므로 기본값이다.
+     */
+    private suspend fun fetch(background: Boolean = false) {
         _state.update { it.copy(loadErrorRes = null) }
         val token = tokens.access()
         if (token == null) {
@@ -109,7 +153,7 @@ class DashboardViewModel(
             return
         }
         try {
-            val list = api.list(token)
+            val list = api.list(token, background)
             _state.update { it.copy(sessions = list) }
         } catch (e: CancellationException) {
             throw e

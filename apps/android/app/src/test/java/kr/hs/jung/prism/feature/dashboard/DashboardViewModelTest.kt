@@ -1,6 +1,7 @@
 package kr.hs.jung.prism.feature.dashboard
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
@@ -25,6 +26,8 @@ import org.junit.Test
  * 여기서 중요한 것은 "무엇을 화면에 남기는가"다 — 폐기는 되돌릴 수 없으므로, 실패했을
  * 때 목록이 지워지거나 버튼이 잠긴 채로 남으면 사용자가 할 수 있는 일이 없어진다.
  */
+// 가상 시계(advanceTimeBy·runCurrent)와 테스트 디스패처는 아직 실험적 API다.
+@OptIn(ExperimentalCoroutinesApi::class)
 class DashboardViewModelTest {
 
     private fun item(
@@ -55,7 +58,11 @@ class DashboardViewModelTest {
     ) : SessionsApi {
         var revoked = mutableListOf<String>()
         var revokeAllCount = 0
-        override suspend fun list(accessToken: String): List<SessionListItem> {
+        /** 목록 조회가 **배경**으로 불렸는지(소켓이 시킨 재조회인지). */
+        val listBackgrounds = mutableListOf<Boolean>()
+
+        override suspend fun list(accessToken: String, background: Boolean): List<SessionListItem> {
+            listBackgrounds += background
             if (failList) throw ApiError.network
             return items
         }

@@ -5,6 +5,8 @@ import kr.hs.jung.prism.domain.model.AuthSession
 import kr.hs.jung.prism.domain.model.DeviceKind
 import kr.hs.jung.prism.domain.model.SessionListItem
 import kr.hs.jung.prism.domain.model.SessionUser
+import kr.hs.jung.prism.domain.model.SocketServerMessage
+import kr.hs.jung.prism.domain.model.SocketServerMessageType
 import kr.hs.jung.prism.domain.model.User
 import org.json.JSONArray
 import org.json.JSONObject
@@ -114,10 +116,41 @@ fun decodeSessionList(body: String): List<SessionListItem> {
             startedAt = item.requireString("startedAt"),
             expiresAt = item.requireString("expiresAt"),
             isCurrent = current,
+            // isCurrent와 달리 **없어도 받는다.** 나중에 더한 필드라 아직 배포되지 않은
+            // 서버는 보내지 않는다 — 여기서 거부하면 배지 하나 때문에 목록 전체가 실패한다.
+            // (device를 UNKNOWN으로 접는 것과 같은 규칙이다)
+            isConnected = item.opt("isConnected") == true,
             // 모르는 값은 거부하지 않고 UNKNOWN으로 접는다 — 갈래가 늘었다고 예전 앱에서
             // 목록 전체가 실패하면 손해가 더 크다(웹 decodeDeviceKind와 같은 규칙).
             device = DeviceKind.from(item.opt("device") as? String),
         )
+    }
+}
+
+/**
+ * 세션 소켓이 내려보낸 메시지 한 줄.
+ *
+ * [DeviceKind]와 달리 **모르는 type을 접지 않는다** — 이것은 화면 라벨이 아니라 동작이라,
+ * 아무 갈래로 접으면 하지 말아야 할 일을 한다. 형식이 어긋나면 null이고, 호출부는 그것을
+ * 무시한다(연결을 끊을 이유는 없다).
+ */
+fun decodeSocketServerMessage(body: String): SocketServerMessage? {
+    val json = try {
+        JSONObject(body)
+    } catch (e: Exception) {
+        return null
+    }
+    return when (SocketServerMessageType.from(json.opt("type") as? String)) {
+        SocketServerMessageType.READY -> SocketServerMessage.Ready
+        SocketServerMessageType.SESSIONS_CHANGED -> SocketServerMessage.SessionsChanged
+        SocketServerMessageType.HEARTBEAT -> SocketServerMessage.Heartbeat
+        SocketServerMessageType.ERROR -> {
+            val code = json.opt("code") as? String
+            // 코드가 없으면 클라이언트가 "갱신하면 되는가"를 판단할 수 없다 —
+            // 조용히 통과시키면 그 판단이 아무 갈래로 떨어진다.
+            if (code.isNullOrEmpty()) null else SocketServerMessage.Error(code)
+        }
+        null -> null
     }
 }
 

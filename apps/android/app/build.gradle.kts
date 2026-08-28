@@ -46,6 +46,13 @@ val configuredApiUrl: String? =
 val debugApiUrl: String = configuredApiUrl ?: "https://hsjung.asuscomm.com"
 val releaseApiUrl: String = configuredApiUrl ?: ""
 
+// 세션 소켓(= socket 서비스) 주소. **API에서 유도할 수 없다** — 로컬에서 auth는 :3000이고
+// socket은 :3002라 스킴만 바꿔서는 닿지 않는다. 기본값 규칙은 API와 같다.
+val configuredSocketUrl: String? =
+    secret("prismSocketUrl", "PRISM_SOCKET_URL").takeIf { it.isNotBlank() }
+val debugSocketUrl: String = configuredSocketUrl ?: "wss://hsjung.asuscomm.com/socket"
+val releaseSocketUrl: String = configuredSocketUrl ?: ""
+
 // 네이티브 소셜 로그인 크리덴셜(비시크릿이지만 커밋 소스에서는 분리한다).
 //  - GOOGLE_SERVER_CLIENT_ID: Google Cloud OAuth 2.0 "웹(서버)" 클라이언트 ID.
 //    google_sign_in이 이 값으로 받은 id_token의 audience가 서버 검증 대상과 일치해야 한다.
@@ -59,18 +66,28 @@ val kakaoNativeAppKey: String =
 // 릴리스는 주소가 없거나 평문(비-HTTPS)이거나 **형태가 URL이 아니면** 빌드 시점에
 // 실패시킨다 — 설정을 빠뜨린/잘못 준 릴리스가 조용히 빌드된 뒤 로그인만 런타임에서 깨지는
 // 것을 막는다. 실제 릴리스 태스크가 그래프에 있을 때만 검사해 debug 빌드는 영향받지 않는다.
-fun isValidHttpsUrl(value: String): Boolean = try {
+fun isValidUrl(value: String, scheme: String): Boolean = try {
     val uri = URI(value)
-    uri.scheme == "https" && !uri.host.isNullOrBlank()
+    uri.scheme == scheme && !uri.host.isNullOrBlank()
 } catch (e: Exception) {
     false
 }
 gradle.taskGraph.whenReady {
     val buildingRelease = allTasks.any { it.name.contains("Release", ignoreCase = false) }
-    if (buildingRelease && !isValidHttpsUrl(releaseApiUrl)) {
+    if (buildingRelease && !isValidUrl(releaseApiUrl, "https")) {
         throw GradleException(
             "Release builds require a valid https PRISM_API_URL with a host " +
                 "(set -PprismApiUrl=… or PRISM_API_URL). Got: '$releaseApiUrl'",
+        )
+    }
+    // 소켓 주소도 같은 이유로 막는다 — 빠뜨리면 릴리스가 **소켓 없는 대시보드**를
+    // 조용히 출고한다(목록은 뜨지만 연결 상태가 영영 두 갈래로 후퇴한 채다).
+    // wss여야 한다: 평문 ws로는 세션 쿠키(__Host- 접두어)가 실리지 않고, 앱의 Bearer도
+    // 평문으로 흐른다.
+    if (buildingRelease && !isValidUrl(releaseSocketUrl, "wss")) {
+        throw GradleException(
+            "Release builds require a valid wss PRISM_SOCKET_URL with a host " +
+                "(set -PprismSocketUrl=… or PRISM_SOCKET_URL). Got: '$releaseSocketUrl'",
         )
     }
 }
@@ -104,9 +121,11 @@ android {
     buildTypes {
         debug {
             buildConfigField("String", "PRISM_API_URL", "\"$debugApiUrl\"")
+            buildConfigField("String", "PRISM_SOCKET_URL", "\"$debugSocketUrl\"")
         }
         release {
             buildConfigField("String", "PRISM_API_URL", "\"$releaseApiUrl\"")
+            buildConfigField("String", "PRISM_SOCKET_URL", "\"$releaseSocketUrl\"")
             optimization {
                 enable = false
             }

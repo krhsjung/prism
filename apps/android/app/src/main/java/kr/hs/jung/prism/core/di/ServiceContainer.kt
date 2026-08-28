@@ -4,6 +4,7 @@ import android.content.Context
 import kr.hs.jung.prism.BuildConfig
 import kr.hs.jung.prism.core.i18n.LocaleStore
 import kr.hs.jung.prism.core.network.ApiClient
+import kr.hs.jung.prism.core.network.SessionSocket
 import kr.hs.jung.prism.core.security.SecureSessionTokens
 import kr.hs.jung.prism.core.security.SecureStore
 import kr.hs.jung.prism.core.theme.ThemeStore
@@ -64,6 +65,17 @@ class ServiceContainer(context: Context) {
     )
     /** 활성 세션 조회·폐기(`/auth/sessions*`). 인증은 AuthManager가 담은 Bearer로 한다. */
     val sessionsApi = HttpSessionsApi(apiClient)
+
+    /**
+     * 세션 소켓을 **만드는 법**만 준다 — 인스턴스를 컨테이너가 들고 있지 않는다.
+     *
+     * 컨테이너는 앱과 함께 사는데 소켓의 수명은 **세션**이어야 한다. 컨테이너가 들고
+     * 있으면 세션 N이 연 소켓이 세션 N+1까지 살아남아, 지난 세션의 신호가 새 세션의
+     * 화면에 도착한다(`ui/SessionScope.kt`가 ViewModelStore만 갈아 끼우기 때문에
+     * 컨테이너가 쥔 것은 그 교체에 영향을 받지 않는다).
+     */
+    fun createSessionSocket(): SessionSocket =
+        SessionSocket(tokens = sessionTokens, authority = authManager)
 
     init {
         // 401의 뒷일을 맡을 고리를 **만든 뒤에** 꽂는다 — 생성 시점에 이으면

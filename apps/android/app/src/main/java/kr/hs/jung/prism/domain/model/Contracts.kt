@@ -69,6 +69,15 @@ data class SessionListItem(
     val startedAt: String,
     val expiresAt: String,
     val isCurrent: Boolean,
+    /**
+     * 이 세션이 **지금 소켓을 붙들고 있는가.** 세션의 유효성이 아니라 연결의 유무다 —
+     * 백그라운드로 내린 앱은 유효한 세션이지만 연결은 없다.
+     *
+     * ⚠️ 이 값을 그대로 화면에 옮기지 않는다. 소켓 서비스가 죽으면 presence가 통째로
+     * 비어 "아무도 안 붙었다"와 구별되지 않으므로, 화면은 **자기 소켓이 붙어 있을 때만**
+     * 이 값을 믿고 아니면 예전 두 갈래(Current/Active)로 물러난다.
+     */
+    val isConnected: Boolean = false,
     /** 이 세션을 만든 기기의 종류. 기기명·브라우저·위치는 계약에 없다(plan/dashboard.md §5). */
     val device: DeviceKind,
 )
@@ -77,4 +86,26 @@ data class SessionListItem(
 object AppErrorCode {
     /** 서버에 그 흐름의 네이티브 엔드포인트가 아직 없다(웹 전용 경로). */
     const val PROVIDER_UNAVAILABLE = "PROVIDER_UNAVAILABLE"
+}
+
+/**
+ * 세션 소켓이 내려보내는 메시지.
+ *
+ * **이 소켓은 데이터를 나르지 않는다.** [SessionsChanged]를 받으면 화면이 기존
+ * `GET /auth/sessions`를 다시 부른다 — 스탬핑·공유 회전·확정 거절 처리가 전부 그 HTTP
+ * 경로에 있고(plan/auth.md §6.3), 소켓이 목록을 직접 주입하면 그것을 통째로 우회한다.
+ * 특히 **세션 N이 연 소켓이 세션 N+1의 화면에 목록을 밀어 넣는** 경로가 열린다.
+ */
+sealed interface SocketServerMessage {
+    /** 인증 통과. 목록을 한 번 가져오라는 신호이자, isConnected를 믿어도 된다는 신호다. */
+    data object Ready : SocketServerMessage
+
+    /** 이 사용자의 연결 구성이 바뀌었다. 다시 가져와라. */
+    data object SessionsChanged : SocketServerMessage
+
+    /** 살아 있다는 신호. 침묵이 곧 죽음이다. */
+    data object Heartbeat : SocketServerMessage
+
+    /** 직후 연결이 닫힌다. [code]는 HTTP와 **같은** [AuthErrorCode]다. */
+    data class Error(val code: String) : SocketServerMessage
 }
