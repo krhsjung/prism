@@ -15,4 +15,16 @@
 
     <!-- 스스로 로그아웃한 것이 아닌데 로그인 화면으로 온 경우. 서버는 폐기·만료·로그아웃을 한 코드(UNAUTHORIZED)로만 알려주므로 원인을 단정하지 않는다 -->
     <string name="error_session_ended">セッションが終了しました。もう一度サインインしてください。</string>
+
+    <!-- WebRTC — 계약의 오류 코드가 아니라 클라이언트가 만드는 문구 -->
+    <string name="error_camera_permission_denied">カメラとマイクへのアクセスが必要です。ブラウザで許可してからもう一度お試しください。</string>
+    <string name="error_camera_in_use">別のアプリがカメラを使用しています。終了してからもう一度お試しください。</string>
+
+    <!-- 통화 대상은 내 세션이다 — 서버가 소유권을 강제하므로 남의 세션 id를 넣어도 이 오류로 끝난다(§6) -->
+    <string name="error_device_offline">その端末はもう接続されていません。別の端末を選んでください。</string>
+    <string name="error_device_busy">その端末はすでに通話中です。</string>
+    <string name="error_no_answer">45 秒間応答がなかったため通話を終了しました。</string>
+    <string name="error_device_unreachable">その端末は接続されておらず、通知もオフです。</string>
+    <string name="error_call_failed">通話を接続できませんでした。ネットワークを確認してもう一度お試しください。</string>
+    <string name="error_signaling_lost">サーバーとの接続が切れました。再接続しています…</string>
 </resources>

@@ -76,6 +76,122 @@ export const messages: Messages = {
   'dashboard.revoke': '해제',
   'dashboard.only_this_session': '이 기기에서만 로그인되어 있습니다.',
 
+  // ── webrtc ──
+  // WebRTC 1:1 통화 — 통화 상대는 **내 활성 세션**이다. 방·코드·링크 공유는 없다(plan/webrtc.md §4)
+  // 라우트가 열리면 사이드바도 이 키를 쓴다(dashboard.nav_webrtc는 그때 제거)
+  'webrtc.title': 'WebRTC',
+  // 로비 — 장치 확인 + 걸 대상 고르기
+  'webrtc.lobby_title': '통화 시작하기',
+  'webrtc.lobby_desc': '카메라와 마이크를 확인한 뒤 로그인된 기기 중 하나로 거세요.',
+  'webrtc.camera': '카메라',
+  'webrtc.microphone': '마이크',
+  // 목록은 대시보드와 같은 GET /auth/sessions에서 온다 — 기기 종류 라벨도 dashboard.device_*를 그대로 쓴다
+  'webrtc.devices': '내 기기',
+  // 소켓이 붙어 있으면 바로 울리고(isConnected) 아니면 알림으로 깨운다(pushRegistered).
+  // 둘 다 없는 세션만 걸 수 없다 — 그 줄에는 버튼 대신 이유를 둔다
+  'webrtc.devices_desc': '연결된 기기는 바로 울리고 나머지는 알림을 받습니다.',
+  'webrtc.call': '걸기',
+  // 푸시 경로임을 행이 말한다 — 기다리는 시간이 왜 긴지를 화면이 설명해야 한다
+  'webrtc.will_notify': '알림을 보냅니다',
+  'webrtc.notifications_off': '알림 꺼짐',
+  // 다른 기기가 없어도 막다른 화면이 되지 않게 — 탭을 하나 더 열면 목록에 나타난다
+  'webrtc.no_other_devices': '다른 기기가 로그인되어 있지 않습니다. 탭을 하나 더 열면 자신에게 걸 수 있습니다.',
+  // 현재 세션 줄은 루프백이다 — 시그널링 서버를 거치지 않고 한 탭 안에서 두 PeerConnection을 잇는다
+  'webrtc.this_tab': '현재 탭',
+  'webrtc.loopback': '루프백 테스트',
+  'webrtc.test': '시험',
+  'webrtc.loopback_note': '루프백은 이 탭 안에서만 돕니다 — 시그널링 서버를 거치지 않습니다.',
+  // 미디어가 서버를 지나지 않는 것이 이 슬라이스의 핵심이라 화면에도 한 줄로 적는다
+  'webrtc.p2p_note': '영상과 음성은 기기 사이로 바로 갑니다. 녹화하거나 저장하지 않습니다.',
+  // 거는 쪽 — 상대가 받을 때까지. 취소는 common.cancel을 쓴다
+  'webrtc.calling': '{device}에 거는 중…',
+  'webrtc.ringing_desc': '상대 기기가 받기를 기다리는 중입니다.',
+  // 벨은 유한하다 — 서버가 45초 뒤 양쪽을 끊는다(plan/webrtc.md §6). 숫자는 이 한 줄에만 둔다
+  'webrtc.ring_timeout_note': '45초가 지나면 호출이 끝납니다.',
+  // 알림으로 깨운 경우 — 기기가 열릴 때까지 기다리므로 화면이 그렇게 말한다
+  'webrtc.notified_desc': '{device}에 알림을 보냈습니다. 45초 안에 받아야 합니다.',
+  'webrtc.tile_notified': '기기가 열리기를 기다리는 중…',
+  // 받는 쪽 — 소켓이 앱 전체에 붙어 있어 어느 화면에 있든 뜬다
+  'webrtc.incoming_title': '걸려 오는 통화',
+  'webrtc.incoming_body': '{device}에서 걸려 왔습니다.',
+  'webrtc.accept': '받기',
+  'webrtc.decline': '거절',
+  'webrtc.declined': '상대 기기가 통화를 거절했습니다.',
+  // 알림을 늦게 열었다 — 통화는 이미 서버가 끊었다. 빈 화면 대신 무슨 일이었는지 적는다.
+  // 여기에 초를 되풀이하지 않는다: 상한은 호출 중 화면(ring_timeout_note)이 이미 말했다
+  'webrtc.expired_title': '이미 끝난 통화입니다',
+  'webrtc.expired_body': '{device}에서 걸었지만 통화는 이미 끝났습니다. 원하면 다시 걸어 보세요.',
+  // 통화 컨트롤 — 아이콘 전용 버튼이라 이 문구는 접근성 이름으로만 쓰인다(§4)
+  'webrtc.mute': '마이크 끄기',
+  'webrtc.unmute': '마이크 켜기',
+  'webrtc.camera_off': '카메라 끄기',
+  'webrtc.camera_on': '카메라 켜기',
+  'webrtc.end_call': '통화 종료',
+  // 타일 라벨 — 상대는 내 기기이므로 이름은 dashboard.device_*가 준다. 여기 있는 것은 내 쪽뿐이다
+  'webrtc.you': '나',
+  // 루프백에서는 두 타일이 같은 카메라를 나눠 쓴다 — 그것을 라벨이 말한다
+  'webrtc.loopback_peer': '루프백',
+  // 연결 상태 배지 — Atom/Badge의 기존 변형에 그대로 매핑된다(§4)
+  'webrtc.status_ringing': '호출 중',
+  'webrtc.status_notified': '알림 보냄',
+  'webrtc.status_connecting': '연결 중',
+  'webrtc.status_connected': '연결됨',
+  'webrtc.status_reconnecting': '재연결 중',
+  'webrtc.status_failed': '연결 실패',
+  // 타일 안의 한 줄 — Molecule/VideoTile의 State 변형과 1:1
+  'webrtc.tile_ringing': '응답을 기다리는 중…',
+  'webrtc.tile_connecting': '연결하는 중…',
+  'webrtc.tile_reconnecting': '다시 연결하는 중…',
+  'webrtc.tile_camera_off': '카메라가 꺼져 있습니다',
+  'webrtc.tile_peer_camera_off': '상대의 카메라가 꺼져 있습니다',
+  'webrtc.tile_no_video': '카메라를 쓸 수 없습니다',
+  // 상대가 끊으면 로비로 돌아간다 — 방이 없으므로 남아서 기다릴 자리도 없다(§4)
+  'webrtc.peer_left': '상대 기기가 통화를 끊었습니다.',
+  // 진단 패널 — 기본은 접혀 있다. 라벨은 Manrope · 값은 모노(JetBrains Mono)로 그린다(§4)
+  'webrtc.diagnostics': '진단',
+  'webrtc.diag_show': '진단 열기',
+  'webrtc.diag_hide': '진단 닫기',
+  // 단위(ms · kbps · fps · %)는 번역하지 않는다 — 값과 함께 클라이언트가 만든다
+  'webrtc.diag_quality': '품질',
+  'webrtc.stat_rtt': '왕복 지연',
+  'webrtc.stat_jitter': '지터',
+  'webrtc.stat_packet_loss': '패킷 손실',
+  'webrtc.stat_sending': '보내는 중',
+  'webrtc.stat_receiving': '받는 중',
+  'webrtc.stat_video': '영상',
+  // 값이 없으면 0이 아니라 —를 그린다. Safari는 getStats()의 일부 필드를 주지 않는다
+  'webrtc.stat_unavailable': '—',
+  'webrtc.diag_connection': '연결',
+  // Path — 미디어가 직접 가는지 TURN을 거치는지. TURN을 v1부터 넣은 결정(§9-2)이
+  // 값을 하는지 이 한 줄이 증명한다. Relay는 실패가 아니라 비싼 성공이라 Warning이다
+  'webrtc.ice_path': '경로',
+  'webrtc.ice_path_direct': '직접 연결',
+  'webrtc.ice_path_reflexive': 'STUN 경유',
+  'webrtc.ice_path_relay': 'TURN 릴레이',
+  'webrtc.ice_path_loopback': '루프백',
+  'webrtc.ice_local': '로컬 후보',
+  'webrtc.ice_remote': '원격 후보',
+  'webrtc.ice_state': 'ICE 상태',
+  'webrtc.dtls_state': 'DTLS 상태',
+  'webrtc.connected_for': '연결 유지',
+  // 후보 주소는 화면에 띄우지 않는다 — 타입·전송까지만(§7)
+  'webrtc.ice_address_hidden': '주소 숨김',
+  'webrtc.diag_settings': '연결 설정',
+  'webrtc.ice_policy': 'ICE 정책',
+  'webrtc.ice_policy_all': 'STUN + TURN',
+  'webrtc.ice_policy_relay': 'TURN만 사용',
+  'webrtc.ice_policy_note': '바꾸면 통화가 다시 연결됩니다. “TURN만 사용”은 미디어를 릴레이로 강제해, 경로가 바뀌는 것을 눈으로 볼 수 있습니다.',
+  // 로그에 레벨(DEBUG/INFO/WARN/ERROR)을 두지 않는다 — 원소가 §6 계약의 메시지뿐이라
+  // 네 레벨로 나누면 필터가 원소보다 커진다. 실제로 헷갈리는 축은 방향(누가 offer를 냈나)이다
+  'webrtc.diag_signaling': '시그널링',
+  'webrtc.log_sent': '보냄',
+  'webrtc.log_received': '받음',
+  'webrtc.log_copy': '로그 복사',
+  'webrtc.log_clear': '지우기',
+  'webrtc.log_empty': '아직 없습니다.',
+  // 루프백은 시그널링을 타지 않으므로 로그가 비어 있는 것이 정상이다
+  'webrtc.log_loopback': '루프백은 시그널링 서버를 쓰지 않습니다.',
+
   // ── error ──
   // 오류 메시지 — 키는 계약의 오류 코드와 1:1로 대응한다 (contracts.ts)
   'error.generic': '문제가 발생했습니다. 잠시 후 다시 시도해 주세요.',
@@ -89,4 +205,14 @@ export const messages: Messages = {
   'error.revoke_failed': '해당 세션을 로그아웃하지 못했습니다. 다시 시도해 주세요.',
   // 스스로 로그아웃한 것이 아닌데 로그인 화면으로 온 경우. 서버는 폐기·만료·로그아웃을 한 코드(UNAUTHORIZED)로만 알려주므로 원인을 단정하지 않는다
   'error.session_ended': '세션이 종료되었습니다. 다시 로그인해 주세요.',
+  // WebRTC — 계약의 오류 코드가 아니라 클라이언트가 만드는 문구
+  'error.camera_permission_denied': '카메라와 마이크 권한이 필요합니다. 브라우저에서 허용한 뒤 다시 시도해 주세요.',
+  'error.camera_in_use': '다른 앱이 카메라를 쓰고 있습니다. 종료한 뒤 다시 시도해 주세요.',
+  // 통화 대상은 내 세션이다 — 서버가 소유권을 강제하므로 남의 세션 id를 넣어도 이 오류로 끝난다(§6)
+  'error.device_offline': '그 기기는 더 이상 연결되어 있지 않습니다. 다른 기기를 골라 주세요.',
+  'error.device_busy': '그 기기는 이미 통화 중입니다.',
+  'error.no_answer': '45초 동안 응답이 없어 통화가 끝났습니다.',
+  'error.device_unreachable': '그 기기는 연결되어 있지 않고 알림도 꺼져 있습니다.',
+  'error.call_failed': '통화를 연결하지 못했습니다. 네트워크를 확인하고 다시 시도해 주세요.',
+  'error.signaling_lost': '서버와의 연결이 끊겼습니다. 다시 연결하는 중…',
 };

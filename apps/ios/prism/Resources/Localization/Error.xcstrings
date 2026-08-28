@@ -207,6 +207,190 @@
           }
         }
       }
+    },
+    "error.camera_permission_denied": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prism needs your camera and microphone. Allow access in your browser, then try again."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "카메라와 마이크 권한이 필요합니다. 브라우저에서 허용한 뒤 다시 시도해 주세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カメラとマイクへのアクセスが必要です。ブラウザで許可してからもう一度お試しください。"
+          }
+        }
+      }
+    },
+    "error.camera_in_use": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Another app is using your camera. Close it and try again."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 앱이 카메라를 쓰고 있습니다. 종료한 뒤 다시 시도해 주세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "別のアプリがカメラを使用しています。終了してからもう一度お試しください。"
+          }
+        }
+      }
+    },
+    "error.device_offline": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That device isn’t connected any more. Pick another one."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "그 기기는 더 이상 연결되어 있지 않습니다. 다른 기기를 골라 주세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "その端末はもう接続されていません。別の端末を選んでください。"
+          }
+        }
+      }
+    },
+    "error.device_busy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That device is already on a call."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "그 기기는 이미 통화 중입니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "その端末はすでに通話中です。"
+          }
+        }
+      }
+    },
+    "error.no_answer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No answer. The call ended after 45 seconds."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "45초 동안 응답이 없어 통화가 끝났습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "45 秒間応答がなかったため通話を終了しました。"
+          }
+        }
+      }
+    },
+    "error.device_unreachable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That device isn’t connected and has notifications off."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "그 기기는 연결되어 있지 않고 알림도 꺼져 있습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "その端末は接続されておらず、通知もオフです。"
+          }
+        }
+      }
+    },
+    "error.call_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn’t connect the call. Check your network and try again."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "통화를 연결하지 못했습니다. 네트워크를 확인하고 다시 시도해 주세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通話を接続できませんでした。ネットワークを確認してもう一度お試しください。"
+          }
+        }
+      }
+    },
+    "error.signaling_lost": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lost the connection to the server. Reconnecting…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "서버와의 연결이 끊겼습니다. 다시 연결하는 중…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーバーとの接続が切れました。再接続しています…"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

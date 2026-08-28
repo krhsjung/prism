@@ -15,4 +15,16 @@
 
     <!-- 스스로 로그아웃한 것이 아닌데 로그인 화면으로 온 경우. 서버는 폐기·만료·로그아웃을 한 코드(UNAUTHORIZED)로만 알려주므로 원인을 단정하지 않는다 -->
     <string name="error_session_ended">Your session has ended. Please sign in again.</string>
+
+    <!-- WebRTC — 계약의 오류 코드가 아니라 클라이언트가 만드는 문구 -->
+    <string name="error_camera_permission_denied">Prism needs your camera and microphone. Allow access in your browser, then try again.</string>
+    <string name="error_camera_in_use">Another app is using your camera. Close it and try again.</string>
+
+    <!-- 통화 대상은 내 세션이다 — 서버가 소유권을 강제하므로 남의 세션 id를 넣어도 이 오류로 끝난다(§6) -->
+    <string name="error_device_offline">That device isn’t connected any more. Pick another one.</string>
+    <string name="error_device_busy">That device is already on a call.</string>
+    <string name="error_no_answer">No answer. The call ended after 45 seconds.</string>
+    <string name="error_device_unreachable">That device isn’t connected and has notifications off.</string>
+    <string name="error_call_failed">Couldn’t connect the call. Check your network and try again.</string>
+    <string name="error_signaling_lost">Lost the connection to the server. Reconnecting…</string>
 </resources>
