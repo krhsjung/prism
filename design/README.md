@@ -40,18 +40,26 @@ pnpm build
 ## 컴포넌트
 
 Figma 파일은 `Assets`(섹션: `Foundations` · `Atoms` · `Molecules` · `Organisms`)와
-화면 페이지(`Auth` · `Dashboard`)로 나뉩니다.
+화면 페이지(`Auth` · `Dashboard` · `WebRTC`)로 나뉩니다.
 
-언어 선택은 `Atom/LanguageOption`(메뉴 한 줄) → `Molecule/LanguageMenu`(팝오버) →
-`Molecule/LanguageSelector`(트리거)로 조합하고, `Auth`의 로그인 프레임이 배치를
-보여줍니다. 웹 구현은 [../apps/web/src/components/LocaleSwitcher.tsx](../apps/web/src/components/LocaleSwitcher.tsx),
+선택 메뉴는 `Atom/SelectOption`(메뉴 한 줄) → `Molecule/SelectMenu`(팝오버) →
+`Molecule/Select`(트리거)로 조합합니다. 언어 선택은 `Auth`의 로그인 프레임이 배치를
+보여주고, 웹 구현은 [../apps/web/src/components/LocaleSwitcher.tsx](../apps/web/src/components/LocaleSwitcher.tsx),
 문구는 [../i18n/](../i18n/)에서 옵니다.
 
-테마 선택도 같은 골격입니다 — `Atom/ThemeOption` → `Molecule/ThemeMenu` →
-`Molecule/ThemeSelector`. 다른 점은 줄마다 아이콘이 붙는다는 것이고, 아이콘은
-`Atom/Icon`(Monitor · Sun · Moon)을 바꿔 끼웁니다. 두 선택이 생김새와 키보드 동작을
-공유하므로 웹 구현도 하나의 [SelectMenu](../apps/web/src/components/SelectMenu.tsx)를
-나눠 씁니다([ThemeSwitcher](../apps/web/src/components/ThemeSwitcher.tsx)).
+테마 선택도 **같은 컴포넌트**입니다. 다른 점은 줄마다 아이콘이 붙는다는 것뿐이라,
+`Atom/SelectOption`의 불리언 `Leading icon`으로 가르고 아이콘은 `Atom/Icon`
+(Monitor · Sun · Moon)을 바꿔 끼웁니다 — 예전에는 `Atom/ThemeOption`이 따로 있었지만
+차이가 선행 글리프 하나뿐이라 흡수했습니다. 웹이 이미 하나의
+[SelectMenu](../apps/web/src/components/SelectMenu.tsx)를 두 스위처가 나눠 쓰고 있었으니
+([ThemeSwitcher](../apps/web/src/components/ThemeSwitcher.tsx)) **시안이 코드를 따라간
+경우**입니다. `Molecule/Select`의 `Leading icon`을 끄면 글리프 없는 일반 셀렉트가 되고,
+WebRTC 로비의 카메라·마이크 선택이 그것을 씁니다.
+
+통화 컨트롤은 `Molecule/CallControls`가 `Atom/IconButton` 두세 개를 담습니다. 로비 프리뷰
+인스턴스만 불리언 `End=false`로 종료 버튼을 끕니다 — `Organism/Sidebar`의 `Preferences`와
+같은 수법이고 같은 이유입니다(둘로 쪼개면 컨트롤이 늘 때 두 곳을 고쳐야 하고, 언젠가 한쪽만
+고쳐집니다).
 
 목록 안의 인라인 액션(`Revoke`)은 **입력 방식에 따라 갈립니다.** 포인터(데스크톱 웹)에서는
 `Ghost`(판 없이 글자만) — 표가 가벼워지고, 눌리는 것이라는 신호는 hover가 줍니다.
@@ -74,6 +82,14 @@ Android `PrismButtonVariant.GHOST`). 확인 창의 `취소`가 그것을 씁니�
 > 면으로 채운 모니터) 세 화면을 나란히 놓으면 그 차이가 그대로 보입니다. iOS도 웹의 SVG
 > 패스를 옮긴 [PrismGlyph](../apps/ios/prism/Presentation/Views/Components/PrismGlyph.swift)로
 > 그립니다 — Android의 `res/drawable/ic_*.xml`과 같은 24 그리드·stroke 2입니다.
+>
+> **`Atom/Icon`은 24 그리드입니다** — 원래 심볼 프레임이 16이었고 도형만 24를 2/3으로 줄여
+> 둔 상태였는데, WebRTC 슬라이스에서 24로 재단했습니다(변경이 아니라 이 문서로의 수렴입니다).
+> 크기는 변형 축이 아니라 **인스턴스 리사이즈**로 냅니다 — 축을 더하면 아이콘 하나가 변형
+> 여럿이 되고, 스케일 툴을 쓰지 않으므로 stroke는 유지됩니다. 기존 화면(메뉴 줄·셰브런)은
+> 인스턴스를 16으로 고정해 그대로 둡니다. 현재 14개:
+> `Monitor` · `Sun` · `Moon` · `Chevron Down` · `Chevron Right` · `Chevron Up` ·
+> `Mic` · `Mic off` · `Camera` · `Camera off` · `Phone off` · `Copy` · `Check` · `Link`.
 >
 > **배지는 높이를 고정합니다**(시안 `Atom/Badge` = 23). 패딩만 주면 플랫폼마다 글자 상자
 > 여백이 달라 같은 배지가 서로 다른 높이로 나옵니다(Compose는 폰트 패딩을 더하고 SwiftUI는
@@ -99,6 +115,45 @@ Android `PrismButtonVariant.GHOST`). 확인 창의 `취소`가 그것을 씁니�
 | `Default` · `Error` · `Loading` | 기본 상태와 오류·대기 상태 |
 | `Language open` · `Theme open` | 팝오버가 열린 모습 (한 번에 하나만 열린다) |
 | `Dark` | 다크 모드 — `Colors` 컬렉션 모드를 `Dark`로 고정한 프레임 |
+
+[`WebRTC` 페이지](https://www.figma.com/design/sTDo6HDslOcRmWL78klk1I/Prism?node-id=3036-282)는 통화 슬라이스입니다 —
+`Desktop / Lobby` · `Lobby (permission denied)` · `Ringing` · `Incoming call` · `Call expired` ·
+`In call` · `In call (diagnostics open)`, 그리고 `Mobile` 네 벌.
+
+| 프레임 | 보여주는 것 |
+| --- | --- |
+| `Desktop / Lobby` | 셀프 프리뷰 + **내 기기 목록**(`Molecule/CallTarget`) |
+| `Desktop / Ringing` | 셀프 타일 + `Calling …` + `Cancel` |
+| `Desktop / Incoming call` | 받는 쪽 — 앱 위에 뜨는 수락/거절 |
+| `Desktop / Call expired` | 알림을 1분 뒤에 연 기기가 보는 화면 |
+| `Desktop / In call` | 피어·셀프 두 타일 + 컨트롤 바 + 접힌 진단 |
+| `Desktop / In call (diagnostics open)` | 품질 · 연결 · 설정 · 시그널링 네 절 |
+| `Mobile / In call` | 피어 전면 + 셀프 PiP + **화면 바닥 고정** 컨트롤 바 |
+
+> **통화 상대는 내 활성 세션입니다.** 방·코드·링크 공유가 없어서, 로비의 오른쪽 절반은
+> 대시보드와 **같은 데이터·같은 행 구성**의 기기 목록입니다(기기 종류 + 짧은 세션 id).
+> 소켓의 유무는 "걸 수 있는가"가 아니라 **어떻게 닿는가**를 가릅니다 — 붙어 있으면 바로 울리고,
+> 아니면 FCM 푸시로 깨웁니다. 못 거는 줄은 소켓도 알림 토큰도 없는 경우뿐이고, 그 줄에는
+> 회색 버튼 대신 이유를 둡니다. 현재 세션 줄은 지우지 않고 **루프백 시험**으로 씁니다.
+>
+> **프레임이 생기는 조건이 하나 늘었습니다** — 목적·구성이 바뀔 때에 더해, **화면 안에서
+> 도달할 수 없는 상태**도 프레임을 갖습니다(`Lobby (permission denied)` · `Call expired`).
+> 구성이 로비와 같더라도 그림이 없으면 아무도 그 상태를 검토하지 못하기 때문입니다.
+
+> **프레임은 화면의 목적이나 구성이 바뀔 때만 생깁니다.** 다크가 프레임을 얻지 못한 이유가
+> "색이 변수에 묶여서"가 아니라 **그림이 말하는 것이 라이트와 같아서**인 것과 같은 규칙입니다.
+> 연결 중·재연결·실패·상대 이탈도 셸·타일·컨트롤이 같은 자리에 있고 배지 색과 한 줄만 바뀌므로,
+> **상태는 `Molecule/VideoTile`의 `State` 7변형이 갖습니다** — 그 컴포넌트 프레임이 곧 상태
+> 명세서입니다.
+>
+> **`Stage`는 `Navy`와 값이 같지만 별개 토큰입니다.** `Navy`는 색 이름이고 무대는 역할입니다 —
+> 비디오가 놓이는 자리는 테마와 무관하게 어두워야 하는 유일한 표면이라, 이름이 그것을 말하지
+> 않으면 다음 사람이 라이트에서 흰색으로 바꿉니다. 짝인 `Stage Foreground`는 두 모드 모두
+> 흰색입니다.
+>
+> **모노(`Code` · `Code/Small`)가 처음 쓰이는 화면입니다.** 값·타임스탬프·후보 문자열처럼
+> 자리가 흔들리면 안 되는 것에만 씁니다(1자리↔3자리 ms가 매초 바뀝니다). 라벨은 Manrope
+> 그대로 — 모노는 **읽는 글**이 아니라 **재는 값**에 씁니다.
 
 [`Dashboard` 페이지](https://www.figma.com/design/sTDo6HDslOcRmWL78klk1I/Prism?node-id=2480-60)는
 로그인 이후 화면입니다 — `Dashboard / Desktop / Default` · `Dashboard / Mobile / Default`,
@@ -144,6 +199,10 @@ Android `PrismButtonVariant.GHOST`). 확인 창의 `취소`가 그것을 씁니�
 
 Manrope (Regular / SemiBold / Bold) 기반. 컬러는 Navy / Primary / Accent Blue 중심의
 soft cool 무드 (라이트/다크 양쪽 정의 — Figma `Colors` 변수 컬렉션 참고).
+
+**JetBrains Mono**는 토큰과 타입 스타일(`Code` 14 · `Code/Small` 12)로만 있다가 WebRTC 진단
+패널에서 실제로 쓰이기 시작했습니다. 웹은 아직 시스템 모노 스택을 쓰므로
+([plan/webrtc.md §10](../plan/webrtc.md)) 구현 때 함께 맞춥니다.
 
 ## 라이트 / 다크
 
