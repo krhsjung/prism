@@ -100,8 +100,16 @@ struct DashboardView: View {
                     .onTapGesture { isDrawerOpen = false }
                     .accessibilityHidden(true)
                     .transition(.opacity)
+                    // ⚠️ **사라지는 동안의 z 순서를 못박는다.** 없으면 ZStack이 나가는
+                    // 뷰를 남는 콘텐츠 **뒤로** 보내는데, 그 콘텐츠는 불투명한 배경을 깔고
+                    // 있어 미끄러져 나가는 동안이 통째로 가려진다 — 애니메이션은 도는데
+                    // 화면에는 "그냥 사라짐"으로 보인다. 열 때는 새로 얹히므로 멀쩡했고,
+                    // 그래서 **닫을 때만** 웹·Android와 달랐다(3초로 늘려 프레임을 찍어
+                    // 확인했다).
+                    .zIndex(1)
                 drawer
                     .transition(.move(edge: .leading))
+                    .zIndex(2)
             }
         }
         .animation(.easeOut(duration: 0.25), value: isDrawerOpen)
