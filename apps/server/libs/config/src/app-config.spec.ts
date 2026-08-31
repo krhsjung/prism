@@ -1,6 +1,7 @@
 import {
   loadAuthConfig,
   loadHttpConfig,
+  loadIceConfig,
   loadPostgresConfig,
 } from './app-config';
 
@@ -226,5 +227,56 @@ describe('loadHttpConfig', () => {
         PRISM_WEB_APP_URL: 'https://a.com',
       }).webAppUrl,
     ).toBe('https://a.com');
+  });
+});
+
+// ICE 서버는 `accepted`와 함께 소켓이 내려준다 — **값의 원천은 env뿐이고** 레포에는
+// 호스트도 자격증명도 없다(plan/webrtc.md §7).
+describe('loadIceConfig', () => {
+  const turn = {
+    PRISM_TURN_URLS: 'turn:turn.example:3478',
+    PRISM_TURN_USERNAME: 'prism',
+    PRISM_TURN_PASSWORD: 'secret',
+  };
+
+  it('기본값: 공개 STUN 하나 · TURN 없음', () => {
+    const cfg = loadIceConfig({});
+    expect(cfg.stunUrls).toHaveLength(1);
+    expect(cfg.turn).toBeNull();
+  });
+
+  it('콤마 목록을 다듬어 읽는다', () => {
+    expect(
+      loadIceConfig({
+        PRISM_STUN_URLS: ' stun:a.example:3478 , stuns:b.example:5349 ,, ',
+      }).stunUrls,
+    ).toEqual(['stun:a.example:3478', 'stuns:b.example:5349']);
+  });
+
+  it('TURN은 URL·사용자·자격증명이 함께 있으면 구성된다', () => {
+    expect(loadIceConfig(turn).turn).toEqual({
+      urls: ['turn:turn.example:3478'],
+      username: 'prism',
+      credential: 'secret',
+    });
+  });
+
+  // 일부만 온 설정을 조용히 STUN-only로 되돌리지 않는다 — TURN을 켰다고 믿는 채
+  // **대칭 NAT에서만** 실패하는 상태가 되고, 그건 운영에서 가장 늦게 드러난다.
+  it('TURN 설정이 일부만 오면 부팅에서 막는다', () => {
+    for (const key of Object.keys(turn)) {
+      const partial = { ...turn, [key]: '' };
+      expect(() => loadIceConfig(partial)).toThrow(/must be set together/);
+    }
+  });
+
+  // 스킴 오타는 클라이언트가 조용히 무시해 "설정했는데 계속 직접 연결"이 된다.
+  it('스킴이 어긋난 URL은 부팅에서 막는다', () => {
+    expect(() =>
+      loadIceConfig({ PRISM_STUN_URLS: 'https://stun.example' }),
+    ).toThrow(/PRISM_STUN_URLS/);
+    expect(() => loadIceConfig({ ...turn, PRISM_TURN_URLS: 'stun:a' })).toThrow(
+      /PRISM_TURN_URLS/,
+    );
   });
 });

@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import type { SocialProvider } from '@app/common';
+import type { IceServer, SocialProvider } from '@app/common';
 import type { PostgresConfig } from '@app/database';
 import type { RedisConfig } from '@app/redis';
 import { loadAppConfig, type AppConfig, type CookiePolicy } from './app-config';
@@ -92,6 +92,26 @@ export class PrismConfigService {
   // ── 세션 저장소 (Redis) ──
   get redisConfig(): RedisConfig {
     return this.app.redis;
+  }
+
+  // ── WebRTC 시그널링 ──
+
+  // `accepted`와 함께 내려보낼 ICE 서버 목록. **env가 유일한 원천이라** 레포에는
+  // 호스트도 자격증명도 없고, 진단 화면에도 띄우지 않는다(plan/webrtc.md §7).
+  //
+  // TURN이 없으면 STUN만 내려간다 — 대칭 NAT에서만 못 붙는 상태이고, coturn
+  // 프로비저닝은 다음 마일스톤이다(§8-7).
+  get iceServers(): IceServer[] {
+    const { stunUrls, turn } = this.app.ice;
+    const servers: IceServer[] = [{ urls: stunUrls }];
+    if (turn) {
+      servers.push({
+        urls: turn.urls,
+        username: turn.username,
+        credential: turn.credential,
+      });
+    }
+    return servers;
   }
 
   // ── 소셜 OAuth ──

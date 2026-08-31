@@ -45,6 +45,19 @@ export interface AuthConfig {
   refreshTokenTtlMs: number;
 }
 
+// STUN/TURN. 목록은 `accepted`와 함께 소켓이 내려주고, **값은 전부 env에서 온다** —
+// 호스트도 자격증명도 레포에 두지 않는다(plan/webrtc.md §7).
+export interface IceConfig {
+  stunUrls: string[];
+  // TURN은 셋이 **함께 있거나 함께 없다** — 하나만 설정된 상태를 타입으로 없앤다.
+  // (PostgresConfig가 "replica인데 standby 없음"을 표현 불가로 만든 것과 같은 모양이다)
+  //
+  // `credential`은 오타가 아니다 — 이 값은 브라우저의 `RTCIceServer.credential`로 그대로
+  // 나간다. env는 우리 규칙(`_PASSWORD`)을, 이 필드는 웹 표준 이름을 따르고, 둘이 만나는
+  // 자리는 `loadIceConfig`의 마지막 줄 하나뿐이다.
+  turn: { urls: string[]; username: string; credential: string } | null;
+}
+
 // 쿠키 이름을 정하는 두 축을 **한 값으로 묶는다.** 따로 다니는 인자였다면 한쪽만
 // 갱신된 호출부가 생기고, 그 순간 심는 이름과 읽는 이름이 갈린다 — 타입이 그걸 막는다.
 // (설정에서 파생되는 값이라 여기 두고, @app/session이 타입으로만 가져다 쓴다 —
@@ -61,6 +74,7 @@ export interface AppConfig {
   auth: AuthConfig;
   postgres: PostgresConfig;
   redis: RedisConfig;
+  ice: IceConfig;
   google: GoogleOAuthOptions;
   apple: AppleOAuthOptions;
   kakao: KakaoOAuthOptions;
@@ -287,6 +301,49 @@ function redisUrl(raw: string): string {
   return raw;
 }
 
+// 공개 STUN 하나. TURN이 없어도 대부분의 NAT는 이것으로 뚫린다 —
+// 대칭 NAT·엄격한 방화벽만 TURN을 필요로 한다(그래서 v1부터 넣기로 했다, §9-2).
+const DEFAULT_STUN_URL = 'stun:stun.l.google.com:19302';
+
+export function loadIceConfig(env: Env): IceConfig {
+  const stunUrls = iceUrls(env, 'PRISM_STUN_URLS', ['stun', 'stuns']);
+  const turnUrls = iceUrls(env, 'PRISM_TURN_URLS', ['turn', 'turns']);
+  const username = str(env, 'PRISM_TURN_USERNAME').trim();
+  const password = str(env, 'PRISM_TURN_PASSWORD').trim();
+
+  // 셋 중 일부만 온 설정을 조용히 STUN-only로 되돌리지 않는다 — TURN을 켰다고 믿는 채
+  // **대칭 NAT에서만** 실패하는 상태가 되고, 그건 운영에서 가장 늦게 드러나는 종류다.
+  const parts = [turnUrls.length > 0, Boolean(username), Boolean(password)];
+  if (parts.some(Boolean) && !parts.every(Boolean)) {
+    throw new Error(
+      'PRISM_TURN_URLS, PRISM_TURN_USERNAME and PRISM_TURN_PASSWORD must be set together',
+    );
+  }
+
+  const [head, ...tail] = turnUrls;
+  return {
+    stunUrls: stunUrls.length > 0 ? stunUrls : [DEFAULT_STUN_URL],
+    turn: head ? { urls: [head, ...tail], username, credential: password } : null,
+  };
+}
+
+// 콤마 구분 목록 + 스킴 검사. 오타(`stun.example:3478`)는 클라이언트가 조용히 무시해
+// "TURN을 설정했는데 계속 직접 연결" 상태가 되므로, 부팅에서 잡는다.
+function iceUrls(env: Env, key: string, schemes: string[]): string[] {
+  const urls = str(env, key)
+    .split(',')
+    .map((url) => url.trim())
+    .filter(Boolean);
+  for (const url of urls) {
+    if (!schemes.some((scheme) => url.startsWith(`${scheme}:`))) {
+      throw new Error(
+        `Invalid ${key}: expected ${schemes.map((s) => `${s}:`).join(' or ')} URLs`,
+      );
+    }
+  }
+  return urls;
+}
+
 export function loadGoogleOAuthConfig(env: Env): GoogleOAuthOptions {
   return {
     clientId: str(env, 'PRISM_GOOGLE_CLIENT_ID'),
@@ -340,6 +397,7 @@ export function loadAppConfig(env: Env): AppConfig {
     auth: loadAuthConfig(env),
     postgres: loadPostgresConfig(env),
     redis: loadRedisConfig(env),
+    ice: loadIceConfig(env),
     google: loadGoogleOAuthConfig(env),
     apple: loadAppleOAuthConfig(env),
     kakao: loadKakaoOAuthConfig(env),
