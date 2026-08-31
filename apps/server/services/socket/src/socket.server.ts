@@ -2,16 +2,36 @@ import { Injectable, Logger } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import type { IncomingMessage, Server } from 'http';
 import type { Duplex } from 'stream';
-import { WebSocket, WebSocketServer } from 'ws';
-import { AUTH_ERROR_CODES, type SocketServerMessage } from '@app/common';
+import { WebSocket, WebSocketServer, type RawData } from 'ws';
+import {
+  AUTH_ERROR_CODES,
+  MAX_SDP_LENGTH,
+  decodeCallClientMessage,
+  parseJsonValue,
+  type CallClientMessage,
+  type SocketDownstreamMessage,
+} from '@app/common';
 import { PrismConfigService } from '@app/config';
 import { SessionAuthenticator, sessionTokenOf } from '@app/session';
+import { CallGateway } from './call.gateway';
 import type { SocketConnection } from './connection';
 import { SessionPresenceGateway } from './session-presence.gateway';
 import { authorizeUpgrade } from './upgrade';
 
 // WebSocket 1008 = policy violation. 인증 실패로 우리가 끊을 때 쓴다.
 const CLOSE_POLICY_VIOLATION = 1008;
+
+// 프레임 하나의 상한. 계약이 정한 SDP 상한(문자)에 JSON 이스케이프와 봉투를 얹어도
+// 남는 크기이고, 넘는 프레임은 우리가 파싱하기 전에 `ws`가 끊는다 —
+// 시그널링을 임의 크기 릴레이로 쓰지 못하게 하는 첫 번째 문이다(plan/webrtc.md §7).
+const MAX_FRAME_BYTES = 4 * MAX_SDP_LENGTH;
+
+// `ws`가 넘겨주는 프레임을 문자열로. 조각난 텍스트 프레임은 Buffer 배열로 온다.
+const textOf = (data: RawData): string => {
+  if (Buffer.isBuffer(data)) return data.toString('utf8');
+  if (Array.isArray(data)) return Buffer.concat(data).toString('utf8');
+  return Buffer.from(data).toString('utf8');
+};
 
 // `ws`를 아는 **유일한** 파일. 위쪽(게이트웨이)은 SocketConnection 인터페이스만 본다.
 //
@@ -26,12 +46,16 @@ const CLOSE_POLICY_VIOLATION = 1008;
 export class PrismSocketServer {
   private readonly logger = new Logger(PrismSocketServer.name);
   // noServer: 업그레이드를 **우리가** 받아 검사한 뒤에만 넘긴다.
-  private readonly wss = new WebSocketServer({ noServer: true });
+  private readonly wss = new WebSocketServer({
+    noServer: true,
+    maxPayload: MAX_FRAME_BYTES,
+  });
 
   constructor(
     private readonly config: PrismConfigService,
     private readonly authenticator: SessionAuthenticator,
     private readonly gateway: SessionPresenceGateway,
+    private readonly calls: CallGateway,
   ) {}
 
   attach(server: Server): void {
@@ -94,8 +118,12 @@ export class PrismSocketServer {
       // 인증 사이에 클라이언트가 떠났을 수 있다 — presence에 등록하고 나서 알면 늦다.
       if (ws.readyState !== WebSocket.OPEN) return;
 
-      ws.on('close', () => void this.gateway.close(connection));
-      ws.on('error', () => void this.gateway.close(connection));
+      ws.on('message', (data: RawData, isBinary: boolean) => {
+        // 계약은 JSON 텍스트뿐이다 — 바이너리 프레임은 우리 것이 아니다.
+        if (!isBinary) void this.dispatch(connection, textOf(data));
+      });
+      ws.on('close', () => this.disconnect(connection));
+      ws.on('error', () => this.disconnect(connection));
       await this.gateway.open(connection);
     } catch (error) {
       this.logger.warn(`socket accept failed: ${String(error)}`);
@@ -104,6 +132,40 @@ export class PrismSocketServer {
     } finally {
       clearTimeout(deadline);
     }
+  }
+
+  // 클라 → 서버 방향. **presence는 여기를 보지 않는다** — 시그널링 메시지를 살아
+  // 있다는 증거로 쓰면 반쯤 죽은 소켓이 계속 Active로 남는다(plan/webrtc.md §5).
+  // 이 메서드가 만지는 것은 CallGateway뿐이고 PresenceRepository는 지나지 않는다.
+  private async dispatch(
+    connection: SocketConnection,
+    text: string,
+  ): Promise<void> {
+    let message: CallClientMessage;
+    try {
+      message = decodeCallClientMessage(parseJsonValue(text));
+    } catch (error) {
+      // 계약에 없는 메시지는 **버리되 연결은 끊지 않는다** — 클라이언트가 우리
+      // 메시지를 다루는 규칙과 같다(형식이 어긋났다고 끊을 이유는 없다).
+      this.logger.debug(`ignored client message: ${String(error)}`);
+      return;
+    }
+    try {
+      await this.calls.handle(connection, message);
+    } catch (error) {
+      // 한 메시지의 실패가 소켓을 무너뜨리지 않게 한다 — 세션 조회(Redis)가
+      // 실패하는 경우가 여기로 온다.
+      this.logger.warn(
+        `call message failed (${message.type}): ${String(error)}`,
+      );
+    }
+  }
+
+  // 소켓이 사라졌다. 통화를 먼저 정리한다 — presence를 지우는 쪽은 Redis 왕복이 있고,
+  // 그 사이에 상대가 끊긴 창구로 SDP를 보내고 있을 이유가 없다.
+  private disconnect(connection: SocketConnection): void {
+    this.calls.close(connection);
+    void this.gateway.close(connection);
   }
 
   private connectionFor(
@@ -138,7 +200,7 @@ export class PrismSocketServer {
     };
   }
 
-  private send(ws: WebSocket, message: SocketServerMessage): void {
+  private send(ws: WebSocket, message: SocketDownstreamMessage): void {
     if (ws.readyState !== WebSocket.OPEN) return;
     ws.send(JSON.stringify(message));
   }

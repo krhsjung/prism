@@ -1,4 +1,4 @@
-import type { SocketServerMessage } from '@app/common';
+import type { SocketDownstreamMessage } from '@app/common';
 
 // 게이트웨이가 보는 연결 — `ws`가 아니라 이 인터페이스에만 의존한다.
 //
@@ -11,7 +11,9 @@ export interface SocketConnection {
   readonly userId: string;
   readonly sessionId: string;
 
-  send(message: SocketServerMessage): void;
+  // presence 신호와 통화 메시지가 **같은 소켓**으로 나간다 — 계약은 둘로 갈라져
+  // 있고(@app/common), 여기서는 합집합만 받는다.
+  send(message: SocketDownstreamMessage): void;
   // 이유를 실어 보낸 뒤 닫는다. WebSocket 1008 = policy violation.
   close(): void;
   // 프로토콜 ping을 보내고, 직전 ping에 pong이 없었으면 끊는다.

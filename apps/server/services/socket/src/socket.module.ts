@@ -4,6 +4,7 @@ import { PrismConfigModule, PrismConfigService } from '@app/config';
 import { RedisModule } from '@app/redis';
 import { JwtAuthGuard, SessionModule } from '@app/session';
 import { AppController } from './app.controller';
+import { CallGateway } from './call.gateway';
 import { ConnectionRegistry } from './connection-registry';
 import { PrismSocketServer } from './socket.server';
 import { SessionPresenceGateway } from './session-presence.gateway';
@@ -30,6 +31,7 @@ import { SessionPresenceGateway } from './session-presence.gateway';
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     ConnectionRegistry,
     SessionPresenceGateway,
+    CallGateway,
     PrismSocketServer,
   ],
 })

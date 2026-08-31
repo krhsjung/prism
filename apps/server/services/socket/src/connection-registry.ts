@@ -42,6 +42,15 @@ export class ConnectionRegistry {
     return [...(this.byUser.get(userId) ?? [])];
   }
 
+  // 이 세션이 지금 붙들고 있는 연결들. **통화가 상대를 찾는 경로다.**
+  //
+  // presence(Redis)를 보지 않는 이유는 둘이 답하는 질문이 다르기 때문이다 — presence는
+  // "어딘가에 붙어 있나"이고 여기서 필요한 것은 "**내가 지금 배달할 수 있나**"이다.
+  // 파드가 늘면 두 답이 갈리는데, 그때 승격해야 하는 자리가 곧 broadcast와 같다.
+  connectionsOfSession(userId: string, sessionId: string): SocketConnection[] {
+    return this.connectionsOf(userId).filter((c) => c.sessionId === sessionId);
+  }
+
   all(): SocketConnection[] {
     return [...this.byUser.values()].flatMap((set) => [...set]);
   }

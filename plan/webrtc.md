@@ -503,7 +503,7 @@ type CallClientMessage =
   | { type: 'cancel'; callId: string }                    // 거는 쪽이 호출을 접는다
   | { type: 'offer'; callId: string; sdp: string }
   | { type: 'answer'; callId: string; sdp: string }
-  | { type: 'ice'; callId: string; candidate: string }
+  | { type: 'ice'; callId: string; candidate: IceCandidate }
   | { type: 'hangup'; callId: string }
   // 알림으로 열었다 — 이 통화가 아직 살아 있나. 소켓이 붙자마자 묻는다.
   | { type: 'resume'; callId: string };
@@ -516,10 +516,11 @@ type CallServerMessage =
   | { type: 'declined'; callId: string }
   | { type: 'offer'; callId: string; sdp: string }
   | { type: 'answer'; callId: string; sdp: string }
-  | { type: 'ice'; callId: string; candidate: string }
+  | { type: 'ice'; callId: string; candidate: IceCandidate }
   | { type: 'ended'; callId: string; reason: 'hangup' | 'peer-gone' | 'timeout' }
   // 알림을 늦게 열었다. 빈 화면 대신 무슨 일이었는지 그리라고 from을 함께 준다.
-  | { type: 'expired'; callId: string; from: SessionRef }
+  // (from은 선택이다 — 아래 참조)
+  | { type: 'expired'; callId: string; from?: SessionRef }
   | { type: 'callError'; code: 'unreachable' | 'busy' | 'unknown-session' | 'self' };
 
 // 벨의 상한. 서버 상수이고 클라이언트는 재지 않는다.
@@ -528,6 +529,16 @@ const RING_TIMEOUT_MS = 45_000;
 // 상대를 가리키는 값은 기기 종류뿐이다 — 화면이 필요로 하는 전부이고,
 // 그 이상은 담지 않는다(dashboard.md §5의 개인정보 미저장과 같은 선).
 interface SessionRef { id: string; device: DeviceKind }
+
+// 후보는 문자열 하나가 아니다 — `addIceCandidate`는 sdpMid와 sdpMLineIndex가 둘 다
+// 없으면 거부한다. 브라우저의 `RTCIceCandidateInit`을 그대로 옮겨, 클라이언트가
+// `event.candidate.toJSON()`을 실어 보낼 수 있게 한다.
+interface IceCandidate { candidate: string; sdpMid?: string; sdpMLineIndex?: number }
+
+// 릴레이가 나르는 문자열의 상한. 서버는 SDP를 해석하지 않으므로 길이와 형식이
+// 여기서 볼 수 있는 전부다(§7).
+const MAX_SDP_LENGTH = 16_384;
+const MAX_ICE_CANDIDATE_LENGTH = 1_024;
 ```
 
 - **누가 offer를 내는가** — `accepted`를 받은 **거는 쪽**이다. 역할이 방향에서 나오므로 glare가
@@ -554,6 +565,16 @@ interface SessionRef { id: string; device: DeviceKind }
 - **`resume`은 늦게 온 기기의 유일한 질문이다.** 살아 있으면 `incoming`, 아니면 `expired`.
   통화가 없어졌는지와 **애초에 남의 통화였는지**를 구별해 주지 않는다 — `unknown-session`과
   같은 이유다.
+- **`expired`의 `from`은 선택이다**(2026-08-28 구현에서 갱신). 서버가 그 통화를 더는
+  기억하지 못하거나(끝난 통화의 보존 창이 지났다) **애초에 내 통화가 아니었으면** 기기
+  종류를 지어내지 않는다. `from`을 필수로 두면 그 두 경우에 답이 갈려, 위에서 막아 둔
+  "남의 callId를 떠보는" 경로가 `resume`으로 다시 열린다. 화면은 그때 제목만 그린다 —
+  `expired_title`이 기기 이름을 쓰지 않으므로 문구를 새로 만들지 않아도 된다.
+- **한 세션이 탭 여럿으로 소켓을 열 수 있다** — 그래서 **소유권은 세션으로, 배달은
+  연결로** 본다. 벨(`incoming`)은 그 세션의 모든 연결에 울리고, **먼저 받은 연결이
+  창구**가 된다. 이후 SDP·ICE는 창구끼리만 오간다 — 세션 단위로 뿌리면 함께 벨을 받았던
+  탭이 answer를 하나 더 보낸다. 종료 알림은 다시 모든 연결로 간다(끝난 통화의 모달을
+  붙들고 있지 않게).
 - **진단 로그의 원소는 이 계약의 메시지 그대로다.** 로그를 위한 이벤트를 새로 만들지 않는다 —
   만드는 순간 계약이 두 벌이 되고, 화면이 서버에 없는 것을 약속하게 된다.
 
@@ -561,23 +582,24 @@ interface SessionRef { id: string; device: DeviceKind }
 
 ## 7. 보안 체크리스트
 
-- [ ] WS 연결을 **세션으로 인증**(비로그인 차단) — `@app/session` 재사용
-- [ ] **통화 대상은 같은 사용자의 세션인지 서버가 확인**한다. 아니면 존재 여부를 구별해 주지
+- [x] WS 연결을 **세션으로 인증**(비로그인 차단) — `@app/session` 재사용
+- [x] **통화 대상은 같은 사용자의 세션인지 서버가 확인**한다. 아니면 존재 여부를 구별해 주지
       않고 한 코드로 거절한다(`unknown-session`)
-- [ ] `callId`는 **서버 발급 난수** + 모든 후속 메시지에서 **당사자 확인**
-- [ ] 세션당 동시 통화 1건 · 벨 **타임아웃**은 서버가 강제(클라 신뢰 X)
-- [ ] 시그널링은 **릴레이만** — 서버가 미디어를 보지 않음(P2P). **녹화·저장 없음**
-- [ ] 시그널링 메시지를 **presence의 근거로 쓰지 않는다** — `isConnected`는 여전히 소켓의
+- [x] `callId`는 **서버 발급 난수** + 모든 후속 메시지에서 **당사자 확인**
+- [x] 세션당 동시 통화 1건 · 벨 **타임아웃**은 서버가 강제(클라 신뢰 X)
+- [x] 시그널링은 **릴레이만** — 서버가 미디어를 보지 않음(P2P). **녹화·저장 없음**
+- [x] 시그널링 메시지를 **presence의 근거로 쓰지 않는다** — `isConnected`는 여전히 소켓의
       존재만 본다(§5)
-- [ ] TURN 자격증명·STUN/TURN 호스트는 **env로만**(레포 미포함)
+- [x] TURN 자격증명·STUN/TURN 호스트는 **env로만**(레포 미포함)
 - [ ] 통화 시작 **레이트리밋**(세션당) — 벨 남용 방지. 푸시가 붙으면 이것이 **알림 폭탄**
-      방지이기도 하다
+      방지이기도 하다. 아직 없다 — 지금은 동시 통화 1건이 사실상의 상한이고(통화 중에는
+      새로 걸 수 없다), 실제 비용이 생기는 것은 푸시가 붙을 때다(§8-11)
 - [ ] **푸시 페이로드에 `callId` + 기기 종류만** — SDP·ICE·세션 id·사용자 정보 금지.
       알림은 잠금화면에 뜨고 OS 로그에 남는다
 - [ ] FCM 등록 토큰은 **응답에 싣지 않는다** — 파생 불리언 `pushRegistered`만
       ([push.md](./push.md) §5-3). 토큰은 설치 단위라 세션보다 오래 산다
 - [ ] 푸시 대상은 **세션 레코드에서 서버가 꺼낸다** — 클라이언트는 세션 id만 말한다
-- [ ] SDP/ICE 페이로드 크기 상한 + 형식 검증(디코더) — 릴레이 남용/오염 방지
+- [x] SDP/ICE 페이로드 크기 상한 + 형식 검증(디코더) — 릴레이 남용/오염 방지
 - [ ] `getUserMedia`는 **명시적 사용자 제스처** 후 요청 — **자동 수락 없음**(§4)
 - [ ] 진단은 **SDP·ICE 본문을 표시하지 않는다** — 종류와 크기만(`sdp 3.2 kB`)
 - [ ] 후보 **주소는 마스킹**한다 — 타입·전송까지만(`srflx · udp · address hidden`).
@@ -588,7 +610,8 @@ interface SessionRef { id: string; device: DeviceKind }
 - [ ] 데모 계정도 통화 가능하되 **공유 계정임을 감안** — 아무나 내 데모 세션에 걸 수 있다는
       뜻이므로, 자동 수락을 두지 않는 것이 여기서 특히 중요하다
 - [ ] **통화 중 세션 종료**의 처리를 정한다 — [dashboard.md](./dashboard.md)가 이 슬라이스로
-      넘긴 항목(§10)
+      넘긴 항목(§10). **서버 쪽은 끝났다**(폐기 → 소켓 종료 → `ended{'peer-gone'}`).
+      남은 것은 화면이다 — 재로그인 뒤 보던 자리로 돌아오는 것까지
 
 ---
 
@@ -604,13 +627,18 @@ interface SessionRef { id: string; device: DeviceKind }
    `Lobby`의 코드 입력란 → `Molecule/CallTarget` 목록(Current · Callable · Push · Unreachable),
    `Waiting` → `Ringing`, `Incoming call`·`Call expired` 신설,
    `Atom/Icon`에 `Smartphone` 추가, `Molecule/ShareLink` 폐기
-5. ⏳ 시그널링 게이트웨이 — `services/socket`에 **클라 → 서버 방향** + 통화 상태
-   (`callId ↔ 두 세션`) + **45초 타이머** + 계약 디코더. WS 서버·세션 인증·Origin 검사·
-   연결 레지스트리는 presence가 이미 만들어 두었다
+5. ✅ 시그널링 게이트웨이 — `services/socket`에 `CallGateway`(통화 상태 · 45초 타이머 ·
+   릴레이)와 **클라 → 서버 방향**(`ws.on('message')` + 프레임 상한)이 붙었다. 계약은
+   `contracts.ts`에 타입 + 디코더로 두고 3플랫폼에 재생성했다. **새 REST 엔드포인트는
+   없다.** presence는 그대로다 — `CallGateway`는 `PresenceRepository`를 아예 의존하지
+   않고, 그 사실을 스펙 한 줄이 지킨다(§5)
 6. ⏳ `apps/web` 구현 (`getUserMedia` · `RTCPeerConnection` · 시그널링 · 컨트롤 · stats ·
    **루프백**). 같이 갚을 것: 웹에 `--color-warning*`·`--color-info*`·`--font-mono` 추가,
    JetBrains Mono 실제 로드 (§10)
-7. ⏳ TURN(coturn) 프로비저닝 + ICE 서버 구성(env) — 시그널링과 함께
+7. ⏳ TURN(coturn) 프로비저닝 — **ICE 서버 구성(env)은 5에서 먼저 붙었다**
+   (`PRISM_STUN_URLS` · `PRISM_TURN_URLS`/`_USERNAME`/`_PASSWORD`, 셋이 함께 있거나
+   함께 없다). `accepted`가 목록 없이는 성립하지 않아 미룰 수 없었다. 남은 것은
+   coturn 프로비저닝과 자격증명 회전이다
 8. ⏳ nginx WS Upgrade + 배포 (사이드바 `WebRTC` 활성화)
 9. ⏳ ICE restart 재연결 · 상태 마감
 10. ⏳ iOS/Android 패리티 (동일 시그널링 계약 재사용)
@@ -697,8 +725,11 @@ interface SessionRef { id: string; device: DeviceKind }
 - **모바일 권한/백그라운드** — iOS/Android는 권한·백그라운드·오디오 라우팅이 web과 다르다.
   패리티 단계에서 별도 처리(계약은 동일).
 - **통화 중 세션 종료** — [dashboard.md](./dashboard.md)가 명시적으로 이 슬라이스로 넘긴
-  항목이다. 통화 중에 화면을 빼앗기는 것은 목록을 빼앗기는 것과 다르므로, 창만 다시 세우지 말고
-  **재로그인 뒤 보던 자리로 돌아오는 것까지** 함께 설계한다. 시안에는 아직 없다.
+  항목이다. **서버 쪽은 끝났다**: 세션이 폐기되면 presence 스윕이 그 소켓을 닫고, 그 close가
+  통화 게이트웨이의 같은 문으로 들어와 상대가 `ended{'peer-gone'}`을 받는다 — 회선이 끊긴
+  경우와 **결말이 같다**(아래 항목이 묻던 것이 이것이다). 남은 것은 화면이다: 통화 중에
+  화면을 빼앗기는 것은 목록을 빼앗기는 것과 다르므로, 창만 다시 세우지 말고 **재로그인 뒤
+  보던 자리로 돌아오는 것까지** 함께 설계한다. 시안에는 아직 없다.
 - **웹의 `Info` 색이 시안과 이미 다르다** — `.badge--info`
   ([apps/web/src/index.css](../apps/web/src/index.css))가 `--color-secondary-bg`/`--color-accent`
   (#EDF3FB / #4A78B8)인데 Figma `Info`는 #E8F0FA / #5B8FC7다. 진단이 `Connecting`·`Via STUN`에
@@ -714,8 +745,9 @@ interface SessionRef { id: string; device: DeviceKind }
 - **기기 종류 라벨의 자리** — 통화 타일과 기기 목록이 `dashboard.device_*`를 쓴다. 이제 두
   슬라이스가 함께 쓰므로 `common.device_*`로 올릴 만하지만, 9개 키가 3플랫폼 생성 파일과
   함께 움직인다. 웹 구현 때 한 번에 정리한다(`common.retry` 승격과 같은 종류의 일이다).
-- **세션이 목록에서 사라지는 순간의 통화** — 상대 세션이 폐기되면 `sessionsChanged`가 목록을
-  새로 고치는 동시에 통화도 끊겨야 한다. 두 경로(세션 폐기 · 소켓 종료)가 같은 결말에
-  이르는지 구현에서 확인한다.
+- ~~**세션이 목록에서 사라지는 순간의 통화**~~ — 확인됐다(2026-08-28). 두 경로가 하나로
+  모인다: 세션 폐기는 presence 스윕이 소켓을 닫는 것으로 끝나고, 그 `close`가 회선 끊김과
+  **같은 핸들러**로 들어와 통화를 `peer-gone`으로 끝낸다. 통화 게이트웨이는 세션 폐기를
+  따로 알 필요가 없다.
 - **iOS/Android 진단 범위** — 전부 옮길지, 축소판(Quality + Path만)으로 갈지. 계약과 지표는 같고
   화면만 줄이는 쪽을 권한다 — 로그 뷰·라디오 그룹을 SwiftUI·Compose에 각각 만드는 비용이 크다.

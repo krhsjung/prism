@@ -11,7 +11,10 @@ import {
   PresenceRepository,
   SessionsRepository,
   parseJsonValue,
+  decodeSocketDownstreamMessage,
   decodeSocketServerMessage,
+  type SessionInfo,
+  type SocketDownstreamMessage,
   type SocketServerMessage,
   type User,
 } from '@app/common';
@@ -22,6 +25,7 @@ import {
   SessionTokenService,
 } from '@app/session';
 import { AppController } from './app.controller';
+import { CallGateway } from './call.gateway';
 import { ConnectionRegistry } from './connection-registry';
 import { PrismSocketServer } from './socket.server';
 import { SessionPresenceGateway } from './session-presence.gateway';
@@ -35,6 +39,22 @@ const user: User = {
 
 const ALLOWED = 'https://prism.example';
 
+// 이 사용자의 세션 둘 — 통화의 소유권 확인이 읽는 목록이다(GET /auth/sessions와 같은 원천).
+const owned: SessionInfo[] = [
+  {
+    id: 's-1',
+    startedAt: '2026-08-28T00:00:00.000Z',
+    expiresAt: '2026-08-29T00:00:00.000Z',
+    device: 'mac',
+  },
+  {
+    id: 's-2',
+    startedAt: '2026-08-28T00:00:00.000Z',
+    expiresAt: '2026-08-29T00:00:00.000Z',
+    device: 'iphone',
+  },
+];
+
 // 실제 경계 테스트 — supertest는 WebSocket을 못 하므로 앱을 포트 0에 띄우고 진짜 `ws`
 // 클라이언트로 붙는다(*.http.spec.ts 관례의 WS판).
 //
@@ -42,7 +62,11 @@ const ALLOWED = 'https://prism.example';
 // 쿠키와 Bearer가 **같은 규칙**으로 읽히는가, 인증 실패가 코드를 실어 보내고 닫는가.
 describe('세션 소켓 경계', () => {
   let app: INestApplication;
-  let sessions: { findValid: jest.Mock; findValidSession: jest.Mock };
+  let sessions: {
+    findValid: jest.Mock;
+    findValidSession: jest.Mock;
+    listForUser: jest.Mock;
+  };
   let tokens: SessionTokenService;
   let url: string;
 
@@ -55,6 +79,7 @@ describe('세션 소켓 경계', () => {
           absoluteExpiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000,
         }),
       ),
+      listForUser: jest.fn(() => Promise.resolve(owned)),
     };
 
     const moduleRef = await Test.createTestingModule({
@@ -70,6 +95,7 @@ describe('세션 소켓 경계', () => {
         SessionAuthenticator,
         ConnectionRegistry,
         SessionPresenceGateway,
+        CallGateway,
         PrismSocketServer,
         { provide: APP_GUARD, useClass: JwtAuthGuard },
         { provide: SessionsRepository, useValue: sessions },
@@ -81,6 +107,7 @@ describe('세션 소켓 경계', () => {
             isProduction: false,
             cookiePolicy: { isProduction: false, namespace: '' },
             isAllowedOrigin: (origin: string) => origin === ALLOWED,
+            iceServers: [{ urls: ['stun:stun.example:3478'] }],
           } as object as PrismConfigService,
         },
       ],
@@ -115,6 +142,32 @@ describe('세션 소켓 경계', () => {
 
   const closed = (ws: WebSocket) =>
     new Promise<void>((resolve) => ws.once('close', () => resolve()));
+
+  // 붙어서 ready까지 받은 연결 하나.
+  const open = async (sessionId: string): Promise<WebSocket> => {
+    const ws = new WebSocket(`${url}/socket`, {
+      headers: {
+        authorization: `Bearer ${tokens.signSession(user.id, sessionId)}`,
+      },
+    });
+    await expect(firstMessage(ws)).resolves.toEqual({ type: 'ready' });
+    return ws;
+  };
+
+  // 기다리는 종류가 올 때까지 나머지(presence 신호)는 흘려보낸다.
+  const waitFor = (ws: WebSocket, type: string) =>
+    new Promise<SocketDownstreamMessage>((resolve, reject) => {
+      const onMessage = (data: Buffer) => {
+        const message = decodeSocketDownstreamMessage(
+          parseJsonValue(data.toString()),
+        );
+        if (message.type !== type) return;
+        ws.off('message', onMessage);
+        resolve(message);
+      };
+      ws.on('message', onMessage);
+      ws.once('error', reject);
+    });
 
   it('쿠키로 인증된다(웹 흐름)', async () => {
     const ws = new WebSocket(`${url}/socket`, {
@@ -180,6 +233,47 @@ describe('세션 소켓 경계', () => {
       ws.once('error', resolve),
     );
     expect(error.message).toMatch(/404/);
+  });
+
+  // **클라 → 서버 방향이 이 저장소에서 처음 열리는 자리다.** 계약·디코더·통화
+  // 게이트웨이가 진짜 소켓 위에서 이어져 있는지는 이 층에서만 확인할 수 있다.
+  it('한 세션이 다른 세션을 부르면 벨이 울린다', async () => {
+    const caller = await open('s-1');
+    const callee = await open('s-2');
+
+    const ringing = waitFor(caller, 'ringing');
+    const incoming = waitFor(callee, 'incoming');
+    caller.send(JSON.stringify({ type: 'call', to: 's-2' }));
+
+    const answer = await ringing;
+    if (answer.type !== 'ringing') throw new Error('expected ringing');
+    // callId는 **서버가** 발급한다 — 클라가 만든 id를 믿으면 남의 통화에 ice를
+    // 흘려 넣을 수 있다. 양쪽이 같은 id를 받는 것이 그 증거다.
+    expect(answer.callId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(await incoming).toEqual({
+      type: 'incoming',
+      callId: answer.callId,
+      from: { id: 's-1', device: 'mac' },
+    });
+    caller.close();
+    callee.close();
+  });
+
+  // 형식이 어긋났다고 연결을 끊지 않는다 — 클라이언트가 우리 메시지를 다루는 규칙과
+  // 같다. 뒤이은 정상 메시지가 답을 받는 것이 소켓이 살아 있다는 증거다.
+  it('계약에 없는 프레임은 버리되 연결은 살려 둔다', async () => {
+    const ws = await open('s-1');
+
+    ws.send('not json at all');
+    ws.send(JSON.stringify({ type: 'join', room: 'x' }));
+    ws.send(JSON.stringify({ type: 'call', to: 's-2' }));
+
+    // s-2는 소켓이 없다 — 푸시 경로는 아직 붙지 않았다(plan/webrtc.md §8-11).
+    expect(await waitFor(ws, 'callError')).toEqual({
+      type: 'callError',
+      code: 'unreachable',
+    });
+    ws.close();
   });
 
   // 프로브 경로는 자격증명 없이 통과해야 한다 — 아니면 파드가 영영 Ready가 되지 않는다.
