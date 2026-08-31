@@ -25,6 +25,9 @@ infra/deploy/charts/*/values.generated.yaml
 .env
 .env.*
 !.env.example
+# infra/docker/*/.env는 값이 아니라 `${VAR}` 자리표시자만 담는다 — compose가 셸 환경에서
+# 채운다. 그래서 추적한다(postgres·redis가 이미 그렇게 커밋돼 있다). 실제 값 금지.
+!infra/docker/*/.env
 *.p8
 GoogleService-Info.plist
 Secrets.xcconfig
