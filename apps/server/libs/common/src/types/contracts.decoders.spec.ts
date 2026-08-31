@@ -1,7 +1,12 @@
 import {
+  MAX_ICE_CANDIDATE_LENGTH,
+  MAX_SDP_LENGTH,
   decodeAuthSession,
+  decodeCallClientMessage,
+  decodeCallServerMessage,
   decodeSessionList,
   decodeSessionListItem,
+  decodeSocketDownstreamMessage,
   decodeSocketServerMessage,
   decodeSessionUser,
   decodeUser,
@@ -203,6 +208,181 @@ describe('contract decoders', () => {
   it('decodeSocketServerMessage: error에 코드가 없으면 거부한다', () => {
     expect(() => decodeSocketServerMessage({ type: 'error' })).toThrow(
       /unknown error code/,
+    );
+  });
+  // ── 통화 시그널링 ──
+
+  it('decodeCallClientMessage: 페이로드 없는 메시지는 callId만 본다', () => {
+    for (const type of ['accept', 'decline', 'cancel', 'hangup', 'resume']) {
+      expect(decodeCallClientMessage({ type, callId: 'c-1' })).toEqual({
+        type,
+        callId: 'c-1',
+      });
+      expect(() => decodeCallClientMessage({ type })).toThrow(/callId/);
+    }
+  });
+
+  it('decodeCallClientMessage: call은 대상 세션 id를 본다', () => {
+    expect(decodeCallClientMessage({ type: 'call', to: 's-2' })).toEqual({
+      type: 'call',
+      to: 's-2',
+    });
+    expect(() => decodeCallClientMessage({ type: 'call' })).toThrow(/to/);
+  });
+
+  it('decodeCallClientMessage: 모르는 type은 접지 않고 거부한다', () => {
+    expect(() => decodeCallClientMessage({ type: 'join' })).toThrow(
+      /unknown type/,
+    );
+  });
+
+  // 서버는 SDP를 해석하지 않으므로 **길이와 형식이 여기서 볼 수 있는 전부**다.
+  // 상한이 없으면 시그널링이 임의 크기 릴레이가 된다(plan/webrtc.md §7).
+  it('decodeCallClientMessage: 상한을 넘는 SDP는 형식 오류다', () => {
+    const callId = 'c-1';
+    const sdp = 'v'.repeat(MAX_SDP_LENGTH);
+    expect(decodeCallClientMessage({ type: 'offer', callId, sdp })).toEqual({
+      type: 'offer',
+      callId,
+      sdp,
+    });
+    expect(() =>
+      decodeCallClientMessage({ type: 'answer', callId, sdp: `${sdp}v` }),
+    ).toThrow(/exceeds/);
+  });
+
+  it('decodeIceCandidate: 상한을 넘는 후보는 형식 오류다', () => {
+    expect(() =>
+      decodeCallClientMessage({
+        type: 'ice',
+        callId: 'c-1',
+        candidate: { candidate: 'c'.repeat(MAX_ICE_CANDIDATE_LENGTH + 1) },
+      }),
+    ).toThrow(/exceeds/);
+  });
+
+  // 후보 문자열만으로는 addIceCandidate가 붙이지 못한다 — 브라우저가 채워 준 쪽을
+  // 그대로 나른다. 채우지 못한 쪽은 null로 오므로 **없는 것과 같이** 본다.
+  it('decodeIceCandidate: sdpMid·sdpMLineIndex를 나르고 null은 접는다', () => {
+    expect(
+      decodeCallClientMessage({
+        type: 'ice',
+        callId: 'c-1',
+        candidate: { candidate: 'candidate:1', sdpMid: '0', sdpMLineIndex: 0 },
+      }),
+    ).toEqual({
+      type: 'ice',
+      callId: 'c-1',
+      // ⚠️ sdpMLineIndex는 **0이 유효한 값**이다(첫 m-line) — 수명값 디코더로 재면
+      // 첫 번째 트랙의 후보가 통째로 거부된다.
+      candidate: { candidate: 'candidate:1', sdpMid: '0', sdpMLineIndex: 0 },
+    });
+    expect(
+      decodeCallClientMessage({
+        type: 'ice',
+        callId: 'c-1',
+        candidate: { candidate: 'candidate:1', sdpMid: null },
+      }),
+    ).toEqual({
+      type: 'ice',
+      callId: 'c-1',
+      candidate: { candidate: 'candidate:1' },
+    });
+  });
+
+  it('decodeCallServerMessage: incoming은 기기 종류까지 구성한다', () => {
+    expect(
+      decodeCallServerMessage({
+        type: 'incoming',
+        callId: 'c-1',
+        from: { id: 's-1', device: 'iphone' },
+      }),
+    ).toEqual({
+      type: 'incoming',
+      callId: 'c-1',
+      from: { id: 's-1', device: 'iphone' },
+    });
+  });
+
+  it('decodeCallServerMessage: accepted는 ICE 서버 목록을 검증한다', () => {
+    expect(
+      decodeCallServerMessage({
+        type: 'accepted',
+        callId: 'c-1',
+        iceServers: [
+          { urls: ['stun:stun.example:3478'] },
+          { urls: ['turn:turn.example:3478'], username: 'u', credential: 'p' },
+        ],
+      }),
+    ).toEqual({
+      type: 'accepted',
+      callId: 'c-1',
+      iceServers: [
+        { urls: ['stun:stun.example:3478'] },
+        { urls: ['turn:turn.example:3478'], username: 'u', credential: 'p' },
+      ],
+    });
+    expect(() =>
+      decodeCallServerMessage({
+        type: 'accepted',
+        callId: 'c-1',
+        iceServers: [{ urls: [] }],
+      }),
+    ).toThrow(/urls/);
+  });
+
+  it('decodeCallServerMessage: 모르는 종료 이유와 오류 코드는 거부한다', () => {
+    expect(
+      decodeCallServerMessage({
+        type: 'ended',
+        callId: 'c-1',
+        reason: 'timeout',
+      }),
+    ).toEqual({ type: 'ended', callId: 'c-1', reason: 'timeout' });
+    expect(() =>
+      decodeCallServerMessage({ type: 'ended', callId: 'c-1', reason: 'nope' }),
+    ).toThrow(/unknown reason/);
+    expect(() =>
+      decodeCallServerMessage({ type: 'callError', code: 'room-full' }),
+    ).toThrow(/unknown error code/);
+  });
+
+  // from은 **없을 수 있다** — 서버가 그 통화를 더는 기억하지 못하거나 애초에 내
+  // 통화가 아니었으면 기기 종류를 지어내지 않는다(§6).
+  it('decodeCallServerMessage: expired는 from 없이도 구성된다', () => {
+    expect(decodeCallServerMessage({ type: 'expired', callId: 'c-1' })).toEqual(
+      {
+        type: 'expired',
+        callId: 'c-1',
+      },
+    );
+    expect(
+      decodeCallServerMessage({
+        type: 'expired',
+        callId: 'c-1',
+        from: { id: 's-1', device: 'mac' },
+      }),
+    ).toEqual({
+      type: 'expired',
+      callId: 'c-1',
+      from: { id: 's-1', device: 'mac' },
+    });
+  });
+
+  // 한 소켓으로 두 계약이 함께 내려온다 — 겹치는 type 이름이 없어(presence는 error,
+  // 통화는 callError) 판별이 모호하지 않다.
+  it('decodeSocketDownstreamMessage: presence와 통화를 함께 받는다', () => {
+    expect(decodeSocketDownstreamMessage({ type: 'heartbeat' })).toEqual({
+      type: 'heartbeat',
+    });
+    expect(
+      decodeSocketDownstreamMessage({ type: 'ringing', callId: 'c-1' }),
+    ).toEqual({ type: 'ringing', callId: 'c-1' });
+    expect(
+      decodeSocketDownstreamMessage({ type: 'error', code: 'UNAUTHORIZED' }),
+    ).toEqual({ type: 'error', code: 'UNAUTHORIZED' });
+    expect(() => decodeSocketDownstreamMessage({ type: 'join' })).toThrow(
+      /unknown type/,
     );
   });
 });

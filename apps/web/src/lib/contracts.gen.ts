@@ -284,6 +284,301 @@ export function decodeSocketServerMessage(
   return { type, code };
 }
 
+// ── 통화 시그널링 프로토콜 ──
+//
+// 위 presence와 **같은 소켓**을 쓰지만 계약은 갈라 둔다. 이 저장소에서 클라 → 서버
+// 방향이 여기서 처음 열리는데, 지금까지 단방향이었던 이유는 그대로 유효하기 때문이다:
+// `isConnected`는 여전히 **소켓의 존재만** 보고 정해지고, 아래 메시지들은 살아 있다는
+// 증거로 쓰이지 않는다(plan/webrtc.md §5). 그래서 이름을 둘로 나눈다 —
+// `SocketServerMessage`(presence, 위)와 `CallClientMessage`/`CallServerMessage`(통화).
+//
+// **미디어는 이 소켓을 지나지 않는다.** 서버가 나르는 것은 상대를 찾는 신호와 SDP·ICE
+// 문자열뿐이고, 연결이 서면 그 뒤로는 P2P다. 녹화도 저장도 없다.
+
+// 벨의 상한. **서버 상수이고 클라이언트는 재지 않는다** — 양쪽이 재면 시계가 두 벌이
+// 되고 언젠가 어긋난다. 지나면 서버가 양쪽에 ended{'timeout'}을 보내고 통화를 지운다.
+//
+// 45초는 **소켓 경로에 맞춘 값**이다(상대 앱이 이미 열려 있는 경우). 푸시로 깨우는
+// 경로를 이 창에 맞추려고 늘리지 않는다 — 늘리면 거는 쪽이 빈 화면을 더 오래 본다.
+export const RING_TIMEOUT_MS = 45_000;
+
+// 릴레이가 나르는 문자열의 상한(plan/webrtc.md §7). 서버는 SDP를 해석하지 않으므로
+// 길이와 형식이 여기서 볼 수 있는 전부이고, 상한이 없으면 소켓이 임의 크기 릴레이가 된다.
+// 실제 offer/answer는 코덱이 많아도 5~10 kB 대이고, 후보 한 줄은 200자 안쪽이다.
+export const MAX_SDP_LENGTH = 16_384;
+export const MAX_ICE_CANDIDATE_LENGTH = 1_024;
+export const MAX_SDP_MID_LENGTH = 64;
+
+// 클라이언트가 RTCPeerConnection에 그대로 넘기는 ICE 서버 하나.
+//
+// 목록은 `accepted`와 함께 소켓이 내려준다 — 값은 전부 env에서 오고 레포에는 호스트도
+// 자격증명도 없다(§7). 화면에도 띄우지 않는다.
+export interface IceServer {
+  urls: string[];
+  // TURN에만 있다. STUN은 자격증명을 쓰지 않는다.
+  username?: string;
+  credential?: string;
+}
+
+// 상대를 가리키는 값은 **기기 종류뿐**이다 — 화면이 필요로 하는 전부이고, 그 이상은
+// 담지 않는다(SessionInfo가 User-Agent 원문도 IP도 담지 않는 것과 같은 선).
+export interface SessionRef {
+  id: string;
+  device: DeviceKind;
+}
+
+// 후보 하나. 브라우저의 `RTCIceCandidateInit`을 그대로 옮긴 모양이라 클라이언트는
+// `event.candidate.toJSON()`을 그대로 실어 보낼 수 있다.
+export interface IceCandidate {
+  candidate: string;
+  // **후보 문자열만으로는 붙일 수 없다.** `addIceCandidate`는 sdpMid와 sdpMLineIndex가
+  // 둘 다 없으면 거부하고, 브라우저는 둘 중 적어도 하나를 채워 준다. 서버는 릴레이라
+  // 어느 쪽인지 고르지 않고 온 것을 그대로 넘긴다.
+  sdpMid?: string;
+  sdpMLineIndex?: number;
+}
+
+export const CALL_CLIENT_MESSAGE_TYPES = [
+  'call',
+  'accept',
+  'decline',
+  'cancel',
+  'offer',
+  'answer',
+  'ice',
+  'hangup',
+  'resume',
+] as const;
+export type CallClientMessageType = (typeof CALL_CLIENT_MESSAGE_TYPES)[number];
+
+// 클라 → 서버. **callId는 담아도 발급하지는 않는다** — 서버가 준 것을 되돌려줄 뿐이다.
+export type CallClientMessage =
+  // 대상 세션 id. 내 세션이 아니면 서버가 unknown-session으로 거절한다.
+  | { type: 'call'; to: string }
+  | { type: 'accept'; callId: string }
+  | { type: 'decline'; callId: string }
+  // 거는 쪽이 벨을 접는다. 붙은 뒤로는 hangup의 자리다.
+  | { type: 'cancel'; callId: string }
+  | { type: 'offer'; callId: string; sdp: string }
+  | { type: 'answer'; callId: string; sdp: string }
+  | { type: 'ice'; callId: string; candidate: IceCandidate }
+  | { type: 'hangup'; callId: string }
+  // 알림으로 열었다 — 이 통화가 아직 살아 있나. 소켓이 붙자마자 묻는다.
+  | { type: 'resume'; callId: string };
+
+export const CALL_SERVER_MESSAGE_TYPES = [
+  'incoming',
+  'ringing',
+  'accepted',
+  'declined',
+  'offer',
+  'answer',
+  'ice',
+  'ended',
+  'expired',
+  'callError',
+] as const;
+export type CallServerMessageType = (typeof CALL_SERVER_MESSAGE_TYPES)[number];
+
+// 통화가 끝난 이유. **통화의 성질이지 받는 사람의 사정이 아니다** — 같은 문장이 양쪽에
+// 그대로 참이어야 벨을 함께 받았던 다른 탭에도 같은 메시지를 보낼 수 있다.
+//  - hangup:    사람이 끊었다(거는 쪽의 취소 · 어느 쪽의 종료)
+//  - peer-gone: 당사자의 소켓이 사라졌다
+//  - timeout:   RING_TIMEOUT_MS가 지났다
+export const CALL_END_REASONS = ['hangup', 'peer-gone', 'timeout'] as const;
+export type CallEndReason = (typeof CALL_END_REASONS)[number];
+
+// 통화를 시작할 수 없는 이유. **없는 세션과 남의 세션을 구별해 주지 않는다**
+// (unknown-session 하나로 접는다) — 남의 세션 id를 넣어 존재를 떠보는 경로를 열지
+// 않기 위해서다.
+export const CALL_ERROR_CODES = [
+  'unreachable',
+  'busy',
+  'unknown-session',
+  'self',
+] as const;
+export type CallErrorCode = (typeof CALL_ERROR_CODES)[number];
+
+// 서버 → 클라(위 presence 메시지와 같은 소켓으로 내려온다).
+export type CallServerMessage =
+  // 받는 쪽에 벨. 그 세션의 **모든** 연결에 간다 — 사용자가 어느 탭에 있는지 모른다.
+  | { type: 'incoming'; callId: string; from: SessionRef }
+  // 거는 쪽 — 상대에게 전달됐다.
+  | { type: 'ringing'; callId: string }
+  // 양쪽에 간다. **이것을 받은 거는 쪽이 offer를 낸다** — 역할이 방향에서 나오므로
+  // glare가 구조적으로 없다.
+  | { type: 'accepted'; callId: string; iceServers: IceServer[] }
+  | { type: 'declined'; callId: string }
+  | { type: 'offer'; callId: string; sdp: string }
+  | { type: 'answer'; callId: string; sdp: string }
+  | { type: 'ice'; callId: string; candidate: IceCandidate }
+  | { type: 'ended'; callId: string; reason: CallEndReason }
+  // 알림을 늦게 열었다. 빈 화면 대신 무슨 일이었는지 그리라고 from을 함께 준다.
+  //
+  // ⚠️ **from은 없을 수 있다.** 서버가 그 통화를 더는 기억하지 못하거나(보존 창이 지났다)
+  // 애초에 내 통화가 아니었으면 기기 종류를 지어내지 않는다 — 그 두 경우의 답이 같아야
+  // 남의 callId를 떠보는 경로가 열리지 않는다. 화면은 그때 제목만 그린다.
+  | { type: 'expired'; callId: string; from?: SessionRef }
+  // callId가 없다 — `call`이 아직 통화를 얻지 못한 자리에서만 난다.
+  | { type: 'callError'; code: CallErrorCode };
+
+// 한 소켓으로 내려오는 것 전부. **두 계약을 합치는 것이 아니라 합집합만 둔다** —
+// 디코더는 여전히 각자이고, 클라이언트는 type으로 어느 쪽인지 가른다.
+export type SocketDownstreamMessage = SocketServerMessage | CallServerMessage;
+
+// 겹치는 type 이름이 없어(presence는 `error`, 통화는 `callError`) 판별이 모호하지 않다.
+export function decodeSocketDownstreamMessage(
+  v: JsonValue | undefined,
+): SocketDownstreamMessage {
+  const obj = decodeObject(v, 'SocketDownstreamMessage');
+  return CALL_SERVER_MESSAGE_TYPES.some((t) => t === obj.type)
+    ? decodeCallServerMessage(obj)
+    : decodeSocketServerMessage(obj);
+}
+
+// 서버가 소켓으로 들어온 프레임을 들여오는 통로. 형식이 어긋나면 throw이고, 호출부는
+// **연결을 끊지 않고 그 메시지만 버린다** — 클라이언트가 우리 메시지를 다루는 규칙과 같다.
+export function decodeCallClientMessage(
+  v: JsonValue | undefined,
+): CallClientMessage {
+  const obj = decodeObject(v, 'CallClientMessage');
+  const type = CALL_CLIENT_MESSAGE_TYPES.find((t) => t === obj.type);
+  // 모르는 type은 거부한다 — DeviceKind와 달리 이것은 화면 라벨이 아니라 **동작**이다.
+  if (!type) throw new Error('CallClientMessage.type: unknown type');
+  if (type === 'call') {
+    return { type, to: decodeString(obj.to, 'CallClientMessage.to') };
+  }
+  const callId = decodeString(obj.callId, 'CallClientMessage.callId');
+  switch (type) {
+    case 'offer':
+    case 'answer':
+      return { type, callId, sdp: decodeSdp(obj.sdp) };
+    case 'ice':
+      return { type, callId, candidate: decodeIceCandidate(obj.candidate) };
+    default:
+      return { type, callId };
+  }
+}
+
+export function decodeCallServerMessage(
+  v: JsonValue | undefined,
+): CallServerMessage {
+  const obj = decodeObject(v, 'CallServerMessage');
+  const type = CALL_SERVER_MESSAGE_TYPES.find((t) => t === obj.type);
+  if (!type) throw new Error('CallServerMessage.type: unknown type');
+  if (type === 'callError') {
+    const code = CALL_ERROR_CODES.find((c) => c === obj.code);
+    if (!code) throw new Error('CallServerMessage.code: unknown error code');
+    return { type, code };
+  }
+  const callId = decodeString(obj.callId, 'CallServerMessage.callId');
+  switch (type) {
+    case 'incoming':
+      return { type, callId, from: decodeSessionRef(obj.from) };
+    case 'accepted':
+      return { type, callId, iceServers: decodeIceServers(obj.iceServers) };
+    case 'offer':
+    case 'answer':
+      return { type, callId, sdp: decodeSdp(obj.sdp) };
+    case 'ice':
+      return { type, callId, candidate: decodeIceCandidate(obj.candidate) };
+    case 'ended': {
+      const reason = CALL_END_REASONS.find((r) => r === obj.reason);
+      if (!reason) throw new Error('CallServerMessage.reason: unknown reason');
+      return { type, callId, reason };
+    }
+    case 'expired':
+      return obj.from === undefined
+        ? { type, callId }
+        : { type, callId, from: decodeSessionRef(obj.from) };
+    default:
+      return { type, callId };
+  }
+}
+
+export function decodeSessionRef(v: JsonValue | undefined): SessionRef {
+  const obj = decodeObject(v, 'SessionRef');
+  return {
+    id: decodeString(obj.id, 'SessionRef.id'),
+    device: decodeDeviceKind(obj.device),
+  };
+}
+
+export function decodeIceServers(v: JsonValue | undefined): IceServer[] {
+  if (!Array.isArray(v)) throw new Error('IceServer[]: expected array');
+  return v.map(decodeIceServer);
+}
+
+export function decodeIceServer(v: JsonValue | undefined): IceServer {
+  const obj = decodeObject(v, 'IceServer');
+  const urls = obj.urls;
+  if (!Array.isArray(urls) || urls.length === 0) {
+    throw new Error('IceServer.urls: expected non-empty array');
+  }
+  const server: IceServer = {
+    urls: urls.map((url, at) => decodeString(url, `IceServer.urls[${at}]`)),
+  };
+  // 자격증명은 TURN에만 있다 — 없는 것이 정상이고, 있으면 형식을 본다.
+  if (obj.username !== undefined) {
+    server.username = decodeString(obj.username, 'IceServer.username');
+  }
+  if (obj.credential !== undefined) {
+    server.credential = decodeString(obj.credential, 'IceServer.credential');
+  }
+  return server;
+}
+
+export function decodeIceCandidate(v: JsonValue | undefined): IceCandidate {
+  const obj = decodeObject(v, 'IceCandidate');
+  const candidate: IceCandidate = {
+    candidate: decodeBoundedString(
+      obj.candidate,
+      'IceCandidate.candidate',
+      MAX_ICE_CANDIDATE_LENGTH,
+    ),
+  };
+  // 브라우저가 채우지 못한 쪽은 null로 온다(RTCIceCandidate.toJSON) — 없는 것과 같이 본다.
+  if (obj.sdpMid !== undefined && obj.sdpMid !== null) {
+    candidate.sdpMid = decodeBoundedString(
+      obj.sdpMid,
+      'IceCandidate.sdpMid',
+      MAX_SDP_MID_LENGTH,
+    );
+  }
+  if (obj.sdpMLineIndex !== undefined && obj.sdpMLineIndex !== null) {
+    candidate.sdpMLineIndex = decodeIndex(
+      obj.sdpMLineIndex,
+      'IceCandidate.sdpMLineIndex',
+    );
+  }
+  return candidate;
+}
+
+function decodeSdp(v: JsonValue | undefined): string {
+  return decodeBoundedString(v, 'CallMessage.sdp', MAX_SDP_LENGTH);
+}
+
+// 릴레이가 나르는 문자열은 전부 길이를 재고 들여온다(§7).
+function decodeBoundedString(
+  v: JsonValue | undefined,
+  label: string,
+  max: number,
+): string {
+  const value = decodeString(v, label);
+  if (value.length > max) {
+    throw new Error(`${label}: exceeds ${max} characters`);
+  }
+  return value;
+}
+
+// m-line 번호 — decodePositiveInt와 달리 **0이 유효한 값**이다(첫 번째 m-line).
+function decodeIndex(v: JsonValue | undefined, label: string): number {
+  if (typeof v !== 'number' || !Number.isSafeInteger(v) || v < 0) {
+    throw new Error(`${label}: expected non-negative integer`);
+  }
+  return v;
+}
+
 // ── 경계 디코딩 (parse, don't validate) ──
 // 외부(네트워크)에서 파싱된 JSON을 계약 타입으로 "구성"한다. 형식이 어긋나면 throw —
 // as 단언 없이, unknown/any 없이 미검증 상태를 JsonValue로 표현한다.
