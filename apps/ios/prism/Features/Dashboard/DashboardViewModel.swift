@@ -42,15 +42,20 @@ final class DashboardViewModel {
     private let accessToken: () -> String?
     @ObservationIgnored
     private let onSessionEnded: () async -> Void
+    /// 폐기 직후 서버에 재검증을 청한다(소켓). 웹과 같은 이유로 필요하다 — 아래 revoke 주석.
+    @ObservationIgnored
+    private let notifyRevoked: () -> Void
 
     init(
         service: SessionsServicing,
         accessToken: @escaping () -> String?,
         onSessionEnded: @escaping () async -> Void,
+        notifyRevoked: @escaping () -> Void = {},
     ) {
         self.service = service
         self.accessToken = accessToken
         self.onSessionEnded = onSessionEnded
+        self.notifyRevoked = notifyRevoked
     }
 
     /// 목록을 **비우고** 다시 불러온다 — 처음 그릴 때와 재시도가 쓴다. 화면에 아직
@@ -93,6 +98,10 @@ final class DashboardViewModel {
         actionErrorKey = nil
         do {
             try await service.revoke(id: session.id, accessToken: token)
+            // **끊긴 기기가 서버의 스윕(20초)을 기다리지 않게 한다.** 폐기는 auth
+            // 서비스가 처리하고 socket 서비스는 그 사실을 전달받는 통로가 없다 —
+            // 소켓은 이미 붙어 있으니 우리가 깨워 준다(서버는 믿지 않고 다시 읽는다).
+            notifyRevoked()
             if session.isCurrent {
                 // 내 세션을 내가 지웠다 — 토큰은 이미 무효다. 세션의 주인에게 넘긴다.
                 await onSessionEnded()
@@ -115,6 +124,9 @@ final class DashboardViewModel {
         actionErrorKey = nil
         do {
             try await service.revokeAll(accessToken: token)
+            // 전체 폐기도 같다 — 다만 이 요청은 내 세션까지 끝내므로, 곧 로그인 화면으로
+            // 간다. 그 전에 다른 기기들이 즉시 쫓겨나게 해 둔다.
+            notifyRevoked()
             await onSessionEnded()
         } catch {
             Log.auth("sign out all failed")

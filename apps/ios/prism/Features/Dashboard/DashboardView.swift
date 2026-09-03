@@ -45,6 +45,7 @@ struct DashboardView: View {
                 // 전체 폐기·현재 세션 해제로 이 앱의 세션이 끝나면 로그아웃과 같은 자리로
                 // 돌아간다 — 세션 상태의 진실은 AuthManager 하나뿐이다.
                 onSessionEnded: onSignOut,
+                notifyRevoked: { socket.send(.sessionsRevoked) },
             ),
         )
     }

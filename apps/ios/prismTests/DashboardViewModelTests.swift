@@ -57,13 +57,25 @@ private func item(
     )
 }
 
+/// 소켓으로 나간 재검증 요청을 센다. 클래스인 이유: 뷰모델이 클로저를 붙들고 있어,
+/// 값 타입이면 호출이 사본에 쌓여 테스트가 볼 수 없다.
+private final class RevokeSignals {
+    var count = 0
+}
+
 @MainActor
 private func makeViewModel(
     _ service: FakeSessions,
     token: String? = "tok",
     onEnded: @escaping () async -> Void = {},
+    signals: RevokeSignals? = nil,
 ) -> DashboardViewModel {
-    DashboardViewModel(service: service, accessToken: { token }, onSessionEnded: onEnded)
+    DashboardViewModel(
+        service: service,
+        accessToken: { token },
+        onSessionEnded: onEnded,
+        notifyRevoked: { signals?.count += 1 },
+    )
 }
 
 // MARK: - Tests
@@ -144,6 +156,46 @@ struct DashboardViewModelTests {
         // 로컬에서 행만 지우지 않고 서버에 다시 묻는다 — 그사이 목록이 달라질 수 있다.
         #expect(viewModel.sessions?.map(\.id) == ["me"])
         #expect(viewModel.revokingID == nil)
+    }
+
+    // 폐기는 auth 서비스가 처리하고 socket 서비스는 그 사실을 전달받는 통로가 없다 —
+    // 이 한 마디가 없으면 끊긴 기기가 서버의 스윕까지 멀쩡히 앉아 있는다.
+    @Test("해제에 성공하면 소켓으로 재검증을 청한다")
+    func revokeSignalsSocket() async {
+        let service = FakeSessions([item("me", current: true), item("other")])
+        let signals = RevokeSignals()
+        let viewModel = makeViewModel(service, signals: signals)
+        await viewModel.load()
+
+        await viewModel.revoke(item("other"))
+
+        #expect(signals.count == 1)
+    }
+
+    // 실패했으면 폐기되지 않았다 — 서버를 깨울 이유가 없다.
+    @Test("해제에 실패하면 재검증을 청하지 않는다")
+    func revokeFailureDoesNotSignal() async {
+        let service = FakeSessions([item("me", current: true), item("other")])
+        service.failAction = true
+        let signals = RevokeSignals()
+        let viewModel = makeViewModel(service, signals: signals)
+        await viewModel.load()
+
+        await viewModel.revoke(item("other"))
+
+        #expect(signals.count == 0)
+    }
+
+    @Test("전체 로그아웃도 재검증을 청한다")
+    func signOutAllSignalsSocket() async {
+        let service = FakeSessions([item("me", current: true), item("other")])
+        let signals = RevokeSignals()
+        let viewModel = makeViewModel(service, signals: signals)
+        await viewModel.load()
+
+        await viewModel.signOutAll()
+
+        #expect(signals.count == 1)
     }
 
     @Test("해제에 실패하면 목록을 유지한 채 오류만 알린다")
