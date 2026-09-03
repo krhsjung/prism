@@ -246,10 +246,11 @@ export const SOCKET_SERVER_MESSAGE_TYPES = [
 export type SocketServerMessageType =
   (typeof SOCKET_SERVER_MESSAGE_TYPES)[number];
 
-// 서버 → 클라. **클라 → 서버 메시지는 없다.**
+// 서버 → 클라.
 //
-// presence는 서버가 소켓의 존재만 보고 판단한다 — 클라이언트가 "나 살아 있다"고 주장하게
-// 두면 반쯤 죽은 소켓이 계속 Active로 남는다.
+// presence는 서버가 **소켓의 존재만** 보고 판단한다 — 클라이언트가 "나 살아 있다"고
+// 주장하게 두면 반쯤 죽은 소켓이 계속 Active로 남는다. 그 규칙은 그대로이고,
+// 아래 `SessionClientMessage`도 그것을 주장하지 않는다(재검증을 청할 뿐이다).
 export type SocketServerMessage =
   // 인증을 통과했다. 클라이언트가 isConnected를 **믿어도 되는 시점**의 신호다 —
   // ready 전에는 소켓 서비스가 살아 있는지 알 수 없어 빈 presence가 "아무도 안 붙음"과
@@ -283,6 +284,27 @@ export function decodeSocketServerMessage(
   if (!code) throw new Error('SocketServerMessage.code: unknown error code');
   return { type, code };
 }
+
+export const SESSION_CLIENT_MESSAGE_TYPES = ['sessionsRevoked'] as const;
+export type SessionClientMessageType =
+  (typeof SESSION_CLIENT_MESSAGE_TYPES)[number];
+
+/**
+ * 클라 → 서버(세션).
+ *
+ * **presence를 주장하지 않는다.** 그 방향을 열지 않았던 이유는 그대로 유효하다 —
+ * 살아 있다는 주장을 믿으면 반쯤 죽은 소켓이 Active로 남는다. 이것은 주장이 아니라
+ * **재검증 요청**이고, 서버는 이 말을 믿는 대신 세션 저장소를 자기가 다시 읽는다.
+ * 그래서 이 메시지에는 아무 권한도 실려 있지 않다(무엇을 폐기했는지조차 말하지 않는다).
+ */
+export type SessionClientMessage =
+  // 방금 이 사용자의 세션을 폐기했다(HTTP로). 지금 다시 확인해 달라 —
+  // 폐기된 소켓은 끊고, 나머지에게는 `sessionsChanged`를 보내라.
+  //
+  // 없어도 스윕(PRESENCE_RENEW_MS)이 결국 같은 일을 하지만, 해제한 사람은 상대 기기가
+  // **즉시** 쫓겨나기를 기대한다. 소켓이 이미 붙어 있으니 서비스 간 채널을 새로 놓는
+  // 대신 그 소켓으로 깨운다.
+  { type: 'sessionsRevoked' };
 
 // ── 통화 시그널링 프로토콜 ──
 //
@@ -427,6 +449,29 @@ export type CallServerMessage =
 export type SocketDownstreamMessage = SocketServerMessage | CallServerMessage;
 
 // 겹치는 type 이름이 없어(presence는 `error`, 통화는 `callError`) 판별이 모호하지 않다.
+// 클라 → 서버로 올라가는 모든 것. 내려오는 `SocketDownstreamMessage`와 대칭이다 —
+// 두 도메인(세션·통화)이 **한 소켓을 나눠 쓰되 계약은 갈라져 있다**.
+export type SocketUpstreamMessage = SessionClientMessage | CallClientMessage;
+
+export function decodeSocketUpstreamMessage(
+  v: JsonValue | undefined,
+): SocketUpstreamMessage {
+  const obj = decodeObject(v, 'SocketUpstreamMessage');
+  return SESSION_CLIENT_MESSAGE_TYPES.some((t) => t === obj.type)
+    ? decodeSessionClientMessage(obj)
+    : decodeCallClientMessage(obj);
+}
+
+export function decodeSessionClientMessage(
+  v: JsonValue | undefined,
+): SessionClientMessage {
+  const obj = decodeObject(v, 'SessionClientMessage');
+  if (obj.type !== 'sessionsRevoked') {
+    throw new Error('SessionClientMessage.type: unknown type');
+  }
+  return { type: 'sessionsRevoked' };
+}
+
 export function decodeSocketDownstreamMessage(
   v: JsonValue | undefined,
 ): SocketDownstreamMessage {

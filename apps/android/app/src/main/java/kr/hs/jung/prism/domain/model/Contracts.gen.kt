@@ -65,3 +65,14 @@ enum class SocketServerMessageType(val wire: String) {
             entries.firstOrNull { it.wire == wire }
     }
 }
+
+/**
+ * 세션 소켓으로 **올려보내는** 메시지의 종류.
+ *
+ * presence를 주장하지 않는다 — 서버는 이 말을 믿는 대신 세션 저장소를 다시 읽는다.
+ * 그래서 이 메시지에는 아무 권한도 실려 있지 않다(무엇을 폐기했는지도 말하지 않는다).
+ */
+enum class SessionClientMessageType(val wire: String) {
+    SESSIONS_REVOKED("sessionsRevoked"),
+    ;
+}
