@@ -261,6 +261,83 @@ describe('SessionPresenceGateway', () => {
   });
 
   // 롤아웃마다 1분씩 "붙어 있음"이 남으면 안 된다.
+  // 세션 폐기는 auth 서비스가 처리하고 socket은 그 사실을 전달받는 통로가 없다 —
+  // 스윕이 돌 때까지(최대 PRESENCE_RENEW_MS) 폐기된 기기가 멀쩡히 앉아 있다.
+  // 해제한 클라이언트가 자기 소켓으로 깨워 주면 그 자리에서 끝난다.
+  describe('재검증(sessionsRevoked)', () => {
+    it('폐기된 연결을 즉시 끊는다 — 스윕을 기다리지 않는다', async () => {
+      const revoker = new FakeConnection('c-1', 'u-1', 's-1');
+      const revoked = new FakeConnection('c-2', 'u-1', 's-2');
+      await gateway.open(revoker);
+      await gateway.open(revoked);
+      // 폐기된 것은 s-2뿐이다.
+      sessions.findValid.mockImplementation(async (sessionId: string) =>
+        sessionId === 's-2' ? null : user,
+      );
+
+      await gateway.resync(revoker);
+
+      expect(revoked.sent).toContainEqual({
+        type: 'error',
+        code: 'UNAUTHORIZED',
+      });
+      expect(revoked.closed).toBe(true);
+      // 멀쩡한 세션은 그대로다.
+      expect(revoker.closed).toBe(false);
+    });
+
+    it('남은 기기에 sessionsChanged가 간다', async () => {
+      const revoker = new FakeConnection('c-1', 'u-1', 's-1');
+      const other = new FakeConnection('c-2', 'u-1', 's-2');
+      const revoked = new FakeConnection('c-3', 'u-1', 's-3');
+      await gateway.open(revoker);
+      await gateway.open(other);
+      await gateway.open(revoked);
+      revoker.sent = [];
+      other.sent = [];
+      sessions.findValid.mockImplementation(async (sessionId: string) =>
+        sessionId === 's-3' ? null : user,
+      );
+
+      await gateway.resync(revoker);
+      jest.advanceTimersByTime(100);
+
+      expect(other.types()).toContain('sessionsChanged');
+    });
+
+    // 소켓이 없는 세션을 폐기했을 수도 있다 — 끊을 것이 없어도 남은 기기의 목록은
+    // 바뀌었으므로 알려야 한다.
+    it('끊을 것이 없어도 알린다', async () => {
+      const revoker = new FakeConnection('c-1', 'u-1', 's-1');
+      const other = new FakeConnection('c-2', 'u-1', 's-2');
+      await gateway.open(revoker);
+      await gateway.open(other);
+      other.sent = [];
+
+      await gateway.resync(revoker);
+      jest.advanceTimersByTime(100);
+
+      expect(other.types()).toContain('sessionsChanged');
+      expect(other.closed).toBe(false);
+    });
+
+    // 신호에는 아무 권한도 실려 있지 않다 — 무엇이 폐기됐는지는 세션 저장소만 안다.
+    it('남의 연결은 건드리지 않는다', async () => {
+      const mine = new FakeConnection('c-1', 'u-1', 's-1');
+      const theirs = new FakeConnection('c-2', 'u-2', 's-2');
+      await gateway.open(mine);
+      await gateway.open(theirs);
+      theirs.sent = [];
+      sessions.findValid.mockResolvedValue(null);
+
+      await gateway.resync(mine);
+      jest.advanceTimersByTime(100);
+
+      expect(theirs.closed).toBe(false);
+      expect(theirs.sent).toEqual([]);
+    });
+  });
+
   it('종료 시 presence를 걷어내고 연결을 닫는다', async () => {
     const c = new FakeConnection('c-1', 'u-1', 's-1');
     await gateway.open(c);

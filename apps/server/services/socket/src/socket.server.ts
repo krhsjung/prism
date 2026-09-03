@@ -6,10 +6,10 @@ import { WebSocket, WebSocketServer, type RawData } from 'ws';
 import {
   AUTH_ERROR_CODES,
   MAX_SDP_LENGTH,
-  decodeCallClientMessage,
+  decodeSocketUpstreamMessage,
   parseJsonValue,
-  type CallClientMessage,
   type SocketDownstreamMessage,
+  type SocketUpstreamMessage,
 } from '@app/common';
 import { PrismConfigService } from '@app/config';
 import { SessionAuthenticator, sessionTokenOf } from '@app/session';
@@ -141,9 +141,9 @@ export class PrismSocketServer {
     connection: SocketConnection,
     text: string,
   ): Promise<void> {
-    let message: CallClientMessage;
+    let message: SocketUpstreamMessage;
     try {
-      message = decodeCallClientMessage(parseJsonValue(text));
+      message = decodeSocketUpstreamMessage(parseJsonValue(text));
     } catch (error) {
       // 계약에 없는 메시지는 **버리되 연결은 끊지 않는다** — 클라이언트가 우리
       // 메시지를 다루는 규칙과 같다(형식이 어긋났다고 끊을 이유는 없다).
@@ -151,6 +151,14 @@ export class PrismSocketServer {
       return;
     }
     try {
+      // 세션 도메인과 통화 도메인이 한 소켓을 나눠 쓴다 — 계약이 갈라져 있으니
+      // 여기서도 갈라 보낸다. presence는 **여전히 소켓의 존재만** 보고 정해진다:
+      // `sessionsRevoked`는 살아 있다는 주장이 아니라 재검증 요청이고, 게이트웨이가
+      // 세션 저장소를 다시 읽어 판단한다(plan/webrtc.md §5의 규칙을 깨지 않는다).
+      if (message.type === 'sessionsRevoked') {
+        await this.gateway.resync(connection);
+        return;
+      }
       await this.calls.handle(connection, message);
     } catch (error) {
       // 한 메시지의 실패가 소켓을 무너뜨리지 않게 한다 — 세션 조회(Redis)가

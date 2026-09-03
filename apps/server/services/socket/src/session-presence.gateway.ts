@@ -83,6 +83,30 @@ export class SessionPresenceGateway implements OnModuleDestroy {
     connection.close();
   }
 
+  /**
+   * "방금 세션을 폐기했다"는 신호를 받았다. **믿지 않고 다시 읽는다.**
+   *
+   * 스윕이 결국 같은 일을 하지만 최대 PRESENCE_RENEW_MS만큼 늦다 — 해제한 사람은 상대
+   * 기기가 즉시 쫓겨나기를 기대한다. 클라이언트가 깨워 주면 그 자리에서 확인할 수 있고,
+   * 신호 자체에는 아무 권한도 실려 있지 않다: 무엇이 폐기됐는지는 **세션 저장소만** 안다.
+   *
+   * 그래서 남이 이 메시지를 보내도 얻는 것이 없다 — 자기 사용자의 연결을 한 번 더
+   * 검증하게 만들 뿐이고, 멀쩡한 세션은 그대로 남는다.
+   */
+  async resync(origin: SocketConnection): Promise<void> {
+    for (const connection of this.registry.connectionsOf(origin.userId)) {
+      const user = await this.sessions.findValid(connection.sessionId);
+      if (user) continue;
+      // 로그아웃·만료·다른 기기에서 폐기됨 — 스윕과 같은 처리다.
+      this.reject(connection, AUTH_ERROR_CODES.UNAUTHORIZED);
+      await this.close(connection);
+    }
+    // 소켓이 없는 세션을 폐기했을 수도 있다(끊을 것이 없어 위 루프가 조용하다) —
+    // 그때도 남은 기기의 목록은 바뀌었으므로 알린다. 폐기한 쪽은 HTTP 응답으로
+    // 이미 최신이라 빼 둔다.
+    this.scheduleBroadcast(origin.userId, origin);
+  }
+
   start(): void {
     if (this.sweep) return;
     this.sweep = setInterval(() => void this.tick(), PRESENCE_RENEW_MS);
