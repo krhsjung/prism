@@ -13,6 +13,7 @@ import kotlinx.coroutines.launch
 import kr.hs.jung.prism.R
 import kr.hs.jung.prism.core.network.ApiError
 import kr.hs.jung.prism.core.network.SessionSocket
+import kr.hs.jung.prism.domain.model.SessionClientMessageType
 import kr.hs.jung.prism.core.security.SessionTokens
 import kr.hs.jung.prism.core.util.AppLog
 import kr.hs.jung.prism.domain.model.SessionListItem
@@ -177,6 +178,10 @@ class DashboardViewModel(
             try {
                 if (token == null) throw ApiError.invalidResponse
                 api.revoke(token, id)
+                // **끊긴 기기가 서버의 스윕을 기다리지 않게 한다.** 폐기는 auth 서비스가
+                // 처리하고 socket 서비스는 그 사실을 전달받는 통로가 없다 — 소켓은 이미
+                // 붙어 있으니 우리가 깨워 준다(서버는 믿지 않고 세션 저장소를 다시 읽는다).
+                socket?.send(SessionClientMessageType.SESSIONS_REVOKED)
                 val current = _state.value.sessions?.firstOrNull { it.id == id }?.isCurrent == true
                 if (current) {
                     // 내 세션을 내가 지웠다 — 토큰은 이미 무효다. 세션의 주인에게 넘긴다.
@@ -205,6 +210,9 @@ class DashboardViewModel(
             try {
                 if (token == null) throw ApiError.invalidResponse
                 api.revokeAll(token)
+                // 전체 폐기도 같다 — 다만 이 요청은 내 세션까지 끝내므로 곧 로그인
+                // 화면으로 간다. 그 전에 다른 기기들이 즉시 쫓겨나게 해 둔다.
+                socket?.send(SessionClientMessageType.SESSIONS_REVOKED)
                 onSessionEnded()
             } catch (e: CancellationException) {
                 throw e

@@ -16,6 +16,7 @@ import kr.hs.jung.prism.BuildConfig
 import kr.hs.jung.prism.core.security.SessionTokens
 import kr.hs.jung.prism.core.util.AppLog
 import kr.hs.jung.prism.domain.model.AuthErrorCode
+import kr.hs.jung.prism.domain.model.SessionClientMessageType
 import kr.hs.jung.prism.domain.model.SocketServerMessage
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -85,6 +86,14 @@ class SessionSocket(
     val changed: StateFlow<Int> get() = _changed.asStateFlow()
     private val _changed = MutableStateFlow(0)
 
+    /**
+     * 지금 열려 있는 소켓. [send]가 이것을 본다 — 재연결하면 새 것으로 바뀐다.
+     *
+     * 루프는 코루틴에서 돌고 [send]는 화면 쪽에서 불리므로 `@Volatile`이다.
+     */
+    @Volatile
+    private var current: WebSocket? = null
+
     private var job: Job? = null
 
     /** 한 번이라도 붙은 적이 있는가 — 다음 `Ready`가 "첫 연결"인지 "재연결"인지 가른다. */
@@ -104,7 +113,29 @@ class SessionSocket(
     fun stop() {
         job?.cancel()
         job = null
+        current = null
         _isReady.value = false
+    }
+
+    /**
+     * 세션 재검증을 청한다(클라 → 서버).
+     *
+     * **presence를 주장하지 않는다.** 그 방향을 열지 않았던 이유는 그대로다 — 살아
+     * 있다는 주장을 믿으면 반쯤 죽은 소켓이 계속 Active로 남는다. 이것은 주장이 아니라
+     * 요청이고, 서버는 이 말을 믿는 대신 세션 저장소를 자기가 다시 읽는다. 그래서 이
+     * 메시지에는 아무 권한도 실려 있지 않다(무엇을 폐기했는지조차 말하지 않는다).
+     *
+     * 왜 필요한가: 폐기는 auth 서비스가 처리하고 socket 서비스는 그 사실을 전달받는
+     * 통로가 없다. 이 한 마디가 없으면 폐기된 기기가 서버의 스윕까지 멀쩡히 앉아 있고,
+     * 다른 기기의 목록도 그만큼 늦게 갱신된다.
+     *
+     * **붙어 있지 않으면 보내지 않는다.** 큐에 쌓지 않는 것은 의도다 — 다시 붙을 때
+     * 서버가 업그레이드에서 세션을 검증하므로, 폐기된 기기는 그 자리에서 걸러진다.
+     */
+    fun send(type: SessionClientMessageType) {
+        if (!_isReady.value) return
+        // 계약의 메시지는 `{ "type": ... }` 하나뿐이라 직렬화기를 세우지 않는다.
+        current?.send("""{"type":"${type.wire}"}""")
     }
 
     private suspend fun runLoop() {
@@ -121,9 +152,11 @@ class SessionSocket(
 
             val events = Channel<Event>(Channel.UNLIMITED)
             val socket = connect(token, events)
+            current = socket
             val outcome = try {
                 pump(events, token)
             } finally {
+                current = null
                 _isReady.value = false
                 // 정상 종료를 알려 두면 서버가 TTL을 기다리지 않고 presence를 지운다.
                 socket.close(NORMAL_CLOSURE, null)
