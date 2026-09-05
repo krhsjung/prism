@@ -28,7 +28,10 @@ interface SelectMenuProps<T extends string> {
   options: readonly SelectOption<T>[];
   onChange(value: T): void;
   // 트리거 앞에 붙는 아이콘. 무엇을 고르는 메뉴인지 한눈에 보이게 한다.
-  icon: ReactNode;
+  //
+  // **없을 수 있다**(시안 `Molecule/Select`의 `Leading icon` 불리언). WebRTC 로비의
+  // 카메라·마이크 선택이 그 경우다 — 바로 위에 이름표가 있어 글리프가 같은 말을 두 번 한다.
+  icon?: ReactNode;
   align?: Align;
 }
 

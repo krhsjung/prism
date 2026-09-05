@@ -1,9 +1,13 @@
 import {
   AUTH_ERROR_CODES,
+  CALL_SERVER_MESSAGE_TYPES,
   SOCKET_PATH,
-  decodeSocketServerMessage,
+  decodeSocketDownstreamMessage,
   parseJsonValue,
+  type CallServerMessage,
+  type SocketDownstreamMessage,
   type SocketServerMessage,
+  type SocketUpstreamMessage,
 } from './contracts.gen';
 import { api } from './api';
 import { log } from './log';
@@ -39,10 +43,25 @@ export interface SessionSocketHandlers {
   onSessionsChanged(): void;
   // 소켓이 붙어 있는가. 화면은 이 값이 true일 때만 isConnected를 믿는다.
   onReadyChange(ready: boolean): void;
+  // 통화 시그널링. **presence와 같은 소켓이지만 계약이 다르다**(contracts.gen.ts) —
+  // 여기로 온 메시지는 `isConnected`를 정하는 데 쓰이지 않는다.
+  onCallMessage(message: CallServerMessage): void;
 }
 
 export interface SessionSocket {
   close(): void;
+  // 클라 → 서버 메시지를 보낸다(통화 시그널링 · 세션 재검증 요청).
+  //
+  // **보내지 못하면 false**다 — 소켓이 끊긴 사이의 `hangup`을 보낸 셈 치면 화면은 끝난
+  // 통화를 그대로 붙들고 있게 된다. 호출부가 알아야 한다.
+  send(message: SocketUpstreamMessage): boolean;
+}
+
+// 내려온 메시지가 통화 쪽인가. 두 계약은 타입 이름이 겹치지 않아 이 하나로 갈린다.
+function isCallMessage(
+  message: SocketDownstreamMessage,
+): message is CallServerMessage {
+  return CALL_SERVER_MESSAGE_TYPES.some((t) => t === message.type);
 }
 
 // 지터를 섞는 이유: 서버가 재시작하면 모든 클라이언트가 같은 순간에 끊긴다.
@@ -182,7 +201,9 @@ export function connectSessionSocket(
     socket.onmessage = (event: MessageEvent<string>) => {
       armSilenceTimer();
       try {
-        handle(decodeSocketServerMessage(parseJsonValue(event.data)));
+        const message = decodeSocketDownstreamMessage(parseJsonValue(event.data));
+        if (isCallMessage(message)) handlers.onCallMessage(message);
+        else handle(message);
       } catch {
         // 계약에 없는 메시지는 무시한다 — 형식이 어긋났다고 연결을 끊을 이유는 없다.
         log.net('socket_undecodable');
@@ -223,6 +244,14 @@ export function connectSessionSocket(
   open();
 
   return {
+    // 열려 있을 때만 나간다. 큐에 쌓아 두지 않는 것은 의도다 — 시그널링 메시지는
+    // 수명이 짧아(offer·ice는 그 통화에서만 뜻이 있다) 재연결 뒤에 밀어 넣으면
+    // 이미 끝난 통화에 대고 말하게 된다. 다시 걸어야 할 일이면 화면이 판단한다.
+    send(message: SocketUpstreamMessage): boolean {
+      if (!ws || ws.readyState !== WebSocket.OPEN) return false;
+      ws.send(JSON.stringify(message));
+      return true;
+    },
     close() {
       stop();
       document.removeEventListener('visibilitychange', wake);

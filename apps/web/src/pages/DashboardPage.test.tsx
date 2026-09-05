@@ -13,6 +13,7 @@ import {
   SessionSocketContext,
   type SessionSocketValue,
 } from "../lib/session-socket-context";
+import type { SocketUpstreamMessage } from "../lib/contracts.gen";
 import { I18nContext } from "../lib/i18n/i18n-context";
 import { englishI18n } from "../lib/i18n/test-i18n";
 import { ThemeContext } from "../lib/theme/theme-context";
@@ -55,11 +56,20 @@ const otherSession: SessionListItem = {
   device: "iphone",
 };
 
+// 소켓 컨텍스트 한 벌. 통화 시그널링(send·subscribeCall)은 이 화면의 관심사가 아니라
+// 계약을 채우기만 한다 — 대시보드는 보내지도 듣지도 않는다.
+const socketValue = (ready: boolean, changed = 0): SessionSocketValue => ({
+  ready,
+  changed,
+  send: () => false,
+  subscribeCall: () => () => {},
+});
+
 function renderDashboard(
   signOut: () => Promise<boolean> = async () => true,
   // 소켓이 붙어 있지 않은 것이 **기본값**이다 — 대부분의 테스트는 배지의 연결 여부에
   // 관심이 없고, 그 경우 화면은 이 기능 이전의 두 갈래로 물러난다.
-  socket: SessionSocketValue = { ready: false, changed: 0 },
+  socket: SessionSocketValue = socketValue(false, 0),
 ): { rerenderSocket: (next: SessionSocketValue) => void } {
   const auth: AuthContextValue = {
     state: { status: "authenticated", user },
@@ -234,6 +244,27 @@ describe("DashboardPage", () => {
     await waitFor(() => expect(screen.queryByText("#sess-oth")).toBeNull());
   });
 
+  // 폐기는 auth 서비스가 처리하고 socket 서비스는 그 사실을 전달받는 통로가 없다 —
+  // 스윕을 기다리면 끊긴 기기가 최대 20초를 멀쩡히 앉아 있는다. 소켓이 이미 붙어
+  // 있으니 우리가 깨워 준다(서버는 믿지 않고 세션 저장소를 다시 읽는다).
+  it("세션을 Revoke하면 소켓으로 재검증을 청한다", async () => {
+    const sent: SocketUpstreamMessage[] = [];
+    renderDashboard(undefined, {
+      ...socketValue(true, 0),
+      send: (message) => {
+        sent.push(message);
+        return true;
+      },
+    });
+    await waitFor(() => expect(screen.getByText("#sess-oth")).toBeDefined());
+
+    fireEvent.click(revokeButtons()[0]!);
+
+    await waitFor(() =>
+      expect(sent).toContainEqual({ type: "sessionsRevoked" }),
+    );
+  });
+
   it("세션을 못 불러오면 오류와 재시도를 보여준다", async () => {
     vi.mocked(api.sessions).mockRejectedValueOnce(new Error("network"));
     renderDashboard();
@@ -291,7 +322,7 @@ describe("DashboardPage", () => {
   it("소켓이 붙어 있으면 연결되지 않은 세션을 Inactive로 보여준다", async () => {
     vi.mocked(api.sessions).mockResolvedValue([currentSession, otherSession]);
 
-    renderDashboard(undefined, { ready: true, changed: 0 });
+    renderDashboard(undefined, socketValue(true, 0));
 
     expect(await screen.findByText("Current")).toBeTruthy();
     expect(screen.getByText("Inactive")).toBeTruthy();
@@ -304,7 +335,7 @@ describe("DashboardPage", () => {
       { ...otherSession, isConnected: true },
     ]);
 
-    renderDashboard(undefined, { ready: true, changed: 0 });
+    renderDashboard(undefined, socketValue(true, 0));
 
     expect(await screen.findByText("Current")).toBeTruthy();
     expect(screen.getByText("Active")).toBeTruthy();
@@ -317,7 +348,7 @@ describe("DashboardPage", () => {
   it("소켓이 붙어 있지 않으면 Inactive를 지어내지 않고 두 갈래로 물러난다", async () => {
     vi.mocked(api.sessions).mockResolvedValue([currentSession, otherSession]);
 
-    renderDashboard(undefined, { ready: false, changed: 0 });
+    renderDashboard(undefined, socketValue(false, 0));
 
     expect(await screen.findByText("Current")).toBeTruthy();
     expect(screen.getByText("Active")).toBeTruthy();
@@ -327,10 +358,7 @@ describe("DashboardPage", () => {
   // 소켓은 목록을 나르지 않는다 — 신호만 주고 목록은 이 화면이 다시 가져온다.
   it("sessionsChanged 신호가 오면 목록을 다시 가져온다", async () => {
     vi.mocked(api.sessions).mockResolvedValue([currentSession, otherSession]);
-    const { rerenderSocket } = renderDashboard(undefined, {
-      ready: true,
-      changed: 0,
-    });
+    const { rerenderSocket } = renderDashboard(undefined, socketValue(true, 0));
     await screen.findByText("Current");
     expect(api.sessions).toHaveBeenCalledTimes(1);
 
@@ -338,7 +366,7 @@ describe("DashboardPage", () => {
       currentSession,
       { ...otherSession, isConnected: true },
     ]);
-    rerenderSocket({ ready: true, changed: 1 });
+    rerenderSocket(socketValue(true, 1));
 
     expect(await screen.findByText("Active")).toBeTruthy();
     expect(api.sessions).toHaveBeenCalledTimes(2);
@@ -348,10 +376,7 @@ describe("DashboardPage", () => {
   // 접혔다 펴지면 목록 전체가 깜빡인다(plan/dashboard.md §4).
   it("신호로 갱신할 때 목록을 비우지 않는다", async () => {
     vi.mocked(api.sessions).mockResolvedValue([currentSession, otherSession]);
-    const { rerenderSocket } = renderDashboard(undefined, {
-      ready: true,
-      changed: 0,
-    });
+    const { rerenderSocket } = renderDashboard(undefined, socketValue(true, 0));
     await screen.findByText("Current");
 
     let resolve: (v: SessionListItem[]) => void = () => undefined;
@@ -360,7 +385,7 @@ describe("DashboardPage", () => {
         resolve = r;
       }),
     );
-    rerenderSocket({ ready: true, changed: 1 });
+    rerenderSocket(socketValue(true, 1));
 
     // 재조회가 도는 동안에도 예전 목록이 그대로 보인다.
     expect(screen.getByText("Current")).toBeTruthy();
@@ -372,7 +397,7 @@ describe("DashboardPage", () => {
     // 이미 지나간 신호 번호를 새 신호로 읽으면, 마운트의 전경 조회 옆에 얻는 것 없는
     // 배경 재조회가 하나 더 붙어 같은 순간의 회전을 두고 경합한다.
     it("이미 지나간 신호 번호로는 다시 가져오지 않는다", async () => {
-      renderDashboard(async () => true, { ready: true, changed: 7 });
+      renderDashboard(async () => true, socketValue(true, 7));
 
       await waitFor(() => expect(vi.mocked(api.sessions)).toHaveBeenCalled());
       expect(vi.mocked(api.sessions)).toHaveBeenCalledTimes(1);
@@ -382,13 +407,10 @@ describe("DashboardPage", () => {
 
     // 반대로 **새** 신호는 배경 재조회를 부른다 — 그게 이 소켓의 존재 이유다.
     it("새 신호가 오면 배경으로 다시 가져온다", async () => {
-      const { rerenderSocket } = renderDashboard(async () => true, {
-        ready: true,
-        changed: 7,
-      });
+      const { rerenderSocket } = renderDashboard(async () => true, socketValue(true, 7));
       await waitFor(() => expect(vi.mocked(api.sessions)).toHaveBeenCalledTimes(1));
 
-      rerenderSocket({ ready: true, changed: 8 });
+      rerenderSocket(socketValue(true, 8));
 
       await waitFor(() => expect(vi.mocked(api.sessions)).toHaveBeenCalledTimes(2));
       expect(vi.mocked(api.sessions)).toHaveBeenLastCalledWith(true);

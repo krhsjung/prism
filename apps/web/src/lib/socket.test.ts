@@ -7,11 +7,16 @@ vi.mock('./api', () => ({
 }));
 import { api } from './api';
 import { connectSessionSocket, type SessionSocket } from './socket';
+import type { CallServerMessage } from './contracts.gen';
 
 // 실제 WebSocket 대신 열고 닫고 메시지를 밀어 넣을 수 있는 가짜.
 class FakeSocket {
   static instances: FakeSocket[] = [];
+  // 실제 WebSocket의 상수. socket.ts가 `WebSocket.OPEN`으로 읽으므로 가짜도 가져야 한다.
+  static readonly OPEN = 1;
   readyState = 0;
+  // 클라 → 서버로 나간 프레임(JSON 문자열).
+  sent: string[] = [];
   onopen: (() => void) | null = null;
   onclose: (() => void) | null = null;
   onerror: (() => void) | null = null;
@@ -28,6 +33,10 @@ class FakeSocket {
   open() {
     this.readyState = 1;
     this.onopen?.();
+  }
+
+  send(data: string) {
+    this.sent.push(data);
   }
 
   emit(message: object) {
@@ -56,6 +65,8 @@ describe('세션 소켓', () => {
   let handle: SessionSocket | null = null;
   let changed: number;
   let ready: boolean[];
+  // 통화 메시지는 presence와 같은 소켓으로 오지만 다른 계약이다 — 갈라져 오는지 본다.
+  let callMessages: CallServerMessage[];
 
   beforeEach(() => {
     vi.useFakeTimers();
@@ -64,6 +75,7 @@ describe('세션 소켓', () => {
     FakeSocket.instances = [];
     changed = 0;
     ready = [];
+    callMessages = [];
     vi.stubGlobal('WebSocket', FakeSocket);
     // 지터가 섞여 있어 재연결 시점이 흔들린다 — 테스트에서는 상한으로 고정한다.
     vi.spyOn(Math, 'random').mockReturnValue(0.5);
@@ -78,6 +90,7 @@ describe('세션 소켓', () => {
         changed++;
       },
       onReadyChange: (next) => ready.push(next),
+      onCallMessage: (message) => callMessages.push(message),
     });
   });
 
@@ -277,6 +290,58 @@ describe('세션 소켓', () => {
 
     expect(ready.at(-1)).toBe(true);
     expect(changed).toBe(1);
+  });
+
+  // ── 통화 시그널링 ──
+  //
+  // 같은 소켓이지만 계약이 다르다. 갈라지지 않으면 presence가 시그널링을 살아 있다는
+  // 증거로 삼게 되고, 그러면 반쯤 죽은 소켓이 계속 Active로 남는다(plan/webrtc.md §5).
+  describe('통화', () => {
+    it('통화 메시지는 presence를 건드리지 않고 통화 쪽으로만 간다', () => {
+      latest().open();
+      latest().emit({ type: 'ready' });
+
+      latest().emit({
+        type: 'incoming',
+        callId: 'call-1',
+        from: { id: 'session-1', device: 'mac' },
+      });
+
+      expect(callMessages).toEqual([
+        {
+          type: 'incoming',
+          callId: 'call-1',
+          from: { id: 'session-1', device: 'mac' },
+        },
+      ]);
+      // 첫 ready는 재조회를 시키지 않고, 통화 메시지도 시키지 않는다.
+      expect(changed).toBe(0);
+    });
+
+    it('계약에 없는 통화 메시지는 버린다', () => {
+      latest().open();
+      latest().emit({ type: 'incoming', callId: 'call-1' }); // from이 없다
+
+      expect(callMessages).toEqual([]);
+    });
+
+    it('붙어 있으면 보낸다', () => {
+      latest().open();
+
+      expect(handle?.send({ type: 'call', to: 'session-1' })).toBe(true);
+      expect(latest().sent).toEqual([
+        JSON.stringify({ type: 'call', to: 'session-1' }),
+      ]);
+    });
+
+    // 큐에 쌓지 않는 것이 중요하다 — 시그널링 메시지는 그 통화에서만 뜻이 있어서,
+    // 재연결 뒤에 밀어 넣으면 이미 끝난 통화에 대고 말하게 된다.
+    it('끊겨 있으면 보내지 않고 false를 돌려준다', () => {
+      latest().open();
+      latest().drop();
+
+      expect(handle?.send({ type: 'hangup', callId: 'call-1' })).toBe(false);
+    });
   });
 
   // 닫은 뒤 도착한 것은 지난 세션의 것이다 — 다음 세션에 흘러들면 안 된다.
