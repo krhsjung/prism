@@ -228,6 +228,25 @@ describe('contract decoders', () => {
       to: 's-2',
     });
     expect(() => decodeCallClientMessage({ type: 'call' })).toThrow(/to/);
+    // 세션 id 하나가 들어올 자리다 — 프레임 상한까지 채운 문자열을 목록과 비교하게
+    // 둘 이유가 없다(릴레이가 나르는 다른 문자열과 같은 규칙).
+    expect(() =>
+      decodeCallClientMessage({ type: 'call', to: 'x'.repeat(129) }),
+    ).toThrow(/to: exceeds/);
+  });
+
+  // 벨을 함께 받았지만 지지 않은 연결에 간다 — `ended`와 달리 **통화가 끝난 것이
+  // 아니라서** 이유도 알림도 싣지 않는다.
+  it('decodeCallServerMessage: claimed는 callId만 나른다', () => {
+    expect(decodeCallServerMessage({ type: 'claimed', callId: 'c-1' })).toEqual(
+      {
+        type: 'claimed',
+        callId: 'c-1',
+      },
+    );
+    expect(() => decodeCallServerMessage({ type: 'claimed' })).toThrow(
+      /callId/,
+    );
   });
 
   it('decodeCallClientMessage: 모르는 type은 접지 않고 거부한다', () => {

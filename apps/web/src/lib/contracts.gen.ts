@@ -330,6 +330,9 @@ export const RING_TIMEOUT_MS = 45_000;
 export const MAX_SDP_LENGTH = 16_384;
 export const MAX_ICE_CANDIDATE_LENGTH = 1_024;
 export const MAX_SDP_MID_LENGTH = 64;
+// 세션 id(uuid)가 들어올 자리의 상한. 넉넉하되 무제한은 아니다 — 프레임 상한까지 채운
+// 문자열을 목록과 비교하게 둘 이유가 없다.
+export const MAX_SESSION_ID_LENGTH = 128;
 
 // 클라이언트가 RTCPeerConnection에 그대로 넘기는 ICE 서버 하나.
 //
@@ -392,6 +395,7 @@ export const CALL_SERVER_MESSAGE_TYPES = [
   'incoming',
   'ringing',
   'accepted',
+  'claimed',
   'declined',
   'offer',
   'answer',
@@ -430,6 +434,13 @@ export type CallServerMessage =
   // 양쪽에 간다. **이것을 받은 거는 쪽이 offer를 낸다** — 역할이 방향에서 나오므로
   // glare가 구조적으로 없다.
   | { type: 'accepted'; callId: string; iceServers: IceServer[] }
+  // 벨을 **함께 받았지만 지지 않은** 연결에 간다 — 다른 탭·기기가 먼저 받았다.
+  //
+  // 이것이 없으면 그 창들이 통화 내내 벨을 붙들고 있다. `accepted`는 이긴 연결에만
+  // 가고(창구가 하나여야 answer가 둘 나가지 않는다), `ended`는 통화가 끝나야 오므로
+  // 그때까지 아무도 그 창을 닫아 주지 않는다. **끝이 아니라 "내 차례가 아니었다"라서
+  // 알림도 남기지 않는다** — 다른 기기에서 받은 전화가 조용히 사라지는 것과 같다.
+  | { type: 'claimed'; callId: string }
   | { type: 'declined'; callId: string }
   | { type: 'offer'; callId: string; sdp: string }
   | { type: 'answer'; callId: string; sdp: string }
@@ -491,7 +502,15 @@ export function decodeCallClientMessage(
   // 모르는 type은 거부한다 — DeviceKind와 달리 이것은 화면 라벨이 아니라 **동작**이다.
   if (!type) throw new Error('CallClientMessage.type: unknown type');
   if (type === 'call') {
-    return { type, to: decodeString(obj.to, 'CallClientMessage.to') };
+    // 세션 id 하나가 들어올 자리다 — 다른 문자열과 같은 규칙으로 길이를 잰다.
+    return {
+      type,
+      to: decodeBoundedString(
+        obj.to,
+        'CallClientMessage.to',
+        MAX_SESSION_ID_LENGTH,
+      ),
+    };
   }
   const callId = decodeString(obj.callId, 'CallClientMessage.callId');
   switch (type) {
