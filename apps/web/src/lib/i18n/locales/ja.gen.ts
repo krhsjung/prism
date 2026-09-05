@@ -39,7 +39,6 @@ export const messages: Messages = {
   'dashboard.log_out': 'ログアウト',
   'dashboard.logging_out': 'ログアウトしています…',
   'dashboard.placeholder_body': 'ログインできました。認証の vertical slice 用の仮ダッシュボードで、デモログインの流れが最後まで動作します。',
-  'dashboard.nav_webrtc': 'WebRTC',
   'dashboard.coming_soon': '準備中',
   'dashboard.navigation': 'ナビゲーション',
   'dashboard.open_menu': 'メニューを開く',
@@ -78,18 +77,26 @@ export const messages: Messages = {
 
   // ── webrtc ──
   // WebRTC 1:1 통화 — 통화 상대는 **내 활성 세션**이다. 방·코드·링크 공유는 없다(plan/webrtc.md §4)
-  // 라우트가 열리면 사이드바도 이 키를 쓴다(dashboard.nav_webrtc는 그때 제거)
   'webrtc.title': 'WebRTC',
   // 로비 — 장치 확인 + 걸 대상 고르기
   'webrtc.lobby_title': '通話を始める',
-  'webrtc.lobby_desc': 'カメラとマイクを確認してから、サインイン中の端末に発信してください。',
+  'webrtc.lobby_desc': 'サインイン中の端末を選んで発信してください。カメラとマイクは通話の開始時にオンになります。',
   'webrtc.camera': 'カメラ',
   'webrtc.microphone': 'マイク',
+  'webrtc.camera_front': '前面カメラ',
+  'webrtc.camera_back': '背面カメラ',
+  'webrtc.camera_other': 'カメラ {name}',
+  'webrtc.camera_simulator': 'シミュレータカメラ',
+  'webrtc.mic_builtin': '内蔵マイク',
+  'webrtc.mic_wired': '有線ヘッドセット',
+  'webrtc.mic_bluetooth': 'Bluetooth ヘッドセット',
+  'webrtc.mic_usb': 'USB マイク',
+  'webrtc.mic_other': 'マイク {name}',
   // 목록은 대시보드와 같은 GET /auth/sessions에서 온다 — 기기 종류 라벨도 dashboard.device_*를 그대로 쓴다
   'webrtc.devices': '自分の端末',
   // 소켓이 붙어 있으면 바로 울리고(isConnected) 아니면 알림으로 깨운다(pushRegistered).
   // 둘 다 없는 세션만 걸 수 없다 — 그 줄에는 버튼 대신 이유를 둔다
-  'webrtc.devices_desc': '接続中の端末はすぐに鳴り、それ以外には通知が届きます。',
+  'webrtc.devices_desc': '接続中の端末はすぐに鳴ります。それ以外にはまだ発信できません。',
   'webrtc.call': '発信',
   // 푸시 경로임을 행이 말한다 — 기다리는 시간이 왜 긴지를 화면이 설명해야 한다
   'webrtc.will_notify': '通知を送ります',
@@ -104,6 +111,8 @@ export const messages: Messages = {
   // 미디어가 서버를 지나지 않는 것이 이 슬라이스의 핵심이라 화면에도 한 줄로 적는다
   'webrtc.p2p_note': '映像と音声は端末どうしで直接やり取りされます。録画も保存もしません。',
   // 거는 쪽 — 상대가 받을 때까지. 취소는 common.cancel을 쓴다
+  // 붙은 뒤 카드 머리의 제목. 상대가 누구인지는 타일의 이름표가 말하므로 여기서 되풀이하지 않는다
+  'webrtc.in_call': '通話中',
   'webrtc.calling': '{device} に発信中…',
   'webrtc.ringing_desc': '相手の端末の応答を待っています。',
   // 벨은 유한하다 — 서버가 45초 뒤 양쪽을 끊는다(plan/webrtc.md §6). 숫자는 이 한 줄에만 둔다
@@ -144,7 +153,15 @@ export const messages: Messages = {
   'webrtc.tile_reconnecting': '再接続しています…',
   'webrtc.tile_camera_off': 'カメラはオフです',
   'webrtc.tile_peer_camera_off': '相手のカメラはオフです',
-  'webrtc.tile_no_video': 'カメラを使用できません',
+  'webrtc.tile_camera_denied': 'カメラ権限なし',
+  'webrtc.tile_camera_missing': 'カメラなし',
+  'webrtc.tile_camera_busy': 'カメラ使用中',
+  'webrtc.tile_camera_blocked': 'カメラを使用できません',
+  // 아직 카메라를 켜지 않은 상태 — 권한을 통화 시작 시점으로 미뤘기 때문이다.
+  // 위 tile_camera_* 넷과 다르다: 이건 실패가 아니라 아직 묻지 않은 것이다.
+  'webrtc.tile_camera_idle': '通話が始まるとカメラがオンになります',
+  // 아직 권한을 준 적이 없어 장치 이름조차 못 읽는 경우 — 미리 켜 보고 싶은 사람을 위한 문
+  'webrtc.preview_start': 'カメラをオンにする',
   // 상대가 끊으면 로비로 돌아간다 — 방이 없으므로 남아서 기다릴 자리도 없다(§4)
   'webrtc.peer_left': '相手の端末が通話を終了しました。',
   // 진단 패널 — 기본은 접혀 있다. 라벨은 Manrope · 값은 모노(JetBrains Mono)로 그린다(§4)
@@ -208,6 +225,8 @@ export const messages: Messages = {
   // WebRTC — 계약의 오류 코드가 아니라 클라이언트가 만드는 문구
   'error.camera_permission_denied': 'カメラとマイクへのアクセスが必要です。ブラウザで許可してからもう一度お試しください。',
   'error.camera_in_use': '別のアプリがカメラを使用しています。終了してからもう一度お試しください。',
+  'error.camera_not_found': 'カメラとマイクが見つかりません。接続するか、カメラのある端末で開いてください。',
+  'error.camera_insecure': '安全な接続でないとブラウザはカメラを利用できません。https（または localhost）で開いてからもう一度お試しください。',
   // 통화 대상은 내 세션이다 — 서버가 소유권을 강제하므로 남의 세션 id를 넣어도 이 오류로 끝난다(§6)
   'error.device_offline': 'その端末はもう接続されていません。別の端末を選んでください。',
   'error.device_busy': 'その端末はすでに通話中です。',

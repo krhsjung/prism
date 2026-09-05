@@ -2,15 +2,22 @@
 <resources>
 
     <!-- WebRTC 1:1 통화 — 통화 상대는 **내 활성 세션**이다. 방·코드·링크 공유는 없다(plan/webrtc.md §4) -->
-
-    <!-- 라우트가 열리면 사이드바도 이 키를 쓴다(dashboard.nav_webrtc는 그때 제거) -->
     <string name="webrtc_title">WebRTC</string>
 
     <!-- 로비 — 장치 확인 + 걸 대상 고르기 -->
     <string name="webrtc_lobby_title">통화 시작하기</string>
-    <string name="webrtc_lobby_desc">카메라와 마이크를 확인한 뒤 로그인된 기기 중 하나로 거세요.</string>
+    <string name="webrtc_lobby_desc">로그인된 기기 중 하나를 골라 거세요. 카메라와 마이크는 통화가 시작될 때 켜집니다.</string>
     <string name="webrtc_camera">카메라</string>
     <string name="webrtc_microphone">마이크</string>
+    <string name="webrtc_camera_front">전면 카메라</string>
+    <string name="webrtc_camera_back">후면 카메라</string>
+    <string name="webrtc_camera_other">카메라 {name}</string>
+    <string name="webrtc_camera_simulator">시뮬레이터 카메라</string>
+    <string name="webrtc_mic_builtin">내장 마이크</string>
+    <string name="webrtc_mic_wired">유선 헤드셋</string>
+    <string name="webrtc_mic_bluetooth">블루투스 헤드셋</string>
+    <string name="webrtc_mic_usb">USB 마이크</string>
+    <string name="webrtc_mic_other">마이크 {name}</string>
 
     <!-- 목록은 대시보드와 같은 GET /auth/sessions에서 온다 — 기기 종류 라벨도 dashboard.device_*를 그대로 쓴다 -->
     <string name="webrtc_devices">내 기기</string>
@@ -18,7 +25,7 @@
     <!-- 소켓이 붙어 있으면 바로 울리고(isConnected) 아니면 알림으로 깨운다(pushRegistered). -->
 
     <!-- 둘 다 없는 세션만 걸 수 없다 — 그 줄에는 버튼 대신 이유를 둔다 -->
-    <string name="webrtc_devices_desc">연결된 기기는 바로 울리고 나머지는 알림을 받습니다.</string>
+    <string name="webrtc_devices_desc">연결된 기기는 바로 울립니다. 나머지는 아직 부를 수 없습니다.</string>
     <string name="webrtc_call">걸기</string>
 
     <!-- 푸시 경로임을 행이 말한다 — 기다리는 시간이 왜 긴지를 화면이 설명해야 한다 -->
@@ -38,6 +45,9 @@
     <string name="webrtc_p2p_note">영상과 음성은 기기 사이로 바로 갑니다. 녹화하거나 저장하지 않습니다.</string>
 
     <!-- 거는 쪽 — 상대가 받을 때까지. 취소는 common.cancel을 쓴다 -->
+
+    <!-- 붙은 뒤 카드 머리의 제목. 상대가 누구인지는 타일의 이름표가 말하므로 여기서 되풀이하지 않는다 -->
+    <string name="webrtc_in_call">통화 중</string>
     <string name="webrtc_calling">{device}에 거는 중…</string>
     <string name="webrtc_ringing_desc">상대 기기가 받기를 기다리는 중입니다.</string>
 
@@ -88,7 +98,18 @@
     <string name="webrtc_tile_reconnecting">다시 연결하는 중…</string>
     <string name="webrtc_tile_camera_off">카메라가 꺼져 있습니다</string>
     <string name="webrtc_tile_peer_camera_off">상대의 카메라가 꺼져 있습니다</string>
-    <string name="webrtc_tile_no_video">카메라를 쓸 수 없습니다</string>
+    <string name="webrtc_tile_camera_denied">카메라 권한 없음</string>
+    <string name="webrtc_tile_camera_missing">카메라 없음</string>
+    <string name="webrtc_tile_camera_busy">카메라 사용 중</string>
+    <string name="webrtc_tile_camera_blocked">카메라를 쓸 수 없습니다</string>
+
+    <!-- 아직 카메라를 켜지 않은 상태 — 권한을 통화 시작 시점으로 미뤘기 때문이다. -->
+
+    <!-- 위 tile_camera_* 넷과 다르다: 이건 실패가 아니라 아직 묻지 않은 것이다. -->
+    <string name="webrtc_tile_camera_idle">통화가 시작되면 카메라가 켜집니다</string>
+
+    <!-- 아직 권한을 준 적이 없어 장치 이름조차 못 읽는 경우 — 미리 켜 보고 싶은 사람을 위한 문 -->
+    <string name="webrtc_preview_start">카메라 켜기</string>
 
     <!-- 상대가 끊으면 로비로 돌아간다 — 방이 없으므로 남아서 기다릴 자리도 없다(§4) -->
     <string name="webrtc_peer_left">상대 기기가 통화를 끊었습니다.</string>

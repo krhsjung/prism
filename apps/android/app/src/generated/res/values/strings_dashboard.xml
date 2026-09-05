@@ -7,7 +7,6 @@
     <string name="dashboard_log_out">Log out</string>
     <string name="dashboard_logging_out">Logging out…</string>
     <string name="dashboard_placeholder_body">You’re in. This is a placeholder dashboard for the authentication vertical slice — the demo login flow works end to end.</string>
-    <string name="dashboard_nav_webrtc">WebRTC</string>
     <string name="dashboard_coming_soon">Coming soon</string>
     <string name="dashboard_navigation">Navigation</string>
     <string name="dashboard_open_menu">Open menu</string>

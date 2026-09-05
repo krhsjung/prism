@@ -7,7 +7,6 @@
     <string name="dashboard_log_out">로그아웃</string>
     <string name="dashboard_logging_out">로그아웃하는 중…</string>
     <string name="dashboard_placeholder_body">로그인됐습니다. 인증 vertical slice를 위한 임시 대시보드로, 데모 로그인 흐름이 처음부터 끝까지 동작합니다.</string>
-    <string name="dashboard_nav_webrtc">WebRTC</string>
     <string name="dashboard_coming_soon">준비 중</string>
     <string name="dashboard_navigation">내비게이션</string>
     <string name="dashboard_open_menu">메뉴 열기</string>

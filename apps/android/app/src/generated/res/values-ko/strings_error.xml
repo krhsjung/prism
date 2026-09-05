@@ -19,6 +19,8 @@
     <!-- WebRTC — 계약의 오류 코드가 아니라 클라이언트가 만드는 문구 -->
     <string name="error_camera_permission_denied">카메라와 마이크 권한이 필요합니다. 브라우저에서 허용한 뒤 다시 시도해 주세요.</string>
     <string name="error_camera_in_use">다른 앱이 카메라를 쓰고 있습니다. 종료한 뒤 다시 시도해 주세요.</string>
+    <string name="error_camera_not_found">카메라와 마이크를 찾지 못했습니다. 연결하거나, 카메라가 있는 기기에서 열어 주세요.</string>
+    <string name="error_camera_insecure">보안 연결이 아니면 브라우저가 카메라를 내주지 않습니다. https(또는 localhost) 주소로 열고 다시 시도해 주세요.</string>
 
     <!-- 통화 대상은 내 세션이다 — 서버가 소유권을 강제하므로 남의 세션 id를 넣어도 이 오류로 끝난다(§6) -->
     <string name="error_device_offline">그 기기는 더 이상 연결되어 있지 않습니다. 다른 기기를 골라 주세요.</string>

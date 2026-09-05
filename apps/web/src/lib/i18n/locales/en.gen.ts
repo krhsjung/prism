@@ -39,7 +39,6 @@ export const messages: Messages = {
   'dashboard.log_out': 'Log out',
   'dashboard.logging_out': 'Logging out…',
   'dashboard.placeholder_body': 'You’re in. This is a placeholder dashboard for the authentication vertical slice — the demo login flow works end to end.',
-  'dashboard.nav_webrtc': 'WebRTC',
   'dashboard.coming_soon': 'Coming soon',
   'dashboard.navigation': 'Navigation',
   'dashboard.open_menu': 'Open menu',
@@ -78,18 +77,26 @@ export const messages: Messages = {
 
   // ── webrtc ──
   // WebRTC 1:1 통화 — 통화 상대는 **내 활성 세션**이다. 방·코드·링크 공유는 없다(plan/webrtc.md §4)
-  // 라우트가 열리면 사이드바도 이 키를 쓴다(dashboard.nav_webrtc는 그때 제거)
   'webrtc.title': 'WebRTC',
   // 로비 — 장치 확인 + 걸 대상 고르기
   'webrtc.lobby_title': 'Start a call',
-  'webrtc.lobby_desc': 'Check your camera and mic, then call one of your signed-in devices.',
+  'webrtc.lobby_desc': 'Pick a signed-in device to call. Your camera and mic turn on when the call starts.',
   'webrtc.camera': 'Camera',
   'webrtc.microphone': 'Microphone',
+  'webrtc.camera_front': 'Front camera',
+  'webrtc.camera_back': 'Back camera',
+  'webrtc.camera_other': 'Camera {name}',
+  'webrtc.camera_simulator': 'Simulator camera',
+  'webrtc.mic_builtin': 'Built-in microphone',
+  'webrtc.mic_wired': 'Wired headset',
+  'webrtc.mic_bluetooth': 'Bluetooth headset',
+  'webrtc.mic_usb': 'USB microphone',
+  'webrtc.mic_other': 'Microphone {name}',
   // 목록은 대시보드와 같은 GET /auth/sessions에서 온다 — 기기 종류 라벨도 dashboard.device_*를 그대로 쓴다
   'webrtc.devices': 'Your devices',
   // 소켓이 붙어 있으면 바로 울리고(isConnected) 아니면 알림으로 깨운다(pushRegistered).
   // 둘 다 없는 세션만 걸 수 없다 — 그 줄에는 버튼 대신 이유를 둔다
-  'webrtc.devices_desc': 'Connected devices ring right away. The rest get a notification.',
+  'webrtc.devices_desc': 'Connected devices ring right away. The rest can\'t be reached yet.',
   'webrtc.call': 'Call',
   // 푸시 경로임을 행이 말한다 — 기다리는 시간이 왜 긴지를 화면이 설명해야 한다
   'webrtc.will_notify': 'Will notify',
@@ -104,6 +111,8 @@ export const messages: Messages = {
   // 미디어가 서버를 지나지 않는 것이 이 슬라이스의 핵심이라 화면에도 한 줄로 적는다
   'webrtc.p2p_note': 'Video and audio go straight between your devices. Nothing is recorded or stored.',
   // 거는 쪽 — 상대가 받을 때까지. 취소는 common.cancel을 쓴다
+  // 붙은 뒤 카드 머리의 제목. 상대가 누구인지는 타일의 이름표가 말하므로 여기서 되풀이하지 않는다
+  'webrtc.in_call': 'In call',
   'webrtc.calling': 'Calling {device}…',
   'webrtc.ringing_desc': 'Waiting for the other device to answer.',
   // 벨은 유한하다 — 서버가 45초 뒤 양쪽을 끊는다(plan/webrtc.md §6). 숫자는 이 한 줄에만 둔다
@@ -144,7 +153,15 @@ export const messages: Messages = {
   'webrtc.tile_reconnecting': 'Reconnecting…',
   'webrtc.tile_camera_off': 'Your camera is off',
   'webrtc.tile_peer_camera_off': 'Their camera is off',
-  'webrtc.tile_no_video': 'No camera access',
+  'webrtc.tile_camera_denied': 'No camera access',
+  'webrtc.tile_camera_missing': 'No camera',
+  'webrtc.tile_camera_busy': 'Camera in use',
+  'webrtc.tile_camera_blocked': 'Camera unavailable',
+  // 아직 카메라를 켜지 않은 상태 — 권한을 통화 시작 시점으로 미뤘기 때문이다.
+  // 위 tile_camera_* 넷과 다르다: 이건 실패가 아니라 아직 묻지 않은 것이다.
+  'webrtc.tile_camera_idle': 'Camera turns on when the call starts',
+  // 아직 권한을 준 적이 없어 장치 이름조차 못 읽는 경우 — 미리 켜 보고 싶은 사람을 위한 문
+  'webrtc.preview_start': 'Turn on camera',
   // 상대가 끊으면 로비로 돌아간다 — 방이 없으므로 남아서 기다릴 자리도 없다(§4)
   'webrtc.peer_left': 'The other device ended the call.',
   // 진단 패널 — 기본은 접혀 있다. 라벨은 Manrope · 값은 모노(JetBrains Mono)로 그린다(§4)
@@ -208,6 +225,8 @@ export const messages: Messages = {
   // WebRTC — 계약의 오류 코드가 아니라 클라이언트가 만드는 문구
   'error.camera_permission_denied': 'Prism needs your camera and microphone. Allow access in your browser, then try again.',
   'error.camera_in_use': 'Another app is using your camera. Close it and try again.',
+  'error.camera_not_found': 'No camera or microphone found. Connect one, or open Prism on a device that has one.',
+  'error.camera_insecure': 'This browser will not share your camera over an insecure connection. Open the site over https (or localhost) and try again.',
   // 통화 대상은 내 세션이다 — 서버가 소유권을 강제하므로 남의 세션 id를 넣어도 이 오류로 끝난다(§6)
   'error.device_offline': 'That device isn’t connected any more. Pick another one.',
   'error.device_busy': 'That device is already on a call.',

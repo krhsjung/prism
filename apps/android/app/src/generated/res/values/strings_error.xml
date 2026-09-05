@@ -19,6 +19,8 @@
     <!-- WebRTC — 계약의 오류 코드가 아니라 클라이언트가 만드는 문구 -->
     <string name="error_camera_permission_denied">Prism needs your camera and microphone. Allow access in your browser, then try again.</string>
     <string name="error_camera_in_use">Another app is using your camera. Close it and try again.</string>
+    <string name="error_camera_not_found">No camera or microphone found. Connect one, or open Prism on a device that has one.</string>
+    <string name="error_camera_insecure">This browser will not share your camera over an insecure connection. Open the site over https (or localhost) and try again.</string>
 
     <!-- 통화 대상은 내 세션이다 — 서버가 소유권을 강제하므로 남의 세션 id를 넣어도 이 오류로 끝난다(§6) -->
     <string name="error_device_offline">That device isn’t connected any more. Pick another one.</string>

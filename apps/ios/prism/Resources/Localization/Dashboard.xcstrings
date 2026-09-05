@@ -116,29 +116,6 @@
         }
       }
     },
-    "dashboard.nav_webrtc": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "WebRTC"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "WebRTC"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "WebRTC"
-          }
-        }
-      }
-    },
     "dashboard.coming_soon": {
       "extractionState": "manual",
       "localizations": {

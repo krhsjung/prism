@@ -26,7 +26,6 @@ dashboard,signed_in_as,Signed in as {name},{name} 님으로 로그인했습니�
 dashboard,log_out,Log out,로그아웃,ログアウト
 dashboard,logging_out,Logging out…,로그아웃하는 중…,ログアウトしています…
 dashboard,placeholder_body,You’re in. This is a placeholder dashboard for the authentication vertical slice — the demo login flow works end to end.,"로그인됐습니다. 인증 vertical slice를 위한 임시 대시보드로, 데모 로그인 흐름이 처음부터 끝까지 동작합니다.",ログインできました。認証の vertical slice 用の仮ダッシュボードで、デモログインの流れが最後まで動作します。
-dashboard,nav_webrtc,WebRTC,WebRTC,WebRTC
 dashboard,coming_soon,Coming soon,준비 중,準備中
 dashboard,navigation,Navigation,내비게이션,ナビゲーション
 dashboard,open_menu,Open menu,메뉴 열기,メニューを開く
@@ -63,18 +62,26 @@ dashboard,a_session,Signed-in session,로그인된 세션,サインイン中の�
 dashboard,revoke,Revoke,해제,解除
 dashboard,only_this_session,You’re only signed in on this device.,이 기기에서만 로그인되어 있습니다.,この端末でのみサインインしています。
 webrtc,# WebRTC 1:1 통화 — 통화 상대는 **내 활성 세션**이다. 방·코드·링크 공유는 없다(plan/webrtc.md §4),,,
-webrtc,# 라우트가 열리면 사이드바도 이 키를 쓴다(dashboard.nav_webrtc는 그때 제거),,,
 webrtc,title,WebRTC,WebRTC,WebRTC
 webrtc,# 로비 — 장치 확인 + 걸 대상 고르기,,,
 webrtc,lobby_title,Start a call,통화 시작하기,通話を始める
-webrtc,lobby_desc,"Check your camera and mic, then call one of your signed-in devices.",카메라와 마이크를 확인한 뒤 로그인된 기기 중 하나로 거세요.,カメラとマイクを確認してから、サインイン中の端末に発信してください。
+webrtc,lobby_desc,"Pick a signed-in device to call. Your camera and mic turn on when the call starts.",로그인된 기기 중 하나를 골라 거세요. 카메라와 마이크는 통화가 시작될 때 켜집니다.,サインイン中の端末を選んで発信してください。カメラとマイクは通話の開始時にオンになります。
 webrtc,camera,Camera,카메라,カメラ
 webrtc,microphone,Microphone,마이크,マイク
+webrtc,camera_front,Front camera,전면 카메라,前面カメラ
+webrtc,camera_back,Back camera,후면 카메라,背面カメラ
+webrtc,camera_other,Camera {name},카메라 {name},カメラ {name}
+webrtc,camera_simulator,Simulator camera,시뮬레이터 카메라,シミュレータカメラ
+webrtc,mic_builtin,Built-in microphone,내장 마이크,内蔵マイク
+webrtc,mic_wired,Wired headset,유선 헤드셋,有線ヘッドセット
+webrtc,mic_bluetooth,Bluetooth headset,블루투스 헤드셋,Bluetooth ヘッドセット
+webrtc,mic_usb,USB microphone,USB 마이크,USB マイク
+webrtc,mic_other,Microphone {name},마이크 {name},マイク {name}
 webrtc,# 목록은 대시보드와 같은 GET /auth/sessions에서 온다 — 기기 종류 라벨도 dashboard.device_*를 그대로 쓴다,,,
 webrtc,devices,Your devices,내 기기,自分の端末
 webrtc,# 소켓이 붙어 있으면 바로 울리고(isConnected) 아니면 알림으로 깨운다(pushRegistered).,,,
 webrtc,# 둘 다 없는 세션만 걸 수 없다 — 그 줄에는 버튼 대신 이유를 둔다,,,
-webrtc,devices_desc,Connected devices ring right away. The rest get a notification.,연결된 기기는 바로 울리고 나머지는 알림을 받습니다.,接続中の端末はすぐに鳴り、それ以外には通知が届きます。
+webrtc,devices_desc,Connected devices ring right away. The rest can't be reached yet.,연결된 기기는 바로 울립니다. 나머지는 아직 부를 수 없습니다.,接続中の端末はすぐに鳴ります。それ以外にはまだ発信できません。
 webrtc,call,Call,걸기,発信
 webrtc,# 푸시 경로임을 행이 말한다 — 기다리는 시간이 왜 긴지를 화면이 설명해야 한다,,,
 webrtc,will_notify,Will notify,알림을 보냅니다,通知を送ります
@@ -89,6 +96,8 @@ webrtc,loopback_note,Loopback stays in this tab — nothing goes through the sig
 webrtc,# 미디어가 서버를 지나지 않는 것이 이 슬라이스의 핵심이라 화면에도 한 줄로 적는다,,,
 webrtc,p2p_note,Video and audio go straight between your devices. Nothing is recorded or stored.,영상과 음성은 기기 사이로 바로 갑니다. 녹화하거나 저장하지 않습니다.,映像と音声は端末どうしで直接やり取りされます。録画も保存もしません。
 webrtc,# 거는 쪽 — 상대가 받을 때까지. 취소는 common.cancel을 쓴다,,,
+webrtc,# 붙은 뒤 카드 머리의 제목. 상대가 누구인지는 타일의 이름표가 말하므로 여기서 되풀이하지 않는다,,,
+webrtc,in_call,In call,통화 중,通話中
 webrtc,calling,Calling {device}…,{device}에 거는 중…,{device} に発信中…
 webrtc,ringing_desc,Waiting for the other device to answer.,상대 기기가 받기를 기다리는 중입니다.,相手の端末の応答を待っています。
 webrtc,# 벨은 유한하다 — 서버가 45초 뒤 양쪽을 끊는다(plan/webrtc.md §6). 숫자는 이 한 줄에만 둔다,,,
@@ -129,7 +138,15 @@ webrtc,tile_connecting,Connecting…,연결하는 중…,接続しています�
 webrtc,tile_reconnecting,Reconnecting…,다시 연결하는 중…,再接続しています…
 webrtc,tile_camera_off,Your camera is off,카메라가 꺼져 있습니다,カメラはオフです
 webrtc,tile_peer_camera_off,Their camera is off,상대의 카메라가 꺼져 있습니다,相手のカメラはオフです
-webrtc,tile_no_video,No camera access,카메라를 쓸 수 없습니다,カメラを使用できません
+webrtc,tile_camera_denied,No camera access,카메라 권한 없음,カメラ権限なし
+webrtc,tile_camera_missing,No camera,카메라 없음,カメラなし
+webrtc,tile_camera_busy,Camera in use,카메라 사용 중,カメラ使用中
+webrtc,tile_camera_blocked,Camera unavailable,카메라를 쓸 수 없습니다,カメラを使用できません
+webrtc,# 아직 카메라를 켜지 않은 상태 — 권한을 통화 시작 시점으로 미뤘기 때문이다.,,,
+webrtc,# 위 tile_camera_* 넷과 다르다: 이건 실패가 아니라 아직 묻지 않은 것이다.,,,
+webrtc,tile_camera_idle,Camera turns on when the call starts,통화가 시작되면 카메라가 켜집니다,通話が始まるとカメラがオンになります
+webrtc,# 아직 권한을 준 적이 없어 장치 이름조차 못 읽는 경우 — 미리 켜 보고 싶은 사람을 위한 문,,,
+webrtc,preview_start,Turn on camera,카메라 켜기,カメラをオンにする
 webrtc,# 상대가 끊으면 로비로 돌아간다 — 방이 없으므로 남아서 기다릴 자리도 없다(§4),,,
 webrtc,peer_left,The other device ended the call.,상대 기기가 통화를 끊었습니다.,相手の端末が通話を終了しました。
 webrtc,# 진단 패널 — 기본은 접혀 있다. 라벨은 Manrope · 값은 모노(JetBrains Mono)로 그린다(§4),,,
@@ -191,6 +208,8 @@ error,session_ended,Your session has ended. Please sign in again.,세션이 종�
 error,# WebRTC — 계약의 오류 코드가 아니라 클라이언트가 만드는 문구,,,
 error,camera_permission_denied,"Prism needs your camera and microphone. Allow access in your browser, then try again.",카메라와 마이크 권한이 필요합니다. 브라우저에서 허용한 뒤 다시 시도해 주세요.,カメラとマイクへのアクセスが必要です。ブラウザで許可してからもう一度お試しください。
 error,camera_in_use,Another app is using your camera. Close it and try again.,다른 앱이 카메라를 쓰고 있습니다. 종료한 뒤 다시 시도해 주세요.,別のアプリがカメラを使用しています。終了してからもう一度お試しください。
+error,camera_not_found,"No camera or microphone found. Connect one, or open Prism on a device that has one.","카메라와 마이크를 찾지 못했습니다. 연결하거나, 카메라가 있는 기기에서 열어 주세요.","カメラとマイクが見つかりません。接続するか、カメラのある端末で開いてください。"
+error,camera_insecure,"This browser will not share your camera over an insecure connection. Open the site over https (or localhost) and try again.","보안 연결이 아니면 브라우저가 카메라를 내주지 않습니다. https(또는 localhost) 주소로 열고 다시 시도해 주세요.","安全な接続でないとブラウザはカメラを利用できません。https（または localhost）で開いてからもう一度お試しください。"
 error,# 통화 대상은 내 세션이다 — 서버가 소유권을 강제하므로 남의 세션 id를 넣어도 이 오류로 끝난다(§6),,,
 error,device_offline,That device isn’t connected any more. Pick another one.,그 기기는 더 이상 연결되어 있지 않습니다. 다른 기기를 골라 주세요.,その端末はもう接続されていません。別の端末を選んでください。
 error,device_busy,That device is already on a call.,그 기기는 이미 통화 중입니다.,その端末はすでに通話中です。

@@ -254,6 +254,52 @@
         }
       }
     },
+    "error.camera_not_found": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No camera or microphone found. Connect one, or open Prism on a device that has one."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "카메라와 마이크를 찾지 못했습니다. 연결하거나, 카메라가 있는 기기에서 열어 주세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カメラとマイクが見つかりません。接続するか、カメラのある端末で開いてください。"
+          }
+        }
+      }
+    },
+    "error.camera_insecure": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This browser will not share your camera over an insecure connection. Open the site over https (or localhost) and try again."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "보안 연결이 아니면 브라우저가 카메라를 내주지 않습니다. https(또는 localhost) 주소로 열고 다시 시도해 주세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安全な接続でないとブラウザはカメラを利用できません。https（または localhost）で開いてからもう一度お試しください。"
+          }
+        }
+      }
+    },
     "error.device_offline": {
       "extractionState": "manual",
       "localizations": {

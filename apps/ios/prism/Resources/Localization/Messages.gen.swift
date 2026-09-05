@@ -49,7 +49,6 @@ enum MessageKey: String, CaseIterable, Sendable {
     case dashboardLogOut = "dashboard.log_out"
     case dashboardLoggingOut = "dashboard.logging_out"
     case dashboardPlaceholderBody = "dashboard.placeholder_body"
-    case dashboardNavWebrtc = "dashboard.nav_webrtc"
     case dashboardComingSoon = "dashboard.coming_soon"
     case dashboardNavigation = "dashboard.navigation"
     case dashboardOpenMenu = "dashboard.open_menu"
@@ -86,6 +85,15 @@ enum MessageKey: String, CaseIterable, Sendable {
     case webrtcLobbyDesc = "webrtc.lobby_desc"
     case webrtcCamera = "webrtc.camera"
     case webrtcMicrophone = "webrtc.microphone"
+    case webrtcCameraFront = "webrtc.camera_front"
+    case webrtcCameraBack = "webrtc.camera_back"
+    case webrtcCameraOther = "webrtc.camera_other"
+    case webrtcCameraSimulator = "webrtc.camera_simulator"
+    case webrtcMicBuiltin = "webrtc.mic_builtin"
+    case webrtcMicWired = "webrtc.mic_wired"
+    case webrtcMicBluetooth = "webrtc.mic_bluetooth"
+    case webrtcMicUsb = "webrtc.mic_usb"
+    case webrtcMicOther = "webrtc.mic_other"
     case webrtcDevices = "webrtc.devices"
     case webrtcDevicesDesc = "webrtc.devices_desc"
     case webrtcCall = "webrtc.call"
@@ -97,6 +105,7 @@ enum MessageKey: String, CaseIterable, Sendable {
     case webrtcTest = "webrtc.test"
     case webrtcLoopbackNote = "webrtc.loopback_note"
     case webrtcP2pNote = "webrtc.p2p_note"
+    case webrtcInCall = "webrtc.in_call"
     case webrtcCalling = "webrtc.calling"
     case webrtcRingingDesc = "webrtc.ringing_desc"
     case webrtcRingTimeoutNote = "webrtc.ring_timeout_note"
@@ -127,7 +136,12 @@ enum MessageKey: String, CaseIterable, Sendable {
     case webrtcTileReconnecting = "webrtc.tile_reconnecting"
     case webrtcTileCameraOff = "webrtc.tile_camera_off"
     case webrtcTilePeerCameraOff = "webrtc.tile_peer_camera_off"
-    case webrtcTileNoVideo = "webrtc.tile_no_video"
+    case webrtcTileCameraDenied = "webrtc.tile_camera_denied"
+    case webrtcTileCameraMissing = "webrtc.tile_camera_missing"
+    case webrtcTileCameraBusy = "webrtc.tile_camera_busy"
+    case webrtcTileCameraBlocked = "webrtc.tile_camera_blocked"
+    case webrtcTileCameraIdle = "webrtc.tile_camera_idle"
+    case webrtcPreviewStart = "webrtc.preview_start"
     case webrtcPeerLeft = "webrtc.peer_left"
     case webrtcDiagnostics = "webrtc.diagnostics"
     case webrtcDiagShow = "webrtc.diag_show"
@@ -176,6 +190,8 @@ enum MessageKey: String, CaseIterable, Sendable {
     case errorSessionEnded = "error.session_ended"
     case errorCameraPermissionDenied = "error.camera_permission_denied"
     case errorCameraInUse = "error.camera_in_use"
+    case errorCameraNotFound = "error.camera_not_found"
+    case errorCameraInsecure = "error.camera_insecure"
     case errorDeviceOffline = "error.device_offline"
     case errorDeviceBusy = "error.device_busy"
     case errorNoAnswer = "error.no_answer"
@@ -211,7 +227,6 @@ enum MessageKey: String, CaseIterable, Sendable {
              .dashboardLogOut,
              .dashboardLoggingOut,
              .dashboardPlaceholderBody,
-             .dashboardNavWebrtc,
              .dashboardComingSoon,
              .dashboardNavigation,
              .dashboardOpenMenu,
@@ -248,6 +263,15 @@ enum MessageKey: String, CaseIterable, Sendable {
              .webrtcLobbyDesc,
              .webrtcCamera,
              .webrtcMicrophone,
+             .webrtcCameraFront,
+             .webrtcCameraBack,
+             .webrtcCameraOther,
+             .webrtcCameraSimulator,
+             .webrtcMicBuiltin,
+             .webrtcMicWired,
+             .webrtcMicBluetooth,
+             .webrtcMicUsb,
+             .webrtcMicOther,
              .webrtcDevices,
              .webrtcDevicesDesc,
              .webrtcCall,
@@ -259,6 +283,7 @@ enum MessageKey: String, CaseIterable, Sendable {
              .webrtcTest,
              .webrtcLoopbackNote,
              .webrtcP2pNote,
+             .webrtcInCall,
              .webrtcCalling,
              .webrtcRingingDesc,
              .webrtcRingTimeoutNote,
@@ -289,7 +314,12 @@ enum MessageKey: String, CaseIterable, Sendable {
              .webrtcTileReconnecting,
              .webrtcTileCameraOff,
              .webrtcTilePeerCameraOff,
-             .webrtcTileNoVideo,
+             .webrtcTileCameraDenied,
+             .webrtcTileCameraMissing,
+             .webrtcTileCameraBusy,
+             .webrtcTileCameraBlocked,
+             .webrtcTileCameraIdle,
+             .webrtcPreviewStart,
              .webrtcPeerLeft,
              .webrtcDiagnostics,
              .webrtcDiagShow,
@@ -338,6 +368,8 @@ enum MessageKey: String, CaseIterable, Sendable {
              .errorSessionEnded,
              .errorCameraPermissionDenied,
              .errorCameraInUse,
+             .errorCameraNotFound,
+             .errorCameraInsecure,
              .errorDeviceOffline,
              .errorDeviceBusy,
              .errorNoAnswer,

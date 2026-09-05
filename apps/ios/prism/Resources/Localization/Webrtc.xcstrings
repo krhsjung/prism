@@ -53,19 +53,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Check your camera and mic, then call one of your signed-in devices."
+            "value": "Pick a signed-in device to call. Your camera and mic turn on when the call starts."
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "카메라와 마이크를 확인한 뒤 로그인된 기기 중 하나로 거세요."
+            "value": "로그인된 기기 중 하나를 골라 거세요. 카메라와 마이크는 통화가 시작될 때 켜집니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "カメラとマイクを確認してから、サインイン中の端末に発信してください。"
+            "value": "サインイン中の端末を選んで発信してください。カメラとマイクは通話の開始時にオンになります。"
           }
         }
       }
@@ -116,6 +116,213 @@
         }
       }
     },
+    "webrtc.camera_front": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Front camera"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전면 카메라"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "前面カメラ"
+          }
+        }
+      }
+    },
+    "webrtc.camera_back": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Back camera"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "후면 카메라"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "背面カメラ"
+          }
+        }
+      }
+    },
+    "webrtc.camera_other": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Camera {name}"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "카메라 {name}"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カメラ {name}"
+          }
+        }
+      }
+    },
+    "webrtc.camera_simulator": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulator camera"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시뮬레이터 카메라"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "シミュレータカメラ"
+          }
+        }
+      }
+    },
+    "webrtc.mic_builtin": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Built-in microphone"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "내장 마이크"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "内蔵マイク"
+          }
+        }
+      }
+    },
+    "webrtc.mic_wired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wired headset"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "유선 헤드셋"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有線ヘッドセット"
+          }
+        }
+      }
+    },
+    "webrtc.mic_bluetooth": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bluetooth headset"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "블루투스 헤드셋"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bluetooth ヘッドセット"
+          }
+        }
+      }
+    },
+    "webrtc.mic_usb": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "USB microphone"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "USB 마이크"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "USB マイク"
+          }
+        }
+      }
+    },
+    "webrtc.mic_other": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Microphone {name}"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "마이크 {name}"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マイク {name}"
+          }
+        }
+      }
+    },
     "webrtc.devices": {
       "extractionState": "manual",
       "localizations": {
@@ -145,19 +352,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Connected devices ring right away. The rest get a notification."
+            "value": "Connected devices ring right away. The rest can't be reached yet."
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "연결된 기기는 바로 울리고 나머지는 알림을 받습니다."
+            "value": "연결된 기기는 바로 울립니다. 나머지는 아직 부를 수 없습니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "接続中の端末はすぐに鳴り、それ以外には通知が届きます。"
+            "value": "接続中の端末はすぐに鳴ります。それ以外にはまだ発信できません。"
           }
         }
       }
@@ -365,6 +572,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "映像と音声は端末どうしで直接やり取りされます。録画も保存もしません。"
+          }
+        }
+      }
+    },
+    "webrtc.in_call": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In call"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "통화 중"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通話中"
           }
         }
       }
@@ -1059,13 +1289,82 @@
         }
       }
     },
-    "webrtc.tile_no_video": {
+    "webrtc.tile_camera_denied": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "No camera access"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "카메라 권한 없음"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カメラ権限なし"
+          }
+        }
+      }
+    },
+    "webrtc.tile_camera_missing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No camera"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "카메라 없음"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カメラなし"
+          }
+        }
+      }
+    },
+    "webrtc.tile_camera_busy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Camera in use"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "카메라 사용 중"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カメラ使用中"
+          }
+        }
+      }
+    },
+    "webrtc.tile_camera_blocked": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Camera unavailable"
           }
         },
         "ko": {
@@ -1078,6 +1377,52 @@
           "stringUnit": {
             "state": "translated",
             "value": "カメラを使用できません"
+          }
+        }
+      }
+    },
+    "webrtc.tile_camera_idle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Camera turns on when the call starts"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "통화가 시작되면 카메라가 켜집니다"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通話が始まるとカメラがオンになります"
+          }
+        }
+      }
+    },
+    "webrtc.preview_start": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turn on camera"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "카메라 켜기"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カメラをオンにする"
           }
         }
       }
