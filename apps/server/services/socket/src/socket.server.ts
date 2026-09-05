@@ -26,6 +26,42 @@ const CLOSE_POLICY_VIOLATION = 1008;
 // 시그널링을 임의 크기 릴레이로 쓰지 못하게 하는 첫 번째 문이다(plan/webrtc.md §7).
 const MAX_FRAME_BYTES = 4 * MAX_SDP_LENGTH;
 
+// 두 번째 문: **수(數)의 상한**이다. 크기를 막아도 개수를 막지 않으면 한 연결이
+// 시그널링을 무한 반복해 파드의 CPU와 Redis 왕복을 가져갈 수 있다.
+//
+// 창 하나(10초) 안의 프레임 수. ICE 후보는 몰려서 오므로(회선·인터페이스마다 여러 개,
+// 재협상마다 다시) 넉넉히 잡는다 — 정상 통화가 걸리면 안 되는 값이다.
+const RATE_WINDOW_MS = 10_000;
+const MAX_FRAMES_PER_WINDOW = 120;
+// 같은 창 안에서 **저장소를 건드리는** 메시지(`call`·`sessionsRevoked`)의 상한.
+// 이 둘만 Redis 왕복을 부르므로 훨씬 촘촘하게 잡는다 — 사람이 걸고 끊는 속도의 몇 배다.
+const MAX_STORE_FRAMES_PER_WINDOW = 10;
+const STORE_BACKED_TYPES: SocketUpstreamMessage['type'][] = [
+  'call',
+  'sessionsRevoked',
+];
+
+// 창 하나를 세는 계수기. 넘으면 **그 프레임만 버리고 연결은 살려 둔다** — 계약에
+// 없는 메시지를 다루는 규칙과 같다(형식이 어긋났다고, 빠르다고 끊을 이유는 없다).
+function rateLimiter(): (message: SocketUpstreamMessage) => boolean {
+  let windowStartedAt = 0;
+  let frames = 0;
+  let storeFrames = 0;
+  return (message) => {
+    const now = Date.now();
+    if (now - windowStartedAt >= RATE_WINDOW_MS) {
+      windowStartedAt = now;
+      frames = 0;
+      storeFrames = 0;
+    }
+    frames += 1;
+    if (frames > MAX_FRAMES_PER_WINDOW) return false;
+    if (!STORE_BACKED_TYPES.includes(message.type)) return true;
+    storeFrames += 1;
+    return storeFrames <= MAX_STORE_FRAMES_PER_WINDOW;
+  };
+}
+
 // `ws`가 넘겨주는 프레임을 문자열로. 조각난 텍스트 프레임은 Buffer 배열로 온다.
 const textOf = (data: RawData): string => {
   if (Buffer.isBuffer(data)) return data.toString('utf8');
@@ -118,9 +154,11 @@ export class PrismSocketServer {
       // 인증 사이에 클라이언트가 떠났을 수 있다 — presence에 등록하고 나서 알면 늦다.
       if (ws.readyState !== WebSocket.OPEN) return;
 
+      // 계수기는 **연결마다** 하나다 — 클로저에 두면 소켓과 함께 사라져 정리할 것이 없다.
+      const allow = rateLimiter();
       ws.on('message', (data: RawData, isBinary: boolean) => {
         // 계약은 JSON 텍스트뿐이다 — 바이너리 프레임은 우리 것이 아니다.
-        if (!isBinary) void this.dispatch(connection, textOf(data));
+        if (!isBinary) void this.dispatch(connection, textOf(data), allow);
       });
       ws.on('close', () => this.disconnect(connection));
       ws.on('error', () => this.disconnect(connection));
@@ -140,6 +178,7 @@ export class PrismSocketServer {
   private async dispatch(
     connection: SocketConnection,
     text: string,
+    allow: (message: SocketUpstreamMessage) => boolean,
   ): Promise<void> {
     let message: SocketUpstreamMessage;
     try {
@@ -148,6 +187,10 @@ export class PrismSocketServer {
       // 계약에 없는 메시지는 **버리되 연결은 끊지 않는다** — 클라이언트가 우리
       // 메시지를 다루는 규칙과 같다(형식이 어긋났다고 끊을 이유는 없다).
       this.logger.debug(`ignored client message: ${String(error)}`);
+      return;
+    }
+    if (!allow(message)) {
+      this.logger.debug(`rate limited client message: ${message.type}`);
       return;
     }
     try {
@@ -166,6 +209,13 @@ export class PrismSocketServer {
       this.logger.warn(
         `call message failed (${message.type}): ${String(error)}`,
       );
+      // **`call`은 답을 받아야 하는 메시지다.** 조용히 삼키면 클라이언트는 이미
+      // `벨 울리는 중`을 그린 채 서버에는 통화도 타이머도 없는 상태로 영영 기다린다.
+      // 코드는 `unreachable` — 지금 그 기기에 닿지 못한 것이 사실이고, 세션이 있는지
+      // 없는지를 새로 알려 주지 않는다(unknown-session과 가르지 않는 이유와 같다).
+      if (message.type === 'call') {
+        connection.send({ type: 'callError', code: 'unreachable' });
+      }
     }
   }
 

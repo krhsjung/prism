@@ -107,7 +107,7 @@ describe('세션 소켓 경계', () => {
             isProduction: false,
             cookiePolicy: { isProduction: false, namespace: '' },
             isAllowedOrigin: (origin: string) => origin === ALLOWED,
-            iceServers: [{ urls: ['stun:stun.example:3478'] }],
+            iceServersFor: () => [{ urls: ['stun:stun.example:3478'] }],
           } as object as PrismConfigService,
         },
       ],
@@ -268,11 +268,33 @@ describe('세션 소켓 경계', () => {
     ws.send(JSON.stringify({ type: 'join', room: 'x' }));
     ws.send(JSON.stringify({ type: 'call', to: 's-2' }));
 
-    // s-2는 소켓이 없다 — 푸시 경로는 아직 붙지 않았다(plan/webrtc.md §8-11).
+    // s-2는 소켓이 없다 — 푸시 경로는 아직 붙지 않았다(plan/push.md).
     expect(await waitFor(ws, 'callError')).toEqual({
       type: 'callError',
       code: 'unreachable',
     });
+    ws.close();
+  });
+
+  // 프레임 **크기**만 막고 **개수**를 두지 않으면, 한 연결이 시그널링을 무한 반복해
+  // 파드의 CPU와 Redis 왕복을 가져간다. `call`은 세션 목록 조회를 부르는 쪽이라 촘촘한
+  // 상한을 따로 둔다 — 넘친 프레임은 **버리되 연결은 살려 둔다**.
+  it('저장소를 건드리는 메시지는 창 안에서 개수가 막힌다', async () => {
+    const ws = await open('s-1');
+    const errors: SocketDownstreamMessage[] = [];
+    ws.on('message', (data: Buffer) => {
+      const message = decodeSocketDownstreamMessage(
+        parseJsonValue(data.toString()),
+      );
+      if (message.type === 'callError') errors.push(message);
+    });
+
+    for (let at = 0; at < 15; at += 1) {
+      ws.send(JSON.stringify({ type: 'call', to: 's-2' }));
+    }
+    await new Promise((resolve) => setTimeout(resolve, 300));
+
+    expect(errors).toHaveLength(10);
     ws.close();
   });
 

@@ -271,8 +271,8 @@ describe('SessionPresenceGateway', () => {
       await gateway.open(revoker);
       await gateway.open(revoked);
       // 폐기된 것은 s-2뿐이다.
-      sessions.findValid.mockImplementation(async (sessionId: string) =>
-        sessionId === 's-2' ? null : user,
+      sessions.findValid.mockImplementation((sessionId: string) =>
+        Promise.resolve(sessionId === 's-2' ? null : user),
       );
 
       await gateway.resync(revoker);
@@ -295,8 +295,8 @@ describe('SessionPresenceGateway', () => {
       await gateway.open(revoked);
       revoker.sent = [];
       other.sent = [];
-      sessions.findValid.mockImplementation(async (sessionId: string) =>
-        sessionId === 's-3' ? null : user,
+      sessions.findValid.mockImplementation((sessionId: string) =>
+        Promise.resolve(sessionId === 's-3' ? null : user),
       );
 
       await gateway.resync(revoker);

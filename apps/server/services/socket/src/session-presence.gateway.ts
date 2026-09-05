@@ -49,6 +49,18 @@ export class SessionPresenceGateway implements OnModuleDestroy {
       connection.sessionId,
       connection.id,
     );
+    // Redis를 다녀오는 사이에 소켓이 닫혔을 수 있다. **그 순서라면 `close`가 먼저
+    // 지우고 우리가 다시 쓴다** — 아무도 붙어 있지 않은 세션이 다음 스윕까지 Active로
+    // 남는다(`close`는 registry에 없는 연결을 이미 처리된 것으로 보고 그냥 돌아간다).
+    // 스윕이 같은 확인을 하는 것과 같은 이유이고, CallGateway.start의 확인과도 같다.
+    if (!this.registry.has(connection)) {
+      await this.presence.remove(
+        connection.userId,
+        connection.sessionId,
+        connection.id,
+      );
+      return;
+    }
     // ready는 "이제 isConnected를 믿어도 된다"는 신호**일 뿐**이다 — 목록을 가져오라는
     // 신호가 아니다.
     //

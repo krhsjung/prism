@@ -89,7 +89,7 @@ describe('CallGateway', () => {
     gateway = new CallGateway(
       registry,
       sessions as object as SessionsRepository,
-      { iceServers: ICE_SERVERS } as object as PrismConfigService,
+      { iceServersFor: () => ICE_SERVERS } as object as PrismConfigService,
     );
     mac = connect('c-mac', 's-mac');
     phone = connect('c-phone', 's-phone');
@@ -286,6 +286,90 @@ describe('CallGateway', () => {
       { type: 'ice', callId, candidate },
     ]);
     expect(mac.last()).toEqual({ type: 'answer', callId, sdp: 'v=0 answer' });
+  });
+
+  // 벨은 세션의 모든 연결에 울리지만 받는 것은 하나다 — **나머지 창을 닫아 주지
+  // 않으면** 통화 내내 벨이 남는다(`accepted`는 창구에만 가고 `ended`는 통화가 끝나야 온다).
+  it('다른 탭이 받으면 지지 않은 연결은 claimed로 벨을 닫는다', async () => {
+    const secondTab = connect('c-phone-2', 's-phone');
+    const callId = await ring();
+    secondTab.sent = [];
+
+    await send(phone, { type: 'accept', callId });
+
+    expect(secondTab.sent).toEqual([{ type: 'claimed', callId }]);
+  });
+
+  it('받은 연결에는 claimed가 가지 않는다 — 그쪽은 accepted를 받는다', async () => {
+    connect('c-phone-2', 's-phone');
+    const callId = await ring();
+    phone.sent = [];
+
+    await send(phone, { type: 'accept', callId });
+
+    expect(phone.types()).toEqual(['accepted']);
+  });
+
+  // ⚠️ 소켓 메시지는 연결마다 직렬화되지 않는다 — `call` 처리가 세션 목록 조회(await)를
+  // 지나므로, 두 프레임이 그 사이를 함께 통과하면 통화가 둘 생긴다. 그러면 받는 쪽 벨이
+  // 두 번 울리고, 먼저 만든 통화가 45초 뒤 유령 `ended`를 뿌린다.
+  it('call 두 개가 동시에 들어와도 통화는 하나만 선다', async () => {
+    await Promise.all([
+      send(mac, { type: 'call', to: 's-phone' }),
+      send(mac, { type: 'call', to: 's-phone' }),
+    ]);
+
+    expect(phone.types()).toEqual(['incoming']);
+    expect(mac.types().filter((t) => t === 'ringing')).toHaveLength(1);
+    expect(mac.types()).toContain('callError');
+  });
+
+  // 자리를 미리 잡으므로, 통화가 서지 못한 갈래는 반드시 자리를 되돌려야 한다 —
+  // 아니면 존재하지 않는 통화 때문에 두 세션이 영영 busy가 된다.
+  it('걸지 못한 뒤에는 곧바로 다시 걸 수 있다', async () => {
+    const idle = connect('c-idle', 's-idle');
+    await send(idle, { type: 'call', to: 's-nope' });
+    expect(idle.last()).toEqual({
+      type: 'callError',
+      code: 'unknown-session',
+    });
+
+    idle.sent = [];
+    await send(idle, { type: 'call', to: 's-phone' });
+
+    expect(idle.last()).toMatchObject({ type: 'ringing' });
+  });
+
+  // 조회하는 사이에 거는 쪽이 사라졌다(화면 이탈·백그라운드·로그아웃). 그 시점의
+  // 통화는 아직 `calls`에 없어서 `close`가 잡지 못하므로, 여기서 보지 않으면 죽은
+  // 창구를 든 통화가 상대 벨을 45초 동안 울린다.
+  it('조회 중 거는 쪽이 끊기면 벨을 울리지 않는다', async () => {
+    let release = () => {};
+    sessions.listForUser.mockReturnValueOnce(
+      new Promise((resolve) => {
+        release = () => resolve(owned);
+      }),
+    );
+    const started = send(mac, { type: 'call', to: 's-phone' });
+    registry.remove(mac);
+    release();
+    await started;
+
+    expect(phone.sent).toEqual([]);
+    expect(mac.sent).toEqual([]);
+    // 자리도 함께 풀린다 — 다른 기기가 곧바로 걸 수 있다.
+    const idle = connect('c-idle', 's-idle');
+    await send(idle, { type: 'call', to: 's-phone' });
+    expect(idle.last()).toMatchObject({ type: 'ringing' });
+  });
+
+  it('세션 조회가 던져도 자리는 풀린다', async () => {
+    sessions.listForUser.mockRejectedValueOnce(new Error('redis down'));
+    await expect(send(mac, { type: 'call', to: 's-phone' })).rejects.toThrow();
+
+    await send(mac, { type: 'call', to: 's-phone' });
+
+    expect(mac.last()).toMatchObject({ type: 'ringing' });
   });
 
   // 벨을 함께 받았던 탭은 **창구가 아니다** — 아니면 answer가 두 번 간다.

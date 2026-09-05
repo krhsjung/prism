@@ -23,6 +23,14 @@ import { ConnectionRegistry } from './connection-registry';
 // 저장을 만들면 그 저장은 세션보다 오래 산다(§9-10).
 const ENDED_RETENTION_MS = 5 * 60_000;
 
+// 보존 창에 한 번에 남을 수 있는 통화 수.
+//
+// 보존은 편의이고 상한은 안전이다: `call` → `cancel`을 반복하면 매번 끝난 통화가 5분씩
+// 쌓이는데, 그 사이 세션 자리는 이미 풀려 있어 "한 세션은 한 통화만"이 이 증가를 막지
+// 못한다. 넘치면 **가장 오래된 것부터** 버린다 — 늦게 열린 알림이 물어볼 만한 통화는
+// 언제나 최근 것이다.
+const MAX_RETAINED_CALLS = 512;
+
 type CallPhase = 'ringing' | 'active' | 'ended';
 
 // 통화의 한쪽. **세션이 당사자이고 연결은 창구다.**
@@ -136,59 +144,100 @@ export class CallGateway implements OnModuleDestroy {
       return;
     }
 
-    // 목록 조회 한 번이 **소유권 확인과 기기 종류 조회를 겸한다** — 화면이 쓰는
-    // GET /auth/sessions와 같은 원천이라, 목록에 없는 것은 걸 수도 없다.
-    const owned = await this.sessions.listForUser(connection.userId);
-    const callee = owned.find((session) => session.id === to);
-    const caller = owned.find((session) => session.id === connection.sessionId);
-    // **없는 세션과 남의 세션을 구별해 주지 않는다**(§6). 내 세션이 방금 폐기된
-    // 경우도 같은 코드로 접는다 — 스윕이 곧 이 소켓을 끊는다.
-    if (!callee || !caller) {
-      connection.send({ type: 'callError', code: 'unknown-session' });
-      return;
-    }
-
-    // 한 세션은 한 통화만. 거는 쪽이 이미 통화 중인 경우도 같은 코드다 — 상한을
-    // 넘긴 것이 사실이고, 클라이언트가 화면 전환 없이 알림 한 줄로 받는다(§3.2).
-    if (this.bySession.has(caller.id) || this.bySession.has(callee.id)) {
+    // ⚠️ **자리를 먼저 잡고 조회는 그다음이다.**
+    //
+    // 아래 `listForUser`는 await이고, 소켓 메시지는 연결마다 직렬화되지 않는다 —
+    // `call` 두 프레임이 연달아 오면 둘 다 이 지점을 지나 각자 통화를 만든다. 그러면
+    // 받는 쪽 벨이 두 번 울리고, `bySession`은 나중 것만 가리켜 먼저 만든 통화가
+    // 45초 뒤 유령 `ended`를 뿌린다. 그래서 **동기 구간에서** 두 세션의 자리를 잡는다.
+    //
+    // 아직 세션이 내 것인지 모르는 채로 상대 자리를 잡는 셈이지만, 자리는 사용자
+    // 안에서만 의미가 있고(bySession의 값은 이 사용자의 callId다) 아래 어느 갈래로
+    // 빠져도 `release`가 되돌린다 — 남의 세션을 잠글 수는 없다.
+    const pending = randomUUID();
+    if (
+      !this.reserve(connection.sessionId, pending) ||
+      !this.reserve(to, pending)
+    ) {
+      // 한 세션은 한 통화만. 거는 쪽이 이미 통화 중인 경우도 같은 코드다 — 상한을
+      // 넘긴 것이 사실이고, 클라이언트가 화면 전환 없이 알림 한 줄로 받는다(§3.2).
+      this.release(connection.sessionId, pending);
       connection.send({ type: 'callError', code: 'busy' });
       return;
     }
 
-    const ring = this.registry.connectionsOfSession(
-      connection.userId,
-      callee.id,
-    );
-    if (ring.length === 0) {
-      // 소켓이 없다. **푸시로 깨우는 경로는 push 슬라이스와 함께 붙는다**(§8-11) —
-      // 그때까지 소켓 없는 기기는 걸 수 없고, 화면은 그 줄을 `Notifications off`로
-      // 그린다(문구는 이미 i18n에 있다).
-      connection.send({ type: 'callError', code: 'unreachable' });
-      return;
-    }
+    try {
+      // 목록 조회 한 번이 **소유권 확인과 기기 종류 조회를 겸한다** — 화면이 쓰는
+      // GET /auth/sessions와 같은 원천이라, 목록에 없는 것은 걸 수도 없다.
+      const owned = await this.sessions.listForUser(connection.userId);
+      // 조회하는 사이에 거는 쪽이 사라졌을 수 있다(화면 이탈·백그라운드·로그아웃).
+      // **여기서 보지 않으면 `close`가 잡지 못한다** — 그 시점의 통화는 아직 `calls`에
+      // 없어서 소켓이 닫혀도 아무것도 끝나지 않고, 이 아래에서 만들어진 통화가 죽은
+      // 창구를 들고 상대 벨을 45초 동안 울린다. (스윕이 presence를 되살리지 않으려고
+      // 같은 확인을 하는 것과 같은 자리다)
+      if (!this.registry.has(connection)) return;
+      const callee = owned.find((session) => session.id === to);
+      const caller = owned.find(
+        (session) => session.id === connection.sessionId,
+      );
+      // **없는 세션과 남의 세션을 구별해 주지 않는다**(§6). 내 세션이 방금 폐기된
+      // 경우도 같은 코드로 접는다 — 스윕이 곧 이 소켓을 끊는다.
+      if (!callee || !caller) {
+        connection.send({ type: 'callError', code: 'unknown-session' });
+        return;
+      }
 
-    // **callId는 서버가 발급한다**(추측 불가 난수). 클라가 만든 id를 믿으면 남의
-    // 통화에 ice를 흘려 넣을 수 있다(§6).
-    const call: Call = {
-      id: randomUUID(),
-      userId: connection.userId,
-      caller: { sessionId: caller.id, device: caller.device, connection },
-      callee: { sessionId: callee.id, device: callee.device, connection: null },
-      phase: 'ringing',
-      timer: null,
-    };
-    this.calls.set(call.id, call);
-    this.bySession.set(call.caller.sessionId, call.id);
-    this.bySession.set(call.callee.sessionId, call.id);
-    // **타이머는 서버만 갖는다** — 클라가 재면 시계가 두 벌이 되고 어긋난다(§6).
-    call.timer = this.arm(RING_TIMEOUT_MS, () => this.end(call, 'timeout'));
+      const ring = this.registry.connectionsOfSession(
+        connection.userId,
+        callee.id,
+      );
+      if (ring.length === 0) {
+        // 소켓이 없다. **푸시로 깨우는 경로는 push 슬라이스와 함께 붙는다**(§8-11) —
+        // 그때까지 소켓 없는 기기는 걸 수 없고, 화면은 그 줄을 `Notifications off`로
+        // 그린다(문구는 이미 i18n에 있다).
+        connection.send({ type: 'callError', code: 'unreachable' });
+        return;
+      }
 
-    const from = refOf(call.caller);
-    for (const target of ring) {
-      target.send({ type: 'incoming', callId: call.id, from });
+      // **callId는 서버가 발급한다**(추측 불가 난수). 클라가 만든 id를 믿으면 남의
+      // 통화에 ice를 흘려 넣을 수 있다(§6). 위에서 자리를 잡을 때 쓴 값을 그대로 쓴다.
+      const call: Call = {
+        id: pending,
+        userId: connection.userId,
+        caller: { sessionId: caller.id, device: caller.device, connection },
+        callee: {
+          sessionId: callee.id,
+          device: callee.device,
+          connection: null,
+        },
+        phase: 'ringing',
+        timer: null,
+      };
+      this.calls.set(call.id, call);
+      // **타이머는 서버만 갖는다** — 클라가 재면 시계가 두 벌이 되고 어긋난다(§6).
+      call.timer = this.arm(RING_TIMEOUT_MS, () => this.end(call, 'timeout'));
+
+      const from = refOf(call.caller);
+      for (const target of ring) {
+        target.send({ type: 'incoming', callId: call.id, from });
+      }
+      // 거는 쪽에는 **이 연결에만** 간다 — 창구가 이미 정해져 있다.
+      connection.send({ type: 'ringing', callId: call.id });
+    } finally {
+      // 통화가 서지 못했으면(위 어느 갈래든, 조회가 던졌든) 잡아 둔 자리를 되돌린다.
+      // 통화가 섰으면 `calls`에 있으므로 이 해제는 아무것도 하지 않는다.
+      if (!this.calls.has(pending)) {
+        this.release(connection.sessionId, pending);
+        this.release(to, pending);
+      }
     }
-    // 거는 쪽에는 **이 연결에만** 간다 — 창구가 이미 정해져 있다.
-    connection.send({ type: 'ringing', callId: call.id });
+  }
+
+  // 이 세션의 "통화 중" 자리를 잡는다. 이미 다른 통화가 차지했으면 false다.
+  private reserve(sessionId: string, callId: string): boolean {
+    if (this.bySession.has(sessionId)) return false;
+    this.bySession.set(sessionId, callId);
+    return true;
   }
 
   private accept(connection: SocketConnection, callId: string): void {
@@ -199,12 +248,22 @@ export class CallGateway implements OnModuleDestroy {
     // 먼저 받은 연결이 창구가 된다. 벨을 함께 받았던 다른 탭은 이 통화의 창구가 아니다.
     call.callee.connection = connection;
 
+    // **진 연결들의 벨을 닫아 준다.** `accepted`는 창구에만 가고 `ended`는 통화가
+    // 끝나야 오므로, 이 한 줄이 없으면 다른 탭·기기가 통화 내내 벨 창을 붙들고 있다.
+    for (const target of this.registry.connectionsOfSession(
+      call.userId,
+      call.callee.sessionId,
+    )) {
+      if (target !== connection)
+        target.send({ type: 'claimed', callId: call.id });
+    }
+
     // ICE 서버는 여기서 처음 내려간다 — 통화가 성립하기 전에는 TURN 자격증명을
-    // 줄 이유가 없다.
+    // 줄 이유가 없다. **통화마다 새로 발급되고 시한부다**(config.service.ts).
     const accepted: CallServerMessage = {
       type: 'accepted',
       callId: call.id,
-      iceServers: this.config.iceServers,
+      iceServers: this.config.iceServersFor(call.userId),
     };
     // 양쪽에 간다. **이것을 받은 거는 쪽이 offer를 낸다** — 역할이 방향에서 나오므로
     // glare가 구조적으로 없다(§6).
@@ -338,6 +397,19 @@ export class CallGateway implements OnModuleDestroy {
 
     // 끝난 뒤에도 잠깐 남는다 — `resume`이 `expired`에 `from`을 실으려면 필요하다.
     call.timer = this.arm(ENDED_RETENTION_MS, () => this.calls.delete(call.id));
+    this.evictOverflow();
+  }
+
+  // 보존 창이 상한을 넘으면 가장 오래된 **끝난** 통화부터 버린다.
+  // (Map은 삽입 순서를 지키므로 앞쪽이 곧 오래된 것이다. 진행 중인 통화는 건드리지 않는다)
+  private evictOverflow(): void {
+    if (this.calls.size <= MAX_RETAINED_CALLS) return;
+    for (const call of this.calls.values()) {
+      if (this.calls.size <= MAX_RETAINED_CALLS) return;
+      if (call.phase !== 'ended') continue;
+      this.disarm(call);
+      this.calls.delete(call.id);
+    }
   }
 
   // 다른 통화가 이미 그 세션을 차지했을 수 있다(끝난 직후 되걸기) — 내 id일 때만 푼다.
