@@ -51,6 +51,19 @@ spec:
                 secretKeyRef:
                   name: {{ include "prism-socket.fullname" . }}-secret
                   key: redis-url
+            # ICE 서버 — 통화가 성립할 때 클라이언트에게 그대로 내려간다.
+            # 비어 있으면 서버가 공개 STUN 하나로 떨어진다(TURN 없음).
+            - name: PRISM_STUN_URLS
+              value: {{ .Values.ice.stunUrls | quote }}
+            - name: PRISM_TURN_URLS
+              value: {{ .Values.ice.turnUrls | quote }}
+            # 클라이언트에게 나가는 것은 이 비밀이 아니라, 통화마다 이것으로 서명한
+            # 시한부 자격증명이다(libs/config/src/config.service.ts).
+            - name: PRISM_TURN_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "prism-socket.fullname" . }}-secret
+                  key: turn-secret
           livenessProbe:
             httpGet:
               path: /healthz

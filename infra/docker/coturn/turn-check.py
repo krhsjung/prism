@@ -11,12 +11,14 @@
 """
 
 import argparse
+import base64
 import hashlib
 import hmac
 import os
 import socket
 import struct
 import sys
+import time
 
 MAGIC_COOKIE = 0x2112A442
 
@@ -111,7 +113,7 @@ def check_allocate_tcp(server, port, username, password, timeout) -> bool:
         realm = challenge.get(ATTR_REALM, b"").rstrip(b"\x00")
         nonce = challenge.get(ATTR_NONCE, b"").rstrip(b"\x00")
         if not realm or not nonce:
-            print("  ✗ TURN allocate: 서버가 realm/nonce를 주지 않았다 (lt-cred-mech 꺼짐?)")
+            print("  ✗ TURN allocate: 서버가 realm/nonce를 주지 않았다 (use-auth-secret 꺼짐?)")
             return False
         print(f"  · realm={realm.decode()}")
 
@@ -154,23 +156,39 @@ def check_allocate_tcp(server, port, username, password, timeout) -> bool:
     return True
 
 
+def rest_credentials(secret: str, ttl: int, identity: str) -> "tuple[str, str]":
+    """서버가 통화 수락과 함께 내려주는 것과 **같은 모양**의 시한부 자격증명.
+
+    사용자명은 `<만료 unix>:<식별자>`이고 비밀번호는 그 사용자명의 HMAC-SHA1(base64)다
+    (coturn `use-auth-secret`). 소켓 서버의 `iceServersFor`와 한 글자도 다르면 안 되므로,
+    점검이 실패하면 둘 중 어느 쪽이 어긋났는지가 바로 드러난다.
+    """
+    username = f"{int(time.time()) + ttl}:{identity}"
+    password = base64.b64encode(
+        hmac.new(secret.encode(), username.encode(), hashlib.sha1).digest()
+    ).decode()
+    return username, password
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="coturn STUN/TURN 점검")
     parser.add_argument("-s", "--server", default=os.environ.get("COTURN_HOST", "127.0.0.1"))
     parser.add_argument("-p", "--port", type=int, default=int(os.environ.get("COTURN_LISTENING_PORT", 3478)))
-    parser.add_argument("-u", "--username", default=os.environ.get("PRISM_TURN_USERNAME", "prism"))
-    parser.add_argument("-w", "--password", default=os.environ.get("PRISM_TURN_PASSWORD", ""))
+    parser.add_argument("-k", "--secret", default=os.environ.get("PRISM_TURN_SECRET", ""))
+    parser.add_argument("-i", "--identity", default="turn-check")
+    parser.add_argument("--ttl", type=int, default=300)
     parser.add_argument("-t", "--timeout", type=float, default=5.0)
     args = parser.parse_args()
 
-    if not args.password:
-        print("PRISM_TURN_PASSWORD(또는 -w)가 없다 — 자격증명 없이는 할당을 볼 수 없다", file=sys.stderr)
+    if not args.secret:
+        print("PRISM_TURN_SECRET(또는 -k)이 없다 — 자격증명 없이는 할당을 볼 수 없다", file=sys.stderr)
         return 2
 
-    print(f"coturn {args.server}:{args.port} (user={args.username})")
+    username, password = rest_credentials(args.secret, args.ttl, args.identity)
+    print(f"coturn {args.server}:{args.port} (user={username})")
     results = [
         check_binding_udp(args.server, args.port, args.timeout),
-        check_allocate_tcp(args.server, args.port, args.username, args.password, args.timeout),
+        check_allocate_tcp(args.server, args.port, username, password, args.timeout),
     ]
     ok = all(results)
     print("OK" if ok else "FAILED")

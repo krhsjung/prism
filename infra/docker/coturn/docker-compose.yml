@@ -21,8 +21,7 @@ services:
     environment:
       # 실제 값은 전부 셸 환경 → .env → 여기로 온다. 레포에는 이름만 남는다.
       COTURN_REALM: ${COTURN_REALM}
-      COTURN_USER: ${COTURN_USER}
-      COTURN_PASSWORD: ${COTURN_PASSWORD}
+      COTURN_AUTH_SECRET: ${COTURN_AUTH_SECRET}
       COTURN_EXTERNAL_IP: ${COTURN_EXTERNAL_IP}
       COTURN_RELAY_IP: ${COTURN_RELAY_IP}
       COTURN_MIN_PORT: ${COTURN_MIN_PORT}

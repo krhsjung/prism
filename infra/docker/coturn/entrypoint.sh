@@ -20,12 +20,10 @@ fail() { echo "coturn: $1" >&2; exit 1; }
 # 반쯤 설정된 채로 뜨지 않는다. realm이 어긋나면 인증이 조용히 실패하고, 클라이언트는
 # "TURN을 켰는데 계속 직접 연결"로 보인다 — 부팅에서 잡는 편이 싸다.
 [ -n "${COTURN_REALM:-}" ] || fail 'COTURN_REALM is required (the service domain)'
-[ -n "${COTURN_USER:-}" ] || fail 'COTURN_USER is required'
-[ -n "${COTURN_PASSWORD:-}" ] || fail 'COTURN_PASSWORD is required'
-
-case "$COTURN_USER" in
-  *:*) fail 'COTURN_USER must not contain ":" (it separates user from password)' ;;
-esac
+# 시한부 자격증명(use-auth-secret)의 공유 비밀. 소켓 서버의 PRISM_TURN_SECRET과 같은
+# 값이어야 하고, 어긋나면 모든 할당이 401로 거절된다 — 클라이언트에는 "TURN을 켰는데
+# 계속 직접 연결"로 보이므로 부팅에서 잡는다.
+[ -n "${COTURN_AUTH_SECRET:-}" ] || fail 'COTURN_AUTH_SECRET is required (same value as PRISM_TURN_SECRET)'
 
 # --- 릴레이 포트 범위 -------------------------------------------------------
 # compose가 게시하는 범위와 **반드시 같아야 한다**. 그래서 양쪽 모두 .env를 본다.
@@ -58,7 +56,7 @@ cp "$BASE_CONF" "$CONF"
   echo "server-name=${COTURN_REALM}"
   echo "min-port=${MIN_PORT}"
   echo "max-port=${MAX_PORT}"
-  echo "user=${COTURN_USER}:${COTURN_PASSWORD}"
+  echo "static-auth-secret=${COTURN_AUTH_SECRET}"
 
   if [ -n "$RELAY_IP" ]; then
     echo "relay-ip=${RELAY_IP}"
@@ -91,7 +89,10 @@ cp "$BASE_CONF" "$CONF"
       192.88.99.0-192.88.99.255 \
       192.168.0.0-192.168.255.255 \
       198.18.0.0-198.19.255.255 \
-      240.0.0.0-255.255.255.255
+      240.0.0.0-255.255.255.255 \
+      ::-::ffff:ffff:ffff:ffff:ffff:ffff:ffff \
+      fc00::-fdff:ffff:ffff:ffff:ffff:ffff:ffff:ffff \
+      fe80::-febf:ffff:ffff:ffff:ffff:ffff:ffff:ffff
     do
       echo "denied-peer-ip=${range}"
     done

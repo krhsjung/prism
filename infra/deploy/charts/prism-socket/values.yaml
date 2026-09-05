@@ -33,6 +33,19 @@ env:
   # 값이어야 한다 — 갈리면 웹 소켓이 쿠키를 못 찾아 전부 UNAUTHORIZED로 닫힌다.
   cookieNamespace: "${PRISM_COOKIE_NAMESPACE:-}"
 
+# WebRTC ICE 서버 — 통화 수락(`accepted`)과 함께 소켓이 내려준다.
+#
+# **값은 전부 env에서 온다**(plan/webrtc.md §7): 레포에 호스트도 자격증명도 없고,
+# 진단 화면에도 띄우지 않는다. 비워 두면 서버가 공개 STUN 하나로 떨어지고, 통화는
+# 대칭 NAT·엄격한 방화벽에서만 실패한다.
+#
+# ⚠️ **URL과 공유 비밀은 함께 있거나 함께 없다.** 하나만 오면 서버가 부팅에서 막는다 —
+# 반쯤 설정된 채로 뜨면 "TURN을 켰다고 믿는데 대칭 NAT에서만 실패하는" 상태가 되고,
+# 그건 운영에서 가장 늦게 드러나는 종류다(app-config.ts의 loadIceConfig).
+ice:
+  stunUrls: "${PRISM_STUN_URLS:-}"
+  turnUrls: "${PRISM_TURN_URLS:-}"
+
 # 시크릿: env → k8s Secret.
 #
 # socket은 세션을 발급하지 않고 **검증만** 하지만, 검증에는 auth와 **같은** 서명 키와
@@ -44,6 +57,12 @@ jwt:
 # 그래서 readiness가 /readyz(redis.ping)를 본다.
 redis:
   url: "${PRISM_REDIS_URL:?PRISM_REDIS_URL must be set}"
+
+# TURN 자격증명을 서명하는 공유 비밀. **이 값은 클라이언트에게 나가지 않는다** —
+# 나가는 것은 통화마다 이것으로 서명한 시한부 사용자명·비밀번호뿐이다. coturn의
+# COTURN_AUTH_SECRET과 **같은 값이어야 한다**(infra/docker/coturn).
+turn:
+  secret: "${PRISM_TURN_SECRET:-}"
 
 # Postgres는 **없다.** 이 서비스는 사용자 행을 조회하지 않는다 — 세션도 presence도
 # Redis에만 있다(@app/common의 SessionsModule / UsersModule 분리).

@@ -48,10 +48,15 @@ echo "==> revision $PRISM_DEPLOY_REVISION"
 
 # env 치환된 values 생성 (사용 후 삭제 → 시크릿 비영속).
 # trap을 생성 전에 걸어, 치환 실패 시에도 잔여 파일이 남지 않게 한다.
+#
+# ⚠️ **백틱과 $(...)를 먼저 막는다.** heredoc은 ${VAR} 뿐 아니라 명령 치환도 실행하므로,
+# values.yaml **주석 안의** `이런 표기`가 그대로 셸 명령이 된다. 실제로 주석의
+# `kubectl get pod -o yaml`이 실행돼 그 출력이 YAML 한가운데 끼어들어 파싱이 깨졌다.
+# 우리가 원하는 것은 변수 치환뿐이므로 나머지 둘만 무력화한다(${VAR:-기본값} 문법은 그대로 산다).
 GEN="$CHART_PATH/values.generated.yaml"
 trap 'rm -f "$GEN"' EXIT
 eval "cat <<EOF
-$(cat "$CHART_PATH/values.yaml")
+$(sed -e 's/`/\\`/g' -e 's/\$(/\\$(/g' "$CHART_PATH/values.yaml")
 EOF" > "$GEN"
 
 if [ "$ACTION" = "--template" ]; then
