@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { createHmac } from 'crypto';
 import type { IceServer, SocialProvider } from '@app/common';
 import type { PostgresConfig } from '@app/database';
 import type { RedisConfig } from '@app/redis';
@@ -99,18 +100,32 @@ export class PrismConfigService {
   // `accepted`와 함께 내려보낼 ICE 서버 목록. **env가 유일한 원천이라** 레포에는
   // 호스트도 자격증명도 없고, 진단 화면에도 띄우지 않는다(plan/webrtc.md §7).
   //
-  // TURN이 없으면 STUN만 내려간다 — 대칭 NAT에서만 못 붙는 상태이고, coturn
-  // 프로비저닝은 다음 마일스톤이다(§8-7).
-  get iceServers(): IceServer[] {
+  // **자격증명은 통화마다 새로 만들고 시한부다.** 정적 `username`/`password`를 내려보내면
+  // 통화를 한 번 성사시킨 사람이 그 값을 영구히 쥐고 릴레이를 마음대로 쓸 수 있다 —
+  // 세션이 끝나도, 로그아웃해도 유효한 값이 된다. coturn의 `use-auth-secret`과 짝을
+  // 이루는 TURN REST 관례로 바꿔, 사용자명에 만료 시각을 싣고 비밀번호를 그 사용자명의
+  // HMAC으로 만든다. 공유 비밀 자체는 절대 나가지 않는다.
+  //
+  // `identity`는 사용자명에 실려 coturn 로그에 남는다 — 누가 릴레이를 쓰는지 보이게
+  // 하는 값이라 사용자 id를 쓰고, 그래서 세션 id처럼 화면에 뜨는 값은 넣지 않는다.
+  //
+  // TURN이 없으면 STUN만 내려간다 — 대칭 NAT에서만 못 붙는 상태다.
+  iceServersFor(identity: string, now: Date = new Date()): IceServer[] {
     const { stunUrls, turn } = this.app.ice;
     const servers: IceServer[] = [{ urls: stunUrls }];
-    if (turn) {
-      servers.push({
-        urls: turn.urls,
-        username: turn.username,
-        credential: turn.credential,
-      });
-    }
+    if (!turn) return servers;
+
+    // coturn이 이 문자열을 그대로 쪼개 만료를 읽는다 — `:`는 구분자라 식별자에 들어가면
+    // 안 된다(uuid는 안전하지만, 원천이 바뀌어도 깨지지 않게 여기서 지운다).
+    const expiresAt = Math.floor((now.getTime() + turn.ttlMs) / 1000);
+    const username = `${expiresAt}:${identity.replace(/:/g, '')}`;
+    servers.push({
+      urls: turn.urls,
+      username,
+      credential: createHmac('sha1', turn.secret)
+        .update(username)
+        .digest('base64'),
+    });
     return servers;
   }
 

@@ -235,8 +235,7 @@ describe('loadHttpConfig', () => {
 describe('loadIceConfig', () => {
   const turn = {
     PRISM_TURN_URLS: 'turn:turn.example:3478',
-    PRISM_TURN_USERNAME: 'prism',
-    PRISM_TURN_PASSWORD: 'secret',
+    PRISM_TURN_SECRET: 'shared-secret',
   };
 
   it('기본값: 공개 STUN 하나 · TURN 없음', () => {
@@ -253,12 +252,20 @@ describe('loadIceConfig', () => {
     ).toEqual(['stun:a.example:3478', 'stuns:b.example:5349']);
   });
 
-  it('TURN은 URL·사용자·자격증명이 함께 있으면 구성된다', () => {
+  // 클라이언트에게 나가는 것은 이 비밀이 아니라 이것으로 서명한 시한부 자격증명이다
+  // (config.service.ts의 iceServersFor).
+  it('TURN은 URL과 공유 비밀이 함께 있으면 구성된다', () => {
     expect(loadIceConfig(turn).turn).toEqual({
       urls: ['turn:turn.example:3478'],
-      username: 'prism',
-      credential: 'secret',
+      secret: 'shared-secret',
+      ttlMs: 12 * 60 * 60 * 1000,
     });
+  });
+
+  it('자격증명 수명은 env로 줄일 수 있다', () => {
+    expect(loadIceConfig({ ...turn, PRISM_TURN_TTL: '10m' }).turn?.ttlMs).toBe(
+      600_000,
+    );
   });
 
   // 일부만 온 설정을 조용히 STUN-only로 되돌리지 않는다 — TURN을 켰다고 믿는 채
