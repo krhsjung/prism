@@ -4,19 +4,31 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
+import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.launch
 import kr.hs.jung.prism.core.di.ServiceContainer
 import kr.hs.jung.prism.core.theme.PrismTheme
 import kr.hs.jung.prism.feature.auth.AuthManager
 import kr.hs.jung.prism.feature.auth.LoginScreen
+import kr.hs.jung.prism.feature.call.CallController
+import kr.hs.jung.prism.feature.call.IncomingCallDialog
+import kr.hs.jung.prism.feature.call.rememberCallPermission
+import kr.hs.jung.prism.feature.call.WebRtcScreen
 import kr.hs.jung.prism.feature.dashboard.DashboardScreen
 import androidx.compose.runtime.rememberCoroutineScope
 
@@ -52,23 +64,108 @@ fun RootScreen(container: ServiceContainer) {
                 // 다시 로그인하면 새로 만든다 — 그러지 않으면 앞 세션의 목록이 그대로
                 // 그려진다(ui/SessionScope.kt).
                 SessionScope(current.generation) {
-                    // 소켓도 **이 세션의 것**이다 — 세대가 바뀌면 ViewModel과 함께
-                    // 버려지고 새로 만들어진다. 컨테이너에 두면 앱과 함께 살아
-                    // 세션 N의 소켓이 세션 N+1까지 살아남는다.
-                    val socket = remember(current.generation) {
-                        container.createSessionSocket()
-                    }
-                    DashboardScreen(
-                        user = current.user,
-                        themeStore = container.themeStore,
-                        localeStore = container.localeStore,
-                        sessionsApi = container.sessionsApi,
-                        tokens = container.sessionTokens,
-                        socket = socket,
-                        onSignOut = { scope.launch { auth.signOut() } },
-                    )
+                    SignedIn(container, current)
                 }
             }
         }
+    }
+}
+
+/**
+ * 로그인해 있는 동안의 화면들.
+ *
+ * 소켓도 통화도 **이 세션의 것**이다 — 세대가 바뀌면 함께 버려지고 새로 만들어진다.
+ * 컨테이너에 두면 앱과 함께 살아 세션 N의 것이 세션 N+1까지 살아남는다.
+ */
+@Composable
+private fun SignedIn(container: ServiceContainer, current: AuthManager.State.SignedIn) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val socket = remember(current.generation) { container.createSessionSocket() }
+    // 통화는 소켓 위에 얹힌다 — 소켓의 통화 수신구를 컨트롤러가 가져가므로 듣는 쪽이
+    // 하나여야 한다(SessionSocket.onCallMessage).
+    val call = remember(current.generation) { CallController(context, socket) }
+    DisposableEffect(call) { onDispose { call.dispose() } }
+
+    // 소켓은 **앱이 앞에 있는 동안** 열려 있다. 세 플랫폼이 같은 규칙을 쓴다:
+    // *클라이언트가 실제로 살아 있는 동안 붙어 있고, 없으면 푸시로 깨운다*(plan/webrtc.md §4).
+    // 브라우저 탭은 숨어도 살아 있어 웹은 계속 붙어 있지만(`SessionSocketProvider`),
+    // 모바일은 OS가 앱을 재운다.
+    //
+    // ⚠️ **백그라운드에서 붙들고 있으려 하지 않는다.** 실제로 재 보니 홈으로 내린 뒤
+    // 4초 만에 연결이 끊기고, 그 뒤로는 `connecting → 즉시 종료`를 되풀이하는 재시도
+    // 폭풍만 남았다(서버에 presence를 지켜 주지도 못하면서 배터리를 쓴다). 스스로 닫으면
+    // 서버가 TTL을 기다리지 않고 presence를 지우고, 다른 기기의 목록이 곧바로 정확해진다 —
+    // iOS `RootView`가 같은 이유로 같은 일을 한다.
+    LifecycleStartEffect(socket) {
+        socket.start(scope)
+        onStopOrDispose {
+            // **끊고 나서 닫는다 — 순서가 핵심이다.** 먼저 닫으면 `hangup`이 나갈 통로가
+            // 없어, 서버가 상대에게 `peer-gone`을 보내 끝낸 통화를 이쪽만 붙들고 있게 된다
+            // (돌아왔을 때 끊을 방법도 없다). 백그라운드에서는 카메라도 멈춰 통화가
+            // 성립하지 않는다.
+            if (call.state.value.call != null) call.hangUp()
+            socket.stop()
+        }
+    }
+
+    val callState by call.state.collectAsStateWithLifecycle()
+    // 수락도 **통화가 시작되는 순간**이다 — `Call`·`Test`와 같은 문을 지나야 한다.
+    // 이것 없이 컨트롤러를 바로 부르면, 아직 권한이 없는 기기에서 수락이 조용히
+    // 거절로 끝난다(화면에는 "받기를 눌렀는데 거절됐다"로 보인다).
+    val withMedia = rememberCallPermission(call)
+    // 지금 보고 있는 페이지. **웹의 라우터가 앉는 자리**다 — 셸이 두 화면을 나눠 쓰므로
+    // 어느 쪽인지는 셸 바깥(여기)에서 쥔다.
+    var page by remember { mutableStateOf(ShellPage.DASHBOARD) }
+    // 드로어는 두 화면이 **하나를 나눠 쓴다** — 페이지마다 따로 두면 옮겨 간 화면의
+    // 드로어가 닫힌 채로 새로 서서 애니메이션이 끊긴다.
+    val drawerState = rememberDrawerState(DrawerValue.Closed)
+
+    // 옮겨 간 뒤 드로어를 닫는다. **화면이 아니라 여기서** 닫는 이유: 화면의 스코프는
+    // 페이지가 바뀌는 순간 함께 취소되어, 거기서 시작한 닫기가 중간에 죽는다.
+    LaunchedEffect(page) { drawerState.close() }
+
+    // 수락은 대시보드에서도 일어난다 — 통화는 통화 화면에서 그린다.
+    LaunchedEffect(callState.wantsCallScreen) {
+        if (callState.wantsCallScreen) {
+            page = ShellPage.WEBRTC
+            call.consumeCallScreenRequest()
+        }
+    }
+
+    when (page) {
+        ShellPage.DASHBOARD -> DashboardScreen(
+            user = current.user,
+            themeStore = container.themeStore,
+            localeStore = container.localeStore,
+            sessionsApi = container.sessionsApi,
+            tokens = container.sessionTokens,
+            socket = socket,
+            drawerState = drawerState,
+            onNavigate = { page = it },
+            onSignOut = { scope.launch { container.authManager.signOut() } },
+        )
+        ShellPage.WEBRTC -> WebRtcScreen(
+            user = current.user,
+            controller = call,
+            socket = socket,
+            themeStore = container.themeStore,
+            localeStore = container.localeStore,
+            drawerState = drawerState,
+            sessionsApi = container.sessionsApi,
+            tokens = container.sessionTokens,
+            onNavigate = { page = it },
+            onSignOut = { scope.launch { container.authManager.signOut() } },
+        )
+    }
+
+    // 걸려 온 통화는 **앱 위에** 뜬다 — 대시보드를 보고 있어도 마찬가지다(§4).
+    // 소켓이 세션 전체에 붙어 있는 것과 같은 이유다.
+    callState.incoming?.let { incoming ->
+        IncomingCallDialog(
+            from = incoming.from,
+            onAccept = { withMedia { call.acceptIncoming() } },
+            onDecline = call::declineIncoming,
+        )
     }
 }

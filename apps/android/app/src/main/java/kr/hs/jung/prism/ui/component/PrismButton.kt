@@ -95,12 +95,16 @@ fun PrismButton(
             containerColor = background,
             contentColor = foreground,
             // 비활성 상태에서도 같은 색을 쓰고 투명도만 낮춘다(웹 .btn:disabled).
-            disabledContainerColor = background.copyAlpha(PrismDimensions.buttonDisabledAlpha),
-            disabledContentColor = foreground.copyAlpha(PrismDimensions.buttonDisabledAlpha),
+            //
+            // ⚠️ 알파를 **덮어쓰지 않고 곱한다.** `Color.Transparent`는 알파 0인 검정이라
+            // 0.55로 덮어쓰면 투명이 아니라 **반투명 검정 판**이 된다 — 판 없는 Ghost가
+            // 비활성일 때만 회색 판을 얻는다(진단의 `Copy log`·`Clear`가 그랬다).
+            disabledContainerColor = background.dim(PrismDimensions.buttonDisabledAlpha),
+            disabledContentColor = foreground.dim(PrismDimensions.buttonDisabledAlpha),
         ),
     ) {
         Text(text = text, fontSize = PrismDimensions.fontBody, fontWeight = FontWeight.SemiBold)
     }
 }
 
-private fun Color.copyAlpha(alpha: Float): Color = copy(alpha = alpha)
+private fun Color.dim(factor: Float): Color = copy(alpha = alpha * factor)

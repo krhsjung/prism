@@ -22,7 +22,20 @@ import kr.hs.jung.prism.core.theme.PrismTheme
  * 세션"(Neutral)을 가른다. 색만으로 구분하지 않는다 — 배지 안의 문구가 같은 정보를
  * 글로도 말한다(색각 이상·흑백 출력).
  */
-enum class PrismBadgeVariant { SUCCESS, INFO, NEUTRAL }
+enum class PrismBadgeVariant {
+    SUCCESS,
+    INFO,
+    NEUTRAL,
+
+    /**
+     * 되돌릴 수 있는 나쁨 — 재연결 중이거나, 릴레이를 지나는 통화. **릴레이는 실패가
+     * 아니라 비싼 성공이라** ERROR가 아니라 여기다(plan/webrtc.md §4).
+     */
+    WARNING,
+
+    /** 통화가 끝내 붙지 못했다. 배지가 이 말을 하므로 타일은 문구를 갖지 않는다. */
+    ERROR,
+}
 
 @Composable
 fun PrismBadge(
@@ -37,6 +50,8 @@ fun PrismBadge(
         // surface는 카드보다 한 톤 눌린 배경이라 라이트/다크 모두에서 카드 위에 얹힌다.
         // 새 토큰을 만들지 않고 있는 것으로 세 번째 갈래를 만든다(웹 `.badge--neutral`과 같다).
         PrismBadgeVariant.NEUTRAL -> colors.surface
+        PrismBadgeVariant.WARNING -> colors.warningBackground
+        PrismBadgeVariant.ERROR -> colors.errorBackground
     }
     val foreground = when (variant) {
         PrismBadgeVariant.SUCCESS -> colors.success
@@ -44,6 +59,8 @@ fun PrismBadge(
         // 같은 배지가 플랫폼마다 다른 파랑으로 나온다.
         PrismBadgeVariant.INFO -> colors.accent
         PrismBadgeVariant.NEUTRAL -> colors.muted
+        PrismBadgeVariant.WARNING -> colors.warning
+        PrismBadgeVariant.ERROR -> colors.error
     }
     // 라이트에서 surface와 카드의 차이가 작아 알약 윤곽이 흐리다 — 테두리로 세운다.
     // (웹은 inset box-shadow로 같은 일을 한다)

@@ -16,11 +16,14 @@ import kr.hs.jung.prism.BuildConfig
 import kr.hs.jung.prism.core.security.SessionTokens
 import kr.hs.jung.prism.core.util.AppLog
 import kr.hs.jung.prism.domain.model.AuthErrorCode
+import kr.hs.jung.prism.domain.model.CallClientMessage
+import kr.hs.jung.prism.domain.model.CallServerMessage
 import kr.hs.jung.prism.domain.model.SessionClientMessageType
 import kr.hs.jung.prism.domain.model.SocketServerMessage
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
+import org.json.JSONObject
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 
@@ -94,10 +97,41 @@ class SessionSocket(
     @Volatile
     private var current: WebSocket? = null
 
+    /**
+     * 통화 메시지를 듣는 쪽.
+     *
+     * **상태로 쌓지 않는다.** 시그널링은 순서가 있는 사건의 흐름이라 마지막 하나만
+     * 남기면 offer와 ice가 서로를 덮어쓰고, 목록으로 쌓으면 이미 처리한 것을 다시
+     * 만나게 된다. 듣는 쪽에 그대로 넘기고 잊는다.
+     */
+    @Volatile
+    var onCallMessage: ((CallServerMessage) -> Unit)? = null
+
+    /**
+     * 소켓이 끊겼다 — **서버는 이미 진행 중이던 통화를 끝냈다.**
+     *
+     * 창구의 소켓이 사라지면 서버가 `Ended(PEER_GONE)`으로 접고 상대에게만 알린다.
+     * 그 메시지는 없어진 소켓으로 오므로 이쪽은 영영 받지 못하고, 재연결해도 통화
+     * 상태를 되물을 길이 없다(`resume`은 벨 전용이다). 듣는 쪽이 스스로 접으라고
+     * 알려 주는 자리다.
+     */
+    @Volatile
+    var onDisconnected: (() -> Unit)? = null
+
     private var job: Job? = null
 
     /** 한 번이라도 붙은 적이 있는가 — 다음 `Ready`가 "첫 연결"인지 "재연결"인지 가른다. */
     private var everReady = false
+
+    /**
+     * 다음 재연결까지 기다릴 백오프 단계.
+     *
+     * **필드인 이유**: `ready`가 이것을 0으로 되돌려야 하고(웹 `socket.ts`·iOS
+     * `SessionSocket.swift`와 같은 규칙), 그 처리는 루프가 아니라 [handle] 안에 있다.
+     * 지역 변수로 두면 회선이 몇 번 끊겨 단계가 오른 뒤 **몇 시간 멀쩡히 붙어 있다가**
+     * 한 번 끊겼을 때 1초가 아니라 15초를 기다리게 된다.
+     */
+    private var attempt = 0
 
     /** 소켓이 보내온 것들. 재연결 루프가 하나씩 꺼내 처리한다. */
     private sealed interface Event {
@@ -107,6 +141,9 @@ class SessionSocket(
 
     fun start(scope: CoroutineScope) {
         if (job?.isActive == true) return
+        // 다시 붙일 때는 곧바로 시도한다 — 포그라운드로 돌아온 사용자를 백오프만큼
+        // 기다리게 하면 화면을 보고 있는데도 낡은 목록이 남는다.
+        attempt = 0
         job = scope.launch { runLoop() }
     }
 
@@ -114,7 +151,10 @@ class SessionSocket(
         job?.cancel()
         job = null
         current = null
-        _isReady.value = false
+        if (_isReady.value) {
+            _isReady.value = false
+            onDisconnected?.invoke()
+        }
     }
 
     /**
@@ -133,13 +173,25 @@ class SessionSocket(
      * 서버가 업그레이드에서 세션을 검증하므로, 폐기된 기기는 그 자리에서 걸러진다.
      */
     fun send(type: SessionClientMessageType) {
-        if (!_isReady.value) return
         // 계약의 메시지는 `{ "type": ... }` 하나뿐이라 직렬화기를 세우지 않는다.
-        current?.send("""{"type":"${type.wire}"}""")
+        sendFrame("""{"type":"${type.wire}"}""")
+    }
+
+    /**
+     * 통화 시그널링을 보낸다. **보내지 못하면 false**다 — 소켓이 끊긴 사이의 `hangup`을
+     * 보낸 셈 치면 화면이 끝난 통화를 그대로 붙들고 있게 된다. 호출부가 알아야 한다.
+     *
+     * 큐에 쌓지 않는 것은 의도다: 시그널링 메시지는 그 통화에서만 뜻이 있어, 재연결 뒤에
+     * 밀어 넣으면 이미 끝난 통화에 대고 말하게 된다.
+     */
+    fun send(message: CallClientMessage): Boolean = sendFrame(encodeCallClientMessage(message))
+
+    private fun sendFrame(frame: String): Boolean {
+        if (!_isReady.value) return false
+        return current?.send(frame) ?: false
     }
 
     private suspend fun runLoop() {
-        var attempt = 0
         while (true) {
             // 토큰은 **그때그때 읽는다** — 사본을 들고 있으면 회전 뒤 옛 토큰으로 다시 붙는다.
             val token = tokens.access()
@@ -157,7 +209,10 @@ class SessionSocket(
                 pump(events, token)
             } finally {
                 current = null
-                _isReady.value = false
+                if (_isReady.value) {
+                    _isReady.value = false
+                    onDisconnected?.invoke()
+                }
                 // 정상 종료를 알려 두면 서버가 TTL을 기다리지 않고 presence를 지운다.
                 socket.close(NORMAL_CLOSURE, null)
                 events.close()
@@ -200,6 +255,16 @@ class SessionSocket(
         )
     }
 
+    /** 통화 메시지였으면 듣는 쪽에 넘기고 true. 형식이 어긋난 것은 조용히 버린다. */
+    private fun routeCallMessage(text: String): Boolean {
+        val json = runCatching { JSONObject(text) }.getOrNull() ?: return false
+        if (!isCallMessageType(json.opt("type") as? String)) return false
+        val message = runCatching { decodeCallServerMessage(json) }.getOrNull()
+        if (message != null) onCallMessage?.invoke(message)
+        // 통화 타입이었던 이상 presence 경로로 흘려보내지 않는다.
+        return true
+    }
+
     private enum class Outcome { STOP, RECONNECT_NOW, RECONNECT_LATER }
 
     /**
@@ -222,13 +287,21 @@ class SessionSocket(
         }
     }
 
-    /** 처리했으면 null, 루프를 끝내야 하면 그 이유를 돌려준다. */
+    /**
+     * 처리했으면 null, 루프를 끝내야 하면 그 이유를 돌려준다.
+     *
+     * presence와 통화가 한 소켓을 나눠 쓰지만 계약은 갈라져 있다 — 통화 쪽으로 간 것은
+     * `isConnected`를 정하는 데 쓰이지 않는다(presence는 여전히 **소켓의 존재만** 본다).
+     */
     private suspend fun handle(text: String, usedAccessToken: String): Outcome? {
+        if (routeCallMessage(text)) return null
         // 계약에 없는 메시지는 무시한다 — 형식이 어긋났다고 연결을 끊을 이유는 없다.
         return when (val message = decodeSocketServerMessage(text)) {
             null, SocketServerMessage.Heartbeat -> null
             SocketServerMessage.Ready -> {
                 // 붙었다 = 소켓 서비스가 살아 있다 = presence를 믿어도 된다.
+                // 성공했으니 백오프를 되돌린다 — 다음 끊김은 1초부터 다시 센다.
+                attempt = 0
                 _isReady.value = true
                 // **첫 연결에서는 가져오지 않는다.** 화면이 이미 가져왔고 그 데이터는
                 // 정확하다 — 다른 기기의 presence는 각자의 소켓이 쓴 값이라 우리가 붙는

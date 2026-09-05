@@ -83,7 +83,9 @@ class DashboardViewModel(
      * 그 경로에만 스탬핑·공유 회전·확정 거절 처리가 붙어 있기 때문이다.
      */
     private fun observe(socket: SessionSocket) {
-        socket.start(viewModelScope)
+        // **소켓을 여기서 열지 않는다.** 수명은 세션의 것이고 그 자리는 `ui/RootScreen.kt`다 —
+        // 대시보드 화면에 매달면 다른 화면을 보는 동안 내 기기가 스스로를 "비활성"으로
+        // 보고하게 된다(웹 `SessionSocketProvider`·iOS `RootView`와 같은 규칙).
         viewModelScope.launch {
             socket.isReady.collect { ready -> _state.update { it.copy(socketReady = ready) } }
         }

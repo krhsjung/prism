@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 통화 종료 — 내려놓은 수화기. 통화 글리프를 돌린 모양이 관습이다. 색은 tint로 정한다. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:pathData="M3.5,14.5a16,16 0,0 1,17 0l-0.6,2.6a1.6,1.6 0,0 1,-1.9 1.2l-2.6,-0.6a1.6,1.6 0,0 1,-1.2 -1.4l-0.2,-1.6a10,10 0,0 0,-4 0l-0.2,1.6a1.6,1.6 0,0 1,-1.2 1.4l-2.6,0.6a1.6,1.6 0,0 1,-1.9 -1.2zM3,3l18,18"
+        android:strokeWidth="2"
+        android:strokeColor="#FF000000"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+</vector>

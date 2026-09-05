@@ -9,45 +9,36 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.systemBarsPadding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.DrawerState
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
-import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
-import kotlinx.coroutines.launch
 import kr.hs.jung.prism.R
 import kr.hs.jung.prism.core.i18n.LocaleStore
 import kr.hs.jung.prism.core.network.SessionSocket
@@ -58,10 +49,8 @@ import kr.hs.jung.prism.core.theme.ThemeStore
 import kr.hs.jung.prism.domain.model.DeviceKind
 import kr.hs.jung.prism.domain.model.SessionListItem
 import kr.hs.jung.prism.domain.model.User
-import kr.hs.jung.prism.ui.component.LocaleSwitcher
-import kr.hs.jung.prism.ui.component.PreferenceControls
-import kr.hs.jung.prism.ui.component.PreferenceControlsPlacement
-import kr.hs.jung.prism.ui.component.PrismAvatar
+import kr.hs.jung.prism.ui.AppShell
+import kr.hs.jung.prism.ui.ShellPage
 import kr.hs.jung.prism.ui.component.PrismBadge
 import kr.hs.jung.prism.ui.component.PrismBadgeVariant
 import kr.hs.jung.prism.ui.component.PrismButton
@@ -69,7 +58,6 @@ import kr.hs.jung.prism.ui.component.PrismButtonVariant
 import kr.hs.jung.prism.ui.component.PrismCard
 import kr.hs.jung.prism.ui.component.PrismConfirmDialog
 import kr.hs.jung.prism.ui.component.PrismErrorAlert
-import kr.hs.jung.prism.ui.component.ThemeSwitcher
 
 /**
  * 대시보드 — 로그인 이후의 화면. 시안 `Dashboard / Mobile / Default`·`Drawer (open)`.
@@ -89,6 +77,10 @@ fun DashboardScreen(
     sessionsApi: SessionsApi,
     tokens: SessionTokens,
     socket: SessionSocket,
+    /** 셸의 드로어 — 통화 화면과 **같은 것**을 쓴다(페이지가 바뀌어도 열림이 이어진다). */
+    drawerState: DrawerState,
+    /** 셸의 내비게이션 — 페이지 상태는 `RootScreen`이 쥔다(웹의 라우터 자리). */
+    onNavigate: (ShellPage) -> Unit,
     onSignOut: () -> Unit,
 ) {
     // 이 ViewModel의 수명은 **세션**이다 — 로그아웃하면 저장소째 비워지고, 다시 로그인하면
@@ -111,65 +103,50 @@ fun DashboardScreen(
     )
     val state by viewModel.state.collectAsStateWithLifecycle()
     val colors = PrismTheme.colors
-    val drawerState = rememberDrawerState(DrawerValue.Closed)
-    val scope = rememberCoroutineScope()
     // 전체 로그아웃은 되돌릴 수 없다 — 누르면 바로 실행하지 않고 한 번 되묻는다.
     var confirmingSignOutAll by remember { mutableStateOf(false) }
 
-    ModalNavigationDrawer(
+    AppShell(
+        page = ShellPage.DASHBOARD,
+        userName = user.displayName,
+        themeStore = themeStore,
+        localeStore = localeStore,
         drawerState = drawerState,
-        drawerContent = {
-            DrawerContent(
-                themeStore = themeStore,
-                localeStore = localeStore,
-                onSignOut = onSignOut,
-            )
-        },
+        onNavigate = onNavigate,
+        onSignOut = onSignOut,
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(colors.surface)
-                // MainActivity가 enableEdgeToEdge를 켜 두었다 — 켜 두지 않으면 상단 바가
-                // 상태바 아래로 들어가 워드마크가 시계와 겹친다.
-                .systemBarsPadding(),
+        // 세션 목록은 이 앱 밖에서도 바뀐다 — 다른 기기에서 로그인하거나 만료되면
+        // 화면과 서버가 어긋난다. 당겨서 새로고침이 그것을 맞추는 사용자의 손잡이다.
+        val pullState = rememberPullToRefreshState()
+        PullToRefreshBox(
+            isRefreshing = state.refreshing,
+            onRefresh = viewModel::pullRefresh,
+            state = pullState,
+            indicator = {
+                // 기본 인디케이터는 material 기본 팔레트를 쓴다 — 우리는 몇 개 역할만
+                // 덮어썼기 때문에 그대로 두면 이 동그라미만 남의 색이 된다.
+                PullToRefreshDefaults.Indicator(
+                    state = pullState,
+                    isRefreshing = state.refreshing,
+                    containerColor = colors.card,
+                    color = colors.primary,
+                    modifier = Modifier.align(Alignment.TopCenter),
+                )
+            },
+            modifier = Modifier.weight(1f),
         ) {
-            TopBar(
-                userName = user.displayName,
-                onOpenMenu = { scope.launch { drawerState.open() } },
-            )
-            // 세션 목록은 이 앱 밖에서도 바뀐다 — 다른 기기에서 로그인하거나 만료되면
-            // 화면과 서버가 어긋난다. 당겨서 새로고침이 그것을 맞추는 사용자의 손잡이다.
-            val pullState = rememberPullToRefreshState()
-            PullToRefreshBox(
-                isRefreshing = state.refreshing,
-                onRefresh = viewModel::pullRefresh,
-                state = pullState,
-                indicator = {
-                    // 기본 인디케이터는 material 기본 팔레트를 쓴다 — 우리는 몇 개 역할만
-                    // 덮어썼기 때문에 그대로 두면 이 동그라미만 남의 색이 된다.
-                    PullToRefreshDefaults.Indicator(
-                        state = pullState,
-                        isRefreshing = state.refreshing,
-                        containerColor = colors.card,
-                        color = colors.primary,
-                        modifier = Modifier.align(Alignment.TopCenter),
-                    )
-                },
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(PrismDimensions.topBarHorizontalPadding),
             ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .verticalScroll(rememberScrollState())
-                        .padding(PrismDimensions.topBarHorizontalPadding),
-                ) {
-                    SessionsCard(
-                        state = state,
-                        onRevoke = viewModel::revoke,
-                        onSignOutAll = { confirmingSignOutAll = true },
-                        onRetry = viewModel::load,
-                    )
-                }
+                SessionsCard(
+                    state = state,
+                    onRevoke = viewModel::revoke,
+                    onSignOutAll = { confirmingSignOutAll = true },
+                    onRetry = viewModel::load,
+                )
             }
         }
     }
@@ -187,120 +164,6 @@ fun DashboardScreen(
             },
             onCancel = { confirmingSignOutAll = false },
         )
-    }
-}
-
-/** 시안 `MobileTopBar` — 워드마크 · 아바타 · 햄버거. 페이지 이름은 드로어가 말한다. */
-@Composable
-private fun TopBar(userName: String, onOpenMenu: () -> Unit) {
-    val colors = PrismTheme.colors
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(PrismDimensions.topBarHeight)
-            .background(colors.card)
-            .padding(horizontal = PrismDimensions.topBarHorizontalPadding),
-    ) {
-        // 워드마크는 번역하지 않는다 — 로고 텍스트는 언어와 무관한 고유명사다.
-        Text(
-            text = "Prism",
-            color = colors.heading,
-            fontSize = PrismDimensions.fontSectionTitle,
-            fontWeight = FontWeight.ExtraBold,
-            modifier = Modifier.weight(1f),
-        )
-        PrismAvatar(name = userName)
-        IconButton(
-            onClick = onOpenMenu,
-            // 아이콘은 24로 그리되 누르는 영역은 48까지 넓힌다(최소 터치 크기).
-            modifier = Modifier.size(PrismDimensions.topBarTouchTarget),
-        ) {
-            Icon(
-                painter = painterResource(R.drawable.ic_menu),
-                contentDescription = stringResource(R.string.dashboard_open_menu),
-                tint = colors.heading,
-                modifier = Modifier.size(PrismDimensions.topBarIconSize),
-            )
-        }
-    }
-    HorizontalDivider(color = colors.border)
-}
-
-/**
- * 시안 `Drawer Panel` — 브랜드 + 내비게이션. 그 아래 환경 설정·로그아웃은 시안에
- * 그려져 있지 않지만, 모바일 상단 바에서 밀려난 것들이 갈 곳이 여기뿐이다.
- */
-@Composable
-private fun DrawerContent(
-    themeStore: ThemeStore,
-    localeStore: LocaleStore,
-    onSignOut: () -> Unit,
-) {
-    val colors = PrismTheme.colors
-    ModalDrawerSheet(
-        drawerContainerColor = colors.card,
-        modifier = Modifier.width(PrismDimensions.drawerWidth),
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                // 드로어 시트도 상태바·내비게이션바를 피한다(본문과 같은 이유).
-                .systemBarsPadding()
-                .padding(PrismDimensions.topBarHorizontalPadding),
-            verticalArrangement = Arrangement.spacedBy(PrismDimensions.spacingLg),
-        ) {
-            Text(
-                text = "Prism",
-                color = colors.heading,
-                fontSize = PrismDimensions.fontSectionTitle,
-                fontWeight = FontWeight.ExtraBold,
-            )
-            NavItem(label = stringResource(R.string.dashboard_title), active = true)
-            // WebRTC는 다음 슬라이스 — 자리만 잡아두고 비활성으로 둔다(plan/dashboard.md).
-            NavItem(
-                label = stringResource(R.string.dashboard_nav_webrtc),
-                active = false,
-                trailing = stringResource(R.string.dashboard_coming_soon),
-            )
-            Box(modifier = Modifier.weight(1f))
-            HorizontalDivider(color = colors.border)
-            PreferenceControls(themeStore, localeStore, PreferenceControlsPlacement.DRAWER)
-            PrismButton(
-                text = stringResource(R.string.dashboard_log_out),
-                variant = PrismButtonVariant.OUTLINE,
-                onClick = onSignOut,
-                modifier = Modifier.fillMaxWidth(),
-            )
-        }
-    }
-}
-
-/** 시안 `Atom/NavItem` — 활성은 soft blue 배경, 예약 항목은 muted + 배지. */
-@Composable
-private fun NavItem(label: String, active: Boolean, trailing: String? = null) {
-    val colors = PrismTheme.colors
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(PrismDimensions.spacingSm),
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(PrismDimensions.navItemHeight)
-            .background(
-                if (active) colors.secondaryBackground else colors.card,
-                RoundedCornerShape(PrismDimensions.radiusMd),
-            )
-            .padding(horizontal = PrismDimensions.navItemPadding),
-    ) {
-        Text(
-            text = label,
-            color = if (active) colors.heading else colors.muted,
-            fontSize = PrismDimensions.fontBody,
-            fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
-        )
-        if (trailing != null) {
-            PrismBadge(text = trailing, variant = PrismBadgeVariant.INFO)
-        }
     }
 }
 
@@ -563,7 +426,7 @@ private fun SessionRow(
  * 기기 종류 → 라벨. 계약이 네 갈래뿐이라 `when`이 전부를 덮고, 갈래가 늘면 컴파일에서 걸린다.
  */
 @StringRes
-private fun deviceLabel(device: DeviceKind): Int = when (device) {
+internal fun deviceLabel(device: DeviceKind): Int = when (device) {
     DeviceKind.IPHONE -> R.string.dashboard_device_iphone
     DeviceKind.IPAD -> R.string.dashboard_device_ipad
     DeviceKind.GALAXY -> R.string.dashboard_device_galaxy
@@ -581,7 +444,7 @@ private fun deviceLabel(device: DeviceKind): Int = when (device) {
  * 모르는 것에 특별한 그림을 주면 그 자체가 하나의 상태처럼 읽힌다.
  */
 @DrawableRes
-private fun deviceIcon(device: DeviceKind): Int = when (device) {
+internal fun deviceIcon(device: DeviceKind): Int = when (device) {
     DeviceKind.IPHONE, DeviceKind.GALAXY, DeviceKind.PIXEL, DeviceKind.ANDROID ->
         R.drawable.ic_phone
     DeviceKind.IPAD -> R.drawable.ic_tablet

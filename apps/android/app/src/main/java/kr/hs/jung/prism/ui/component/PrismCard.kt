@@ -55,6 +55,30 @@ fun PrismCard(
     )
 }
 
+/**
+ * 웹 `.alert--info`. **오류가 아닌 사실 통지**다 — 거절·상대 종료처럼 사용자가 고칠
+ * 것이 없는 소식이 여기로 온다(§4의 Alert Info/Error).
+ */
+@Composable
+fun PrismInfoAlert(message: String, modifier: Modifier = Modifier) {
+    val colors = PrismTheme.colors
+    Text(
+        text = message,
+        color = colors.info,
+        fontSize = PrismDimensions.fontBody,
+        textAlign = TextAlign.Start,
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(PrismDimensions.radiusMd))
+            .background(colors.infoBackground)
+            .padding(
+                horizontal = PrismDimensions.alertHorizontalPadding,
+                vertical = PrismDimensions.alertVerticalPadding,
+            )
+            .semantics { liveRegion = LiveRegionMode.Polite },
+    )
+}
+
 /** 웹 `.alert--error`. 아이콘 없이 색만으로 구분한다(웹과 같은 구성). */
 @Composable
 fun PrismErrorAlert(message: String, modifier: Modifier = Modifier) {

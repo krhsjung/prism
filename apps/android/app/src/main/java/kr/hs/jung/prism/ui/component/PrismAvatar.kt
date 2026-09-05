@@ -36,8 +36,8 @@ fun PrismAvatar(name: String, modifier: Modifier = Modifier) {
         Text(
             text = initials(name),
             color = colors.primaryForeground,
-            fontSize = PrismDimensions.fontLabel,
-            fontWeight = FontWeight.Bold,
+            fontSize = PrismDimensions.avatarFontSize,
+            fontWeight = FontWeight.SemiBold,
         )
     }
 }

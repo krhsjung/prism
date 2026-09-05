@@ -170,6 +170,10 @@ dependencies {
     implementation(libs.kakao.user)
     // 웹 redirect(flow=native) 로그인을 시스템 브라우저 탭으로 연다(iOS의 ASWebAuthenticationSession 대응).
     implementation(libs.androidx.browser)
+    // WebRTC 엔진. 브라우저에는 내장돼 있지만 네이티브에는 없다 — 통화 화면이 쓰는
+    // PeerConnection·카메라 캡처·렌더러가 전부 여기서 온다(plan/webrtc.md §5).
+    implementation(libs.webrtc)
+
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.okhttp.mockwebserver)

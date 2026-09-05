@@ -4,6 +4,23 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- WebRTC의 NetworkMonitor가 `registerNetworkCallback`으로 회선 변화를 좇는다 —
+         이 권한이 없으면 그 호출이 SecurityException을 내고, JNI 경계를 넘지 못한 예외가
+         네이티브를 통째로 abort시킨다(화면에는 그냥 "앱이 죽었다"로 보인다). -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <!-- 통화가 시작되는 순간(Call · Accept · Test)에만 묻는다. 화면을 연 것만으로는
+         묻지 않는다(plan/webrtc.md §7: 명시적 사용자 제스처 후) — 권한 창이 뜨는
+         시점 자체가 그 결정의 관찰 가능한 결과다. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+
+    <!-- 카메라가 없는 기기(TV·일부 태블릿)에서도 설치는 되게 둔다 — 통화를 못 걸 뿐,
+         대시보드는 그대로 쓸 수 있고 화면이 그 이유를 말한다. -->
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.microphone" android:required="false" />
+
     <!-- Android 11+(패키지 가시성): 카카오톡 앱 로그인 가능 여부를 조회하려면 필요하다. -->
     <queries>
         <package android:name="com.kakao.talk" />
