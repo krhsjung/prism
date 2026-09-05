@@ -63,6 +63,21 @@ final class SessionSocket {
     /// 한 번이라도 붙은 적이 있는가 — 다음 `ready`가 "첫 연결"인지 "재연결"인지 가른다.
     @ObservationIgnored private var everReady = false
 
+    /// 통화 메시지를 듣는 쪽.
+    ///
+    /// **상태로 쌓지 않는다.** 시그널링은 순서가 있는 사건의 흐름이라 마지막 하나만
+    /// 남기면 offer와 ice가 서로를 덮어쓰고, 배열로 쌓으면 이미 처리한 것을 다시
+    /// 렌더에서 만난다. 듣는 쪽에 그대로 넘기고 잊는다.
+    @ObservationIgnored var onCallMessage: ((CallServerMessage) -> Void)?
+
+    /// 소켓이 끊겼다 — **서버는 이미 진행 중이던 통화를 끝냈다.**
+    ///
+    /// 창구의 소켓이 사라지면 서버가 `ended{peer-gone}`으로 접고 상대에게만 알린다.
+    /// 그 메시지는 없어진 소켓으로 오므로 이쪽은 영영 받지 못하고, 재연결해도 통화
+    /// 상태를 되물을 길이 없다(`resume`은 벨 전용이다). 듣는 쪽이 스스로 접으라고
+    /// 알려 주는 자리다.
+    @ObservationIgnored var onDisconnected: (() -> Void)?
+
     /// 서버 하트비트는 20초 간격이다. 두 번을 놓칠 때까지 기다린 뒤 죽었다고 본다 —
     /// 한 번의 지연으로 끊으면 느린 회선에서 재연결만 반복한다.
     private static let silenceDeadline: Duration = .seconds(45)
@@ -87,14 +102,27 @@ final class SessionSocket {
         connect()
     }
 
-    func stop() {
+    /// 소켓을 닫는다.
+    ///
+    /// - Parameter endingSession: 세션이 끝났는가(로그아웃).
+    ///
+    /// ⚠️ **연결 이력을 지우는 것은 세션이 끝날 때만이다.** 백그라운드로 잠깐 닫는 것은
+    /// 같은 세션의 **일시 중단**이고, 그 뒤 다시 붙는 것은 "재연결"이다 — 끊겨 있던 동안
+    /// `sessionsChanged`가 닿지 못해 다른 기기의 변화를 놓쳤을 수 있으므로 목록을 다시
+    /// 가져와야 한다. 여기서 이력을 지우면 그 재연결이 "첫 연결"로 읽혀 재조회가 사라지고,
+    /// 복귀한 화면에 낡은 목록이 남는다(웹은 숨은 탭에서 닫지 않아, Android는 같은 소켓
+    /// 객체를 재사용해 이력이 유지되므로 둘 다 재조회한다 — iOS만 갈라져 있었다).
+    ///
+    /// 반대로 **로그아웃에서는 지워야 한다.** 이 소켓은 컨테이너가 들고 있어 재로그인을
+    /// 건너 살아남는데, 이력을 남기면 다음 세션의 첫 연결이 "재연결"로 읽혀 필요 없는
+    /// 재조회가 한 번 나간다(Android는 세션 스코프라 이 문제가 없다).
+    func stop(endingSession: Bool = false) {
         stopped = true
         teardown()
+        let wasReady = isReady
         isReady = false
-        // 연결 이력은 **이 세션의 것**이다. 이 소켓은 컨테이너가 들고 있어 로그아웃·재로그인을
-        // 건너 살아남는데, 그때 이력을 남겨 두면 다음 세션의 **첫** 연결이 "재연결"로 읽혀
-        // 필요 없는 목록 재조회가 한 번 나간다(Android는 세션 스코프라 이 문제가 없다).
-        everReady = false
+        if wasReady { onDisconnected?() }
+        if endingSession { everReady = false }
     }
 
     // MARK: - 보내기
@@ -113,13 +141,31 @@ final class SessionSocket {
     /// **붙어 있지 않으면 보내지 않는다.** 큐에 쌓지 않는 것은 의도다 — 다시 붙을 때
     /// 서버가 업그레이드에서 세션을 검증하므로, 폐기된 기기는 그 자리에서 걸러진다.
     func send(_ type: SessionClientMessageType) {
-        guard isReady, let task else { return }
         // 계약의 메시지는 `{ "type": ... }` 하나뿐이라 인코더를 세우지 않는다.
-        let frame = #"{"type":"\#(type.rawValue)"}"#
+        send(frame: #"{"type":"\#(type.rawValue)"}"#)
+    }
+
+    /// 통화 시그널링을 보낸다. **보내지 못하면 false**다 — 소켓이 끊긴 사이의 `hangup`을
+    /// 보낸 셈 치면 화면이 끝난 통화를 그대로 붙들고 있게 된다. 호출부가 알아야 한다.
+    ///
+    /// 큐에 쌓지 않는 것은 의도다: 시그널링 메시지는 그 통화에서만 뜻이 있어, 재연결 뒤에
+    /// 밀어 넣으면 이미 끝난 통화에 대고 말하게 된다.
+    @discardableResult
+    func send(_ message: CallClientMessage) -> Bool {
+        guard let data = try? JSONEncoder().encode(message),
+              let frame = String(data: data, encoding: .utf8)
+        else { return false }
+        return send(frame: frame)
+    }
+
+    @discardableResult
+    private func send(frame: String) -> Bool {
+        guard isReady, let task else { return false }
         task.send(.string(frame)) { error in
-            // 못 보냈다고 할 수 있는 일이 없다 — 서버의 스윕이 결국 같은 일을 한다.
+            // 못 보냈다고 할 수 있는 일이 없다 — 화면이 상태로 판단한다.
             if error != nil { Log.network("socket send failed") }
         }
+        return true
     }
 
     // MARK: - 연결
@@ -168,6 +214,11 @@ final class SessionSocket {
         }
     }
 
+    /// 내려온 프레임을 **두 계약으로 갈라** 받는다.
+    ///
+    /// presence와 통화가 한 소켓을 나눠 쓰지만 계약은 갈라져 있다. 통화 쪽으로 간 것은
+    /// `isConnected`를 정하는 데 쓰이지 않는다 — presence는 여전히 **소켓의 존재만** 본다.
+    /// 통화였으면 nil을 돌려줘 presence 경로가 아무 일도 하지 않게 한다.
     private func decode(
         _ message: URLSessionWebSocketTask.Message,
     ) -> SocketServerMessage? {
@@ -177,6 +228,10 @@ final class SessionSocket {
         @unknown default: nil
         }
         guard let data else { return nil }
+        if let call = try? JSONDecoder().decode(CallServerMessage.self, from: data) {
+            onCallMessage?(call)
+            return nil
+        }
         // 계약에 없는 메시지는 무시한다 — 형식이 어긋났다고 연결을 끊을 이유는 없다.
         return try? JSONDecoder().decode(SocketServerMessage.self, from: data)
     }
@@ -261,7 +316,9 @@ final class SessionSocket {
     private func dropped() {
         teardown()
         // 붙어 있지 않으면 presence를 믿을 수 없다 — 화면은 두 갈래로 후퇴한다.
+        let wasReady = isReady
         isReady = false
+        if wasReady { onDisconnected?() }
         scheduleReconnect()
     }
 

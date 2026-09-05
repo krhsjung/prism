@@ -20,6 +20,14 @@
 	<key>PRISM_SOCKET_URL</key>
 	<string>$(PRISM_SOCKET_URL)</string>
 
+	<!-- 통화가 시작되는 순간(Call · Accept · Test) 카메라·마이크를 묻는다. 화면을 연
+	     것만으로는 묻지 않는다(plan/webrtc.md §7: 명시적 사용자 제스처 후) — 이 문구가
+	     뜨는 시점 자체가 그 결정의 관찰 가능한 결과다. -->
+	<key>NSCameraUsageDescription</key>
+	<string>Prism uses your camera for 1:1 video calls to your own signed-in devices. Video is sent peer-to-peer and is never recorded or stored.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Prism uses your microphone for 1:1 video calls to your own signed-in devices. Audio is sent peer-to-peer and is never recorded or stored.</string>
+
 	<!-- ── 네이티브 소셜 로그인 크리덴셜 ──
 	     실제 값은 gitignore된 Config/Secrets.xcconfig가 빌드 변수로 채운다(커밋 소스에는
 	     값이 없다). GoogleSignIn은 여기 GIDClientID를 읽고, URL 스킴은 iOS가 redirect

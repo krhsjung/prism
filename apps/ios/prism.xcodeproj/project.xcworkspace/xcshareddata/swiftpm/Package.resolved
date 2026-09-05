@@ -1,5 +1,5 @@
 {
-  "originHash" : "a93437716a426a831dd0dc8b08000813de337ec914dc579414e35608a21c38f0",
+  "originHash" : "d226b7f3f9a62438a878c79e1f8709430d84595b128060518ca4746201f719c4",
   "pins" : [
     {
       "identity" : "alamofire",
@@ -89,6 +89,15 @@
       "state" : {
         "revision" : "f4a19a3c313dc2616c70bb49d29a799fb16be837",
         "version" : "2.4.1"
+      }
+    },
+    {
+      "identity" : "webrtc",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/stasel/WebRTC",
+      "state" : {
+        "revision" : "1d04692697cb642bfebf6ad2dd99fe52649c3d6d",
+        "version" : "152.0.0"
       }
     }
   ],

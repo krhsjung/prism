@@ -43,8 +43,23 @@ enum AppColor {
 
     static let error = Color(.error)
     static let errorBackground = Color(.errorBackground)
+    /// **error 위에 얹히는** 글자·글리프(종료 버튼). 흰색을 하드코딩하면 다크의 밝은
+    /// 빨강(#E08A8A) 위에서 대비가 나오지 않는다(plan/webrtc.md §4).
+    static let errorForeground = Color(.errorForeground)
     static let success = Color(.success)
     static let successBackground = Color(.successBackground)
+
+    /// "되돌릴 수 있는 꺼짐"(음소거·카메라 오프). 종료(Destructive)와 색으로 갈라 둔다 —
+    /// 둘 다 빨강이면 화면에 빨간 원이 둘 생기고 되돌릴 수 있는 것과 없는 것이 같아 보인다.
+    static let warning = Color(.warning)
+    static let warningBackground = Color(.warningBackground)
+    static let info = Color(.info)
+    static let infoBackground = Color(.infoBackground)
+
+    /// 무대의 어두운 타일. **판은 `surface`, 타일이 `stage`다** — 둘이 같은 색이면 타일
+    /// 경계가 사라진다. 라이트/다크 양쪽에서 어둡다(영상 위의 글씨가 늘 흰색이도록).
+    static let stage = Color(.stage)
+    static let stageForeground = Color(.stageForeground)
 
     /// Kakao 브랜드 고정색(로그인 버튼 가이드 값). 테마와 무관하게 라이트/다크 공통이다 —
     /// 그래서 에셋도 단일 색으로 둔다.

@@ -18,6 +18,11 @@ struct PrismBadge: View {
         case info
         /// 연결이 없는 세션 — 유효하지만 지금 소켓을 붙들고 있지 않다. 색도 한 단계 물러선다.
         case neutral
+        /// 되돌릴 수 있는 나쁨 — 재연결 중이거나, 릴레이를 지나는 통화. **릴레이는
+        /// 실패가 아니라 비싼 성공이라** Error가 아니라 여기다(plan/webrtc.md §4).
+        case warning
+        /// 통화가 끝내 붙지 못했다. 배지가 이 말을 하므로 타일은 문구를 갖지 않는다.
+        case error
 
         var background: Color {
             switch self {
@@ -26,6 +31,8 @@ struct PrismBadge: View {
             // surface는 카드보다 한 톤 눌린 배경이라 라이트/다크 모두에서 카드 위에 얹힌다.
             // 새 토큰을 만들지 않고 있는 것으로 세 번째 갈래를 만든다(웹 `.badge--neutral`과 같다).
             case .neutral: AppColor.surface
+            case .warning: AppColor.warningBackground
+            case .error: AppColor.errorBackground
             }
         }
 
@@ -36,6 +43,8 @@ struct PrismBadge: View {
             // 같은 배지가 플랫폼마다 다른 파랑으로 나온다.
             case .info: AppColor.accent
             case .neutral: AppColor.muted
+            case .warning: AppColor.warning
+            case .error: AppColor.error
             }
         }
 
@@ -43,7 +52,7 @@ struct PrismBadge: View {
         /// (웹은 inset box-shadow로 같은 일을 한다)
         var border: Color? {
             switch self {
-            case .success, .info: nil
+            case .success, .info, .warning, .error: nil
             case .neutral: AppColor.border
             }
         }
@@ -84,7 +93,7 @@ struct PrismAvatar: View {
 
     var body: some View {
         Text(PrismAvatar.initials(of: name))
-            .font(.system(size: AppDimension.FontSize.label, weight: .bold))
+            .font(.system(size: AppDimension.Dashboard.avatarFontSize, weight: .semibold))
             .foregroundStyle(AppColor.primaryForeground)
             .frame(
                 width: AppDimension.Dashboard.avatarSize,

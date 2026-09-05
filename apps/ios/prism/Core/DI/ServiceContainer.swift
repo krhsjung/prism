@@ -31,6 +31,12 @@ final class ServiceContainer {
     /// 세션 소켓. 목록을 나르지 않고 "바뀌었다"는 신호만 준다 — 목록은 늘 위 서비스가
     /// 가져온다(그래야 재조회가 스탬핑·공유 회전이 붙은 HTTP 경로를 탄다).
     let sessionSocket: SessionSocket
+    /// 통화 하나를 붙들고 있는 자리.
+    ///
+    /// **화면이 아니라 앱에 매단다** — 걸려 온 통화는 통화 화면이 아니라 앱 위에 떠야
+    /// 하고(plan/webrtc.md §4), 대시보드를 보고 있어도 울려야 한다. 소켓을 여기 둔 것과
+    /// 같은 이유이며, 실제로 이것은 그 소켓 위에 얹힌다.
+    let call: CallController
 
     let localization: LocalizationStore
     let theme: ThemeStore
@@ -64,7 +70,12 @@ final class ServiceContainer {
             authority: authManager,
         )
 
+        // 소켓의 통화 수신구를 **컨트롤러가 가져간다** — 소켓은 메시지를 상태로 쌓지
+        // 않고 그대로 넘기므로(SessionSocket.onCallMessage), 듣는 쪽이 하나여야 한다.
+        // 번역기를 **먼저** 세운다 — 컨트롤러가 장치 이름을 만들 때 이것을 든다.
         localization = LocalizationStore()
+        call = CallController(socket: sessionSocket, localization: localization)
+
         theme = ThemeStore()
     }
 }

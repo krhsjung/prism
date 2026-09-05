@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		B7DD9B903049354200333983 /* WebRTC in Frameworks */ = {isa = PBXBuildFile; productRef = B7E34E41302B640000DB508A /* WebRTC */; };
 		B7E34E2F302B635F00DB508A /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = B7E34E2E302B635F00DB508A /* GoogleSignIn */; };
 		B7E34E32302B639200DB508A /* KakaoSDKAuth in Frameworks */ = {isa = PBXBuildFile; productRef = B7E34E31302B639200DB508A /* KakaoSDKAuth */; };
 		B7E34E34302B639200DB508A /* KakaoSDKCommon in Frameworks */ = {isa = PBXBuildFile; productRef = B7E34E33302B639200DB508A /* KakaoSDKCommon */; };
@@ -60,6 +61,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B7DD9B903049354200333983 /* WebRTC in Frameworks */,
 				B7E34E36302B639200DB508A /* KakaoSDKUser in Frameworks */,
 				B7E34E2F302B635F00DB508A /* GoogleSignIn in Frameworks */,
 				B7E34E34302B639200DB508A /* KakaoSDKCommon in Frameworks */,
@@ -137,6 +139,7 @@
 				B7E34E31302B639200DB508A /* KakaoSDKAuth */,
 				B7E34E33302B639200DB508A /* KakaoSDKCommon */,
 				B7E34E35302B639200DB508A /* KakaoSDKUser */,
+				B7E34E41302B640000DB508A /* WebRTC */,
 			);
 			productName = prism;
 			productReference = B71672B43022F5AA009B744F /* prism.app */;
@@ -225,6 +228,7 @@
 			packageReferences = (
 				B7E34E2D302B635F00DB508A /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */,
 				B7E34E30302B639200DB508A /* XCRemoteSwiftPackageReference "kakao-ios-sdk" */,
+				B7E34E40302B640000DB508A /* XCRemoteSwiftPackageReference "WebRTC" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = B71672B53022F5AA009B744F /* Products */;
@@ -676,6 +680,14 @@
 				minimumVersion = 2.28.0;
 			};
 		};
+		B7E34E40302B640000DB508A /* XCRemoteSwiftPackageReference "WebRTC" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/stasel/WebRTC";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 152.0.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -698,6 +710,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = B7E34E30302B639200DB508A /* XCRemoteSwiftPackageReference "kakao-ios-sdk" */;
 			productName = KakaoSDKUser;
+		};
+		B7E34E41302B640000DB508A /* WebRTC */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B7E34E40302B640000DB508A /* XCRemoteSwiftPackageReference "WebRTC" */;
+			productName = WebRTC;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
