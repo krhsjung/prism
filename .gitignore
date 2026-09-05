@@ -32,3 +32,9 @@ infra/deploy/charts/*/values.generated.yaml
 GoogleService-Info.plist
 Secrets.xcconfig
 *.secret.xcconfig
+
+# 작업 기록 — 저장소에 남기지 않는다.
+# 점검·대조처럼 **만드는 과정에서만 쓰는 문서**의 자리다. 결론은 plan/의 기획 문서에
+# 옮겨 적고, 여기 있는 것은 그 결론에 이르는 경로다. 커밋된 문서가 이 폴더를 링크로
+# 가리키면 클론한 사람에게는 죽은 링크가 되므로, 참조는 링크가 아니라 문장으로 남긴다.
+working/

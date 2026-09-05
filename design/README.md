@@ -202,7 +202,7 @@ soft cool 무드 (라이트/다크 양쪽 정의 — Figma `Colors` 변수 컬�
 
 **JetBrains Mono**는 토큰과 타입 스타일(`Code` 14 · `Code/Small` 12)로만 있다가 WebRTC 진단
 패널에서 실제로 쓰이기 시작했습니다. 웹은 아직 시스템 모노 스택을 쓰므로
-([plan/webrtc.md §10](../plan/webrtc.md)) 구현 때 함께 맞춥니다.
+([plan/webrtc.md §9](../plan/webrtc.md)) 구현 때 함께 맞춥니다.
 
 ## 라이트 / 다크
 
