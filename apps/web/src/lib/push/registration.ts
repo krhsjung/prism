@@ -1,6 +1,7 @@
 import { initializeApp, type FirebaseApp } from 'firebase/app';
 import { getMessaging, getToken, isSupported } from 'firebase/messaging';
 import { firebaseWebConfig, type FirebaseWebConfig } from './config';
+import { log } from '../log';
 
 // 이 브라우저의 알림 상태. 화면이 그릴 수 있는 갈래가 그대로다.
 //
@@ -62,13 +63,24 @@ export async function requestPermissionAndToken(): Promise<string | null> {
       serviceWorkerUrl(config),
       { scope: '/' },
     );
+    // ⚠️ **활성화까지 기다린다.** `register()`는 등록을 시작한 시점에 이미 돌아오므로,
+    // 갓 등록한(또는 방금 해제했다 다시 등록한) 워커는 아직 `active`가 아니다. 그 상태로
+    // `getToken`을 부르면 실패하고, 그 세션은 영영 `Notifications off`가 된다 —
+    // 개발자 도구에서 워커를 Unregister한 뒤 정확히 이 일이 벌어졌다.
+    await navigator.serviceWorker.ready;
     return await getToken(getMessaging(appOf(config)), {
       vapidKey: config.vapidKey,
       serviceWorkerRegistration: registration,
     });
-  } catch {
+  } catch (e) {
     // 토큰 발급은 네트워크·푸시 서비스에 달려 있다. 실패해도 로그인은 계속돼야 한다 —
     // 그 세션이 `Notifications off`가 될 뿐이고, 화면이 그 사실을 말한다.
+    //
+    // 다만 **조용히 삼키지는 않는다.** 사유가 없으면 "왜 계속 꺼져 있지"를 화면만 보고
+    // 알 수 없다. 개발 빌드에서만 남고 배포에는 아무것도 남지 않는다(lib/log.ts).
+    log.error('push.token_failed', {
+      reason: e instanceof Error ? e.name : 'unknown',
+    });
     return null;
   }
 }
