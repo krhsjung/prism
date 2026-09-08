@@ -2,7 +2,6 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import type {
   AuthSession,
-  DeviceKind,
   SessionInfo,
   SocialFlow,
   SocialProvider,
@@ -25,6 +24,7 @@ import {
   type OAuthClientRegistry,
 } from './oauth/oauth-client';
 import { AuthTokenService } from './session/auth-token.service';
+import { ANONYMOUS_ORIGIN, type SessionOrigin } from './session/session-origin';
 
 // 시드된 데모 계정의 고정 식별자(002 마이그레이션). 표시 이름은 저장하지 않고
 // 서버가 상수로 부여한다. (plan/auth.md)
@@ -72,14 +72,16 @@ export class AuthService {
   // 시드된 데모 계정을 조회해(upsert는 기존 행을 그대로 돌려준다) 세션을 발급한다.
   // 예전에는 하드코딩된 UUID 상수를 썼는데, 그 값이 실제 시드 행의 id와 달라
   // 데모 세션이 존재하지 않는 사용자를 가리키고 있었다.
-  async issueDemoSession(device: DeviceKind = 'unknown'): Promise<AuthSession> {
+  async issueDemoSession(
+    origin: SessionOrigin = ANONYMOUS_ORIGIN,
+  ): Promise<AuthSession> {
     const record = await this.users.upsert('demo', DEMO_PROVIDER_ID);
     return this.issueSession(
       record.id,
       record.provider,
       record.createdAt,
       DEMO_DISPLAY_NAME,
-      device,
+      origin,
     );
   }
 
@@ -104,14 +106,14 @@ export class AuthService {
     provider: SocialProvider,
     code: string,
     displayName?: string,
-    device: DeviceKind = 'unknown',
+    origin: SessionOrigin = ANONYMOUS_ORIGIN,
   ): Promise<AuthSession> {
     const profile = await this.clientOf(provider).exchangeCode(code);
     return this.issueSocialSession(
       provider,
       profile.sub,
       displayName ?? profile.displayName,
-      device,
+      origin,
     );
   }
 
@@ -136,28 +138,28 @@ export class AuthService {
     identityToken: string,
     nonce: string,
     user?: { name?: AppleUserName },
-    device: DeviceKind = 'unknown',
+    origin: SessionOrigin = ANONYMOUS_ORIGIN,
   ): Promise<AuthSession> {
     const { sub } = await this.apple.verifyIdentityToken(identityToken, nonce);
     return this.issueSocialSession(
       'apple',
       sub,
       joinPersonName(user?.name),
-      device,
+      origin,
     );
   }
 
   // Google 네이티브(google_sign_in 등): id_token을 Google 공개 키로 검증(audience 대조).
   async loginWithGoogleNative(
     idToken: string,
-    device: DeviceKind = 'unknown',
+    origin: SessionOrigin = ANONYMOUS_ORIGIN,
   ): Promise<AuthSession> {
     const profile = await this.google.verifyIdToken(idToken);
     return this.issueSocialSession(
       'google',
       profile.sub,
       profile.displayName,
-      device,
+      origin,
     );
   }
 
@@ -165,14 +167,14 @@ export class AuthService {
   // 프로필을 읽는다(Kakao access token은 불투명 문자열이라 로컬 서명 검증이 없다).
   async loginWithKakaoNative(
     accessToken: string,
-    device: DeviceKind = 'unknown',
+    origin: SessionOrigin = ANONYMOUS_ORIGIN,
   ): Promise<AuthSession> {
     const profile = await this.kakao.verifyAccessToken(accessToken);
     return this.issueSocialSession(
       'kakao',
       profile.sub,
       profile.displayName,
-      device,
+      origin,
     );
   }
 
@@ -182,7 +184,7 @@ export class AuthService {
     provider: SocialProvider,
     sub: string,
     displayName: string | undefined,
-    device: DeviceKind,
+    origin: SessionOrigin,
   ): Promise<AuthSession> {
     const record = await this.users.upsert(provider, sub);
     return this.issueSession(
@@ -190,7 +192,7 @@ export class AuthService {
       record.provider,
       record.createdAt,
       displayName,
-      device,
+      origin,
     );
   }
 
@@ -201,8 +203,7 @@ export class AuthService {
     provider: User['provider'],
     createdAt: string,
     displayName: string | undefined,
-    // 이미 enum으로 접힌 값만 받는다 — UA 원문은 컨트롤러 밖으로 나가지 않는다.
-    device: DeviceKind,
+    origin: SessionOrigin,
   ): Promise<AuthSession> {
     const user: User = {
       id: userId,
@@ -215,7 +216,8 @@ export class AuthService {
       user,
       this.config.refreshTokenTtlMs,
       SESSION_ABSOLUTE_TTL_MS,
-      device,
+      origin.device,
+      origin.push,
     );
     // PII·식별자 로그 금지: provider_id(sub)·표시 이름은 물론, 내부 user uuid도 남기지
     // 않는다 — uuid는 세션 간 안정적이라 로그가 활동 추적 트레일이 된다(공개 포트폴리오라

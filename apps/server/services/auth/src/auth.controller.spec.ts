@@ -2,13 +2,14 @@ import { JwtService } from '@nestjs/jwt';
 import type { CookieOptions, Request, Response } from 'express';
 import { PrismConfigService } from '@app/config';
 import { AuthController } from './auth.controller';
+import { PushNotificationService, PushUnavailableError } from './push.service';
 import { AuthService } from './auth.service';
 import { SessionTokenService } from '@app/session';
 import {
   AuthTokenService,
   OAUTH_STATE_TTL_MS,
 } from './session/auth-token.service';
-import type { AuthSession } from '@app/common';
+import type { AuthSession, User } from '@app/common';
 
 // jose는 ESM 전용이라 jest(CJS)가 파싱하지 못한다 — 이 스펙은 AppleOAuthClient를
 // 인스턴스화하지 않으므로(auth.service import 경유로만 닿음) 모듈 로드만 차단한다.
@@ -57,6 +58,15 @@ describe('AuthController', () => {
     redeem: redeemNativeCode,
   } as object as import('./session/native-auth-code.service').NativeAuthCodeStore;
 
+  // 푸시 전송은 이 스위트의 관심사가 아니다 — 로그인·세션 경로가 등록 토큰을 어떻게
+  // 나르는지만 본다. 전송 자체는 push.service/PushSender 스펙이 갖는다.
+  const sendToSessions = jest.fn((_userId: string, ids: string[]) =>
+    Promise.resolve(
+      ids.map((sessionId) => ({ sessionId, result: 'accepted' as const })),
+    ),
+  );
+  const pushStub = { sendToSessions } as object as PushNotificationService;
+
   const makeConfig = (demoEnabled = true, isProduction = false) =>
     ({
       demoEnabled,
@@ -76,6 +86,7 @@ describe('AuthController', () => {
     sessionTokens,
     makeConfig(),
     nativeCodes,
+    pushStub,
   );
 
   const makeRes = () => {
@@ -189,6 +200,7 @@ describe('AuthController', () => {
       sessionTokens,
       makeConfig(true, true),
       nativeCodes,
+      pushStub,
     );
     const state = tokens.buildState('google', 'nA', 'redirect');
     const { fns, res } = makeRes();
@@ -215,6 +227,7 @@ describe('AuthController', () => {
       sessionTokens,
       makeConfig(true, true),
       nativeCodes,
+      pushStub,
     );
     const start = makeRes();
     prod.socialStart(reqWith(), 'google', start.res);
@@ -237,7 +250,7 @@ describe('AuthController', () => {
       'google',
       'code-1',
       undefined,
-      'unknown',
+      { device: 'unknown' },
     );
     expect(fns.clearCookie).toHaveBeenCalledWith(
       issued,
@@ -436,7 +449,7 @@ describe('AuthController', () => {
       'google',
       'code-1',
       undefined,
-      'unknown',
+      { device: 'unknown' },
     );
     expect(sessionCookieOf(fns)).toEqual([
       'prism_session',
@@ -643,6 +656,7 @@ describe('AuthController', () => {
       sessionTokens,
       makeConfig(false),
       nativeCodes,
+      pushStub,
     );
     const { res } = makeRes();
     await expect(disabled.demo(reqWith(), res)).rejects.toThrow();
@@ -661,6 +675,7 @@ describe('AuthController', () => {
       sessionTokens,
       makeConfig(false),
       nativeCodes,
+      pushStub,
     );
     await expect(disabled.demoNative(reqWith())).rejects.toThrow();
   });
@@ -675,7 +690,9 @@ describe('AuthController', () => {
     await expect(controller.googleNative(reqWith(), 'id-tok-1')).resolves.toBe(
       session,
     );
-    expect(loginWithGoogleNative).toHaveBeenCalledWith('id-tok-1', 'unknown');
+    expect(loginWithGoogleNative).toHaveBeenCalledWith('id-tok-1', {
+      device: 'unknown',
+    });
   });
 
   it('google/native: idToken이 없으면 401 INVALID_TOKEN (검증 호출 안 함)', async () => {
@@ -700,7 +717,9 @@ describe('AuthController', () => {
     await expect(controller.kakaoNative(reqWith(), 'acc-tok-1')).resolves.toBe(
       session,
     );
-    expect(loginWithKakaoNative).toHaveBeenCalledWith('acc-tok-1', 'unknown');
+    expect(loginWithKakaoNative).toHaveBeenCalledWith('acc-tok-1', {
+      device: 'unknown',
+    });
   });
 
   it('kakao/native: accessToken이 없으면 401 INVALID_TOKEN (검증 호출 안 함)', async () => {
@@ -742,6 +761,7 @@ describe('AuthController', () => {
       sessionTokens,
       makeConfig(true, true),
       nativeCodes,
+      pushStub,
     );
     const { fns, res } = makeRes();
 
@@ -819,5 +839,170 @@ describe('AuthController', () => {
     await controller.logout(reqWith(`prism_session=${forged}`), res);
 
     expect(revokeSession).not.toHaveBeenCalled();
+  });
+
+  // ── 푸시 (plan/push.md) ──
+  //
+  // 등록 토큰은 **로그인 시점에만** 세션에 실린다(§5-2). 그래서 이 스위트가 보는 것은
+  // "여섯 개 로그인 경로가 토큰을 어떻게 나르는가"이고, 전송 자체는 push.service가 갖는다.
+  describe('푸시 등록', () => {
+    const TOKEN = 'fcm-token-abcdef';
+
+    it('데모 로그인: body의 토큰이 세션에 실린다', async () => {
+      const { res } = makeRes();
+      await controller.demo(reqWith(undefined, 'ko'), res, TOKEN);
+
+      expect(issueDemoSession).toHaveBeenCalledWith({
+        device: 'unknown',
+        push: { token: TOKEN, locale: 'ko' },
+      });
+    });
+
+    // 권한을 주지 않고 로그인하면 그 세션은 재로그인 전까지 푸시 대상이 아니다 —
+    // 목록에 `Notifications off`로 정직하게 보인다.
+    it('토큰이 없으면 등록 없이 세션이 만들어진다', async () => {
+      const { res } = makeRes();
+      await controller.demo(reqWith(), res);
+
+      expect(issueDemoSession).toHaveBeenCalledWith({ device: 'unknown' });
+    });
+
+    // 언어는 계약이 아니라 Accept-Language가 나른다 — 웹 소셜 로그인은 실을 body가
+    // 없는데 브라우저가 이 헤더를 알아서 싣기 때문이다(plan/push.md D4).
+    it('알림 문구의 언어는 Accept-Language에서 온다', async () => {
+      const { res } = makeRes();
+      await controller.demo(reqWith(undefined, 'ja,en;q=0.8'), res, TOKEN);
+
+      expect(issueDemoSession).toHaveBeenCalledWith({
+        device: 'unknown',
+        push: { token: TOKEN, locale: 'ja' },
+      });
+    });
+
+    // 토큰은 해석하지 않고 형식만 본다 — 공백이 섞인 값은 FCM 토큰이 아니다.
+    it.each([['  '], ['has space'], ['x'.repeat(5000)]])(
+      '형식이 아닌 토큰은 등록하지 않는다 (%#)',
+      async (bad) => {
+        const { res } = makeRes();
+        await controller.demo(reqWith(), res, bad);
+
+        expect(issueDemoSession).toHaveBeenCalledWith({ device: 'unknown' });
+      },
+    );
+
+    // 웹 소셜 로그인은 세션이 서버 콜백에서 만들어져 실을 body가 없다 —
+    // 시작 전에 맡겨 둔 쿠키가 그 자리를 대신한다.
+    it('맡겨 둔 쿠키가 body 없는 경로의 토큰이 된다', async () => {
+      const { res } = makeRes();
+      await controller.demo(reqWith(`prism_push_pending=${TOKEN}`), res);
+
+      expect(issueDemoSession).toHaveBeenCalledWith({
+        device: 'unknown',
+        push: { token: TOKEN, locale: 'en' },
+      });
+    });
+
+    it('body의 토큰이 쿠키보다 우선한다', async () => {
+      const { res } = makeRes();
+      await controller.demo(
+        reqWith('prism_push_pending=stale-token'),
+        res,
+        TOKEN,
+      );
+
+      expect(issueDemoSession).toHaveBeenCalledWith({
+        device: 'unknown',
+        push: { token: TOKEN, locale: 'en' },
+      });
+    });
+
+    // 토큰은 세션 안으로 들어갔다 — 브라우저에 사본을 남기지 않는다.
+    it('세션이 서면 맡겨 둔 쿠키를 지운다', async () => {
+      const { fns, res } = makeRes();
+      await controller.demo(reqWith(`prism_push_pending=${TOKEN}`), res);
+
+      expect(fns.clearCookie).toHaveBeenCalledWith(
+        'prism_push_pending',
+        expect.objectContaining({ httpOnly: true }),
+      );
+    });
+
+    it('push/pending: 토큰을 HttpOnly 쿠키로 맡아 둔다', () => {
+      const { fns, res } = makeRes();
+      controller.pushPending(res, TOKEN);
+
+      expect(fns.cookie).toHaveBeenCalledWith(
+        'prism_push_pending',
+        TOKEN,
+        expect.objectContaining({ httpOnly: true }),
+      );
+    });
+
+    // 여기서 거절해도 사용자가 할 수 있는 일이 없다 — 결과는 어차피 화면에 드러난다.
+    it('push/pending: 형식이 아닌 값은 쿠키를 심지 않고 지운다', () => {
+      const { fns, res } = makeRes();
+      controller.pushPending(res, '  ');
+
+      expect(fns.cookie).not.toHaveBeenCalled();
+      expect(fns.clearCookie).toHaveBeenCalled();
+    });
+  });
+
+  describe('푸시 전송', () => {
+    const req = { user: { id: 'u-1' } } as object as Request & { user: User };
+
+    it('대상마다 결과를 그대로 돌려준다', async () => {
+      await expect(
+        controller.sendPush(req, {
+          sessionIds: ['s-1', 's-2'],
+          message: 'hello',
+        }),
+      ).resolves.toEqual({
+        results: [
+          { sessionId: 's-1', result: 'accepted' },
+          { sessionId: 's-2', result: 'accepted' },
+        ],
+      });
+    });
+
+    it('내용을 그대로 서비스에 넘긴다', async () => {
+      await controller.sendPush(req, {
+        sessionIds: ['s-1'],
+        message: '  hi  ',
+        imageUrl: 'https://cdn.example/a.png',
+        link: 'https://example.com/x',
+        actions: 'open',
+      });
+
+      expect(sendToSessions).toHaveBeenCalledWith('u-1', ['s-1'], {
+        sessionIds: ['s-1'],
+        message: 'hi',
+        imageUrl: 'https://cdn.example/a.png',
+        link: 'https://example.com/x',
+        actions: 'open',
+      });
+    });
+
+    it.each([
+      ['빈 문구', { sessionIds: ['s-1'], message: '' }],
+      ['대상 없음', { sessionIds: [], message: 'hi' }],
+      [
+        'https가 아닌 링크',
+        { sessionIds: ['s-1'], message: 'hi', link: 'http://x.test' },
+      ],
+    ])('%s이면 400이다', async (_label, body) => {
+      await expect(controller.sendPush(req, body)).rejects.toMatchObject({
+        status: 400,
+      });
+    });
+
+    // FCM이 안 되는 것은 계약의 결과가 아니다 — 화면이 없는 사실을 말하지 않게 한다.
+    it('FCM이 안 되면 502다', async () => {
+      sendToSessions.mockRejectedValueOnce(new PushUnavailableError());
+
+      await expect(
+        controller.sendPush(req, { sessionIds: ['s-1'], message: 'hi' }),
+      ).rejects.toMatchObject({ status: 502 });
+    });
   });
 });

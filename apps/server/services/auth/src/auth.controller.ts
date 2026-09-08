@@ -18,14 +18,19 @@ import type { Request, Response } from 'express';
 import { PrismConfigService } from '@app/config';
 import { ACTIVITY_HEADER } from '@app/session';
 import { AuthService } from './auth.service';
+import { PushNotificationService, PushUnavailableError } from './push.service';
+import { decodePushRequest, type PushSendBody } from './session/push-request';
 import { WebOriginGuard } from './web-origin.guard';
 import {
   AuthTokenService,
   type SocialState,
 } from './session/auth-token.service';
 import { NativeAuthCodeStore } from './session/native-auth-code.service';
-import { classifyDevice } from './session/device';
-import type { DeviceKind } from '@app/common';
+import { originOf, type SessionOrigin } from './session/session-origin';
+import {
+  pushPendingCookieName,
+  pushPendingCookieOptions,
+} from './session/push-cookie';
 import {
   joinPersonName,
   parseAppleUserName,
@@ -40,6 +45,7 @@ import {
   localeFrom,
   translate,
   type AuthSession,
+  type PushSendResponse,
   type SessionListItem,
   type SessionUser,
   type SocialFlow,
@@ -123,6 +129,7 @@ export class AuthController {
     private readonly config: PrismConfigService,
     // 네이티브 웹-redirect 흐름의 일회용 코드 저장소(flow=native).
     private readonly nativeCodes: NativeAuthCodeStore,
+    private readonly push: PushNotificationService,
   ) {}
 
   // 원클릭 데모 로그인 — 외부 OAuth 없이 시드된 데모 계정으로 세션 발급.
@@ -134,11 +141,14 @@ export class AuthController {
   async demo(
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
+    @Body('pushToken') pushToken?: string,
   ): Promise<SessionUser> {
     if (!this.config.demoEnabled) {
       throw new HttpException({ error: AUTH_ERROR_CODES.DEMO_DISABLED }, 503);
     }
-    const session = await this.auth.issueDemoSession(this.deviceOf(req));
+    const session = await this.auth.issueDemoSession(
+      this.originOf(req, pushToken),
+    );
     this.setSession(res, session);
     return {
       user: session.user,
@@ -152,11 +162,14 @@ export class AuthController {
   // 쿠키를 심지 않으므로 login-CSRF 대상이 아니라 WebOriginGuard는 두지 않는다.
   @Post('demo/native')
   @UseGuards(ThrottlerGuard)
-  async demoNative(@Req() req: Request): Promise<AuthSession> {
+  async demoNative(
+    @Req() req: Request,
+    @Body('pushToken') pushToken?: string,
+  ): Promise<AuthSession> {
     if (!this.config.demoEnabled) {
       throw new HttpException({ error: AUTH_ERROR_CODES.DEMO_DISABLED }, 503);
     }
-    return this.auth.issueDemoSession(this.deviceOf(req));
+    return this.auth.issueDemoSession(this.originOf(req, pushToken));
   }
 
   // ──────────────────── 콜백 (provider별 프로토콜이 달라 통합하지 않음) ────────────────────
@@ -188,7 +201,7 @@ export class AuthController {
         'google',
         code,
         undefined,
-        this.deviceOf(req),
+        this.originOf(req),
       );
       await this.completeSocialSuccess(req, res, consumed.flow, session);
     } catch (e) {
@@ -224,7 +237,7 @@ export class AuthController {
         'kakao',
         code,
         undefined,
-        this.deviceOf(req),
+        this.originOf(req),
       );
       await this.completeSocialSuccess(req, res, consumed.flow, session);
     } catch (e) {
@@ -262,7 +275,7 @@ export class AuthController {
         'apple',
         code,
         this.appleNameOf(user),
-        this.deviceOf(req),
+        this.originOf(req),
       );
       await this.completeSocialSuccess(req, res, consumed.flow, session);
     } catch (e) {
@@ -282,6 +295,7 @@ export class AuthController {
     @Body('identityToken') identityToken?: string,
     @Body('nonce') nonce?: string,
     @Body('user') user?: { name?: AppleUserName },
+    @Body('pushToken') pushToken?: string,
   ): Promise<AuthSession> {
     if (!identityToken || !nonce) {
       throw new HttpException({ error: AUTH_ERROR_CODES.INVALID_TOKEN }, 401);
@@ -291,7 +305,7 @@ export class AuthController {
         identityToken,
         nonce,
         user,
-        this.deviceOf(req),
+        this.originOf(req, pushToken),
       );
     } catch (e) {
       this.logFailure(`[apple/native] login failed`, e);
@@ -306,12 +320,16 @@ export class AuthController {
   async googleNative(
     @Req() req: Request,
     @Body('idToken') idToken?: string,
+    @Body('pushToken') pushToken?: string,
   ): Promise<AuthSession> {
     if (!idToken) {
       throw new HttpException({ error: AUTH_ERROR_CODES.INVALID_TOKEN }, 401);
     }
     try {
-      return await this.auth.loginWithGoogleNative(idToken, this.deviceOf(req));
+      return await this.auth.loginWithGoogleNative(
+        idToken,
+        this.originOf(req, pushToken),
+      );
     } catch (e) {
       this.logFailure(`[google/native] login failed`, e);
       throw new HttpException({ error: AUTH_ERROR_CODES.INVALID_TOKEN }, 401);
@@ -326,6 +344,7 @@ export class AuthController {
   async kakaoNative(
     @Req() req: Request,
     @Body('accessToken') accessToken?: string,
+    @Body('pushToken') pushToken?: string,
   ): Promise<AuthSession> {
     if (!accessToken) {
       throw new HttpException({ error: AUTH_ERROR_CODES.INVALID_TOKEN }, 401);
@@ -333,7 +352,7 @@ export class AuthController {
     try {
       return await this.auth.loginWithKakaoNative(
         accessToken,
-        this.deviceOf(req),
+        this.originOf(req, pushToken),
       );
     } catch (e) {
       this.logFailure(`[kakao/native] login failed`, e);
@@ -344,6 +363,11 @@ export class AuthController {
   // 네이티브 웹-redirect(flow=native) 로그인의 일회용 코드를 토큰으로 교환한다.
   // 콜백이 커스텀 스킴으로 돌려준 코드를 앱이 여기 보내면 세션(AuthSession)을 받는다.
   // 코드는 1회용(GETDEL)이라 두 번째 교환은 실패한다.
+  //
+  // ⚠️ **이 경로에는 푸시 등록을 실을 수 없다.** 세션은 이미 콜백에서 만들어졌고, 여기서는
+  // 꺼내 줄 뿐이다. 시작 시점의 쿠키도 소용없다 — 그 쿠키는 앱이 연 **시스템 웹 브라우저의**
+  // 병에 떨어지고 앱은 그것을 읽지 못한다. 실질적으로 Android의 Apple 로그인이 여기 해당하며,
+  // 그 세션은 재로그인 전까지 `Notifications off`다(plan/push.md §7).
   @Post('native/exchange')
   @UseGuards(ThrottlerGuard)
   async nativeExchange(@Body('code') code?: string): Promise<AuthSession> {
@@ -354,10 +378,25 @@ export class AuthController {
     return session;
   }
 
-  // 요청의 User-Agent를 **기기 종류로 접는다.** 원문은 여기서 끝이고 아래로 내려가지
-  // 않는다 — 저장소에 남는 것은 enum 하나뿐이다(plan/dashboard.md §5).
-  private deviceOf(req: Request): DeviceKind {
-    return classifyDevice(req.headers['user-agent']);
+  // 세션의 출신을 요청 하나에서 읽는다 — 기기 종류(UA를 enum으로 접은 값)와, 있으면
+  // 푸시 등록(토큰 + 언어)이다. **UA 원문은 여기서 끝이고 아래로 내려가지 않는다**
+  // (plan/dashboard.md §5).
+  //
+  // 토큰의 출처는 둘이다: 요청 body(네이티브 로그인 · 웹 데모 로그인)와, body가 없는
+  // 웹 소셜 로그인을 위해 시작 시점에 심어 둔 쿠키(push-cookie.ts).
+  private originOf(req: Request, bodyToken?: string): SessionOrigin {
+    return originOf(req.headers, bodyToken ?? this.pendingPushToken(req));
+  }
+
+  private pendingPushToken(req: Request): string | undefined {
+    return cookieOf(req, pushPendingCookieName(this.config.cookiePolicy));
+  }
+
+  private clearPendingPushCookie(res: Response): void {
+    res.clearCookie(
+      pushPendingCookieName(this.config.cookiePolicy),
+      pushPendingCookieOptions(this.config.isProduction),
+    );
   }
 
   // ──────────────────────── 세션 ────────────────────────
@@ -461,13 +500,79 @@ export class AuthController {
       this.auth.listSessions(req.user.id),
       this.auth.connectedSessionIds(req.user.id),
     ]);
+    // 자격증명이 없으면 **아무도 깨울 수 없다** — 목록이 `Will notify`라고 해 놓고 아무
+    // 일도 일어나지 않는 것보다, 처음부터 `Notifications off`라고 말하는 편이 정직하다.
+    const canPush = this.config.pushEnabled;
     return sessions
       .map((s) => ({
         ...s,
         isCurrent: s.id === req.sessionId,
         isConnected: connected.has(s.id),
+        pushRegistered: canPush && s.pushRegistered,
       }))
       .sort(byCurrentThenNewest);
+  }
+
+  // 이 기기의 등록 토큰을 **로그인 시작 전에** 맡아 둔다(웹 소셜 로그인 전용).
+  //
+  // 세션은 서버 콜백 안에서 만들어져 요청 body가 없다 — 그래서 토큰을 짧은 수명의
+  // HttpOnly 쿠키에 담아 두고, 세션을 만드는 그 자리에서 꺼내 쓰고 지운다
+  // (push-cookie.ts에 이유가 적혀 있다). 살아 있는 세션을 고치는 경로가 아니다.
+  //
+  // **WebOriginGuard가 핵심이다.** 없으면 적대적인 페이지가 *자기* 토큰을 피해자
+  // 브라우저에 심어 피해자의 통화 알림을 받아 간다.
+  @Post('push/pending')
+  @HttpCode(204)
+  @UseGuards(ThrottlerGuard, WebOriginGuard)
+  pushPending(
+    @Res({ passthrough: true }) res: Response,
+    @Body('pushToken') pushToken?: string,
+  ): void {
+    // 형식이 아닌 값은 조용히 버린다 — 여기서 거절해도 사용자가 할 수 있는 일이 없고,
+    // 결과는 어차피 "그 세션은 Notifications off"로 화면에 정직하게 드러난다.
+    if (!originOf({}, pushToken).push) {
+      this.clearPendingPushCookie(res);
+      return;
+    }
+    res.cookie(
+      pushPendingCookieName(this.config.cookiePolicy),
+      pushToken,
+      pushPendingCookieOptions(this.config.isProduction),
+    );
+  }
+
+  // 내 기기들에 알림을 보낸다(푸시 화면).
+  //
+  // **클라이언트는 대상 세션 id들과 내용만 준다** — 토큰은 서버가 레코드에서 꺼낸다
+  // (plan/push.md §5-3). 알림을 남 대신 일으키는 요청이라 폐기와 같은 문(출처 검증 +
+  // 레이트리밋)을 지난다.
+  //
+  // **경로가 세션 하위가 아니다.** 대상이 여럿이라 `sessions/:id/...`에 담기지 않는다.
+  // 단일 발송은 대상이 하나인 다중 발송이므로 경로를 둘로 두지 않는다 — 두면 규칙이
+  // 둘이 되고, 언젠가 한쪽만 고쳐진다.
+  @Post('push/send')
+  @UseGuards(ThrottlerGuard, WebOriginGuard, JwtAuthGuard)
+  async sendPush(
+    @Req() req: Request & { user: User },
+    @Body() body: PushSendBody,
+  ): Promise<PushSendResponse> {
+    const content = decodePushRequest(body);
+    try {
+      return {
+        results: await this.push.sendToSessions(
+          req.user.id,
+          content.sessionIds,
+          content,
+        ),
+      };
+    } catch (e) {
+      // FCM이 지금 안 된다. 계약의 결과로 내려보내면 화면이 "토큰이 죽었다"와 갈라
+      // 말해야 하는데, 사용자가 할 수 있는 일은 다시 눌러 보는 것뿐이다.
+      if (e instanceof PushUnavailableError) {
+        throw new HttpException({ error: AUTH_ERROR_CODES.UNAUTHORIZED }, 502);
+      }
+      throw e;
+    }
   }
 
   // 모든 기기에서 로그아웃. 현재 세션도 포함되므로 쿠키를 정리한다.
@@ -583,6 +688,8 @@ export class AuthController {
       session.refreshToken,
       refreshCookieOptions(isProd, maxAge),
     );
+    // 등록 토큰은 세션 안으로 들어갔다 — 브라우저에 사본을 남기지 않는다.
+    this.clearPendingPushCookie(res);
   }
 
   private clearSessionCookies(res: Response): void {
