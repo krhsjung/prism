@@ -34,6 +34,9 @@ protocol PushServicing: Sendable {
         to sessionIds: [String],
         accessToken: String
     ) async throws -> [PushSendOutcome]
+
+    /// 지금 세션에 등록 토큰을 붙인다 — 푸시 화면의 `알림 켜기`가 부른다(§5-2).
+    func register(token: String, accessToken: String) async throws -> Bool
 }
 
 struct PushService: PushServicing {
@@ -41,6 +44,15 @@ struct PushService: PushServicing {
 
     init(network: NetworkManager) {
         self.network = network
+    }
+
+    func register(token: String, accessToken: String) async throws -> Bool {
+        let response: PushRegisterResponse = try await network.send(
+            .registerPush,
+            body: PushRegisterRequest(pushToken: token),
+            accessToken: accessToken
+        )
+        return response.registered
     }
 
     func send(
@@ -64,6 +76,14 @@ struct PushService: PushServicing {
         )
         return response.results
     }
+}
+
+private struct PushRegisterRequest: Encodable {
+    let pushToken: String
+}
+
+private struct PushRegisterResponse: Decodable {
+    let registered: Bool
 }
 
 private struct PushSendRequest: Encodable {

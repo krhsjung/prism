@@ -8,11 +8,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import android.Manifest
 import android.app.Activity
-import android.os.Build
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -37,7 +33,6 @@ import kr.hs.jung.prism.domain.model.AuthProvider
 import kr.hs.jung.prism.ui.component.LocaleSwitcher
 import kr.hs.jung.prism.ui.component.PrismButton
 import kr.hs.jung.prism.ui.component.PrismButtonVariant
-import kr.hs.jung.prism.core.push.PushTokens
 import kr.hs.jung.prism.ui.component.PrismCard
 import kr.hs.jung.prism.ui.component.PreferenceControls
 import kr.hs.jung.prism.ui.component.PreferenceControlsPlacement
@@ -56,19 +51,12 @@ fun LoginScreen(
     authManager: AuthManager,
     themeStore: ThemeStore,
     localeStore: LocaleStore,
-    pushTokens: PushTokens,
 ) {
     val viewModel: LoginViewModel = viewModel(
         factory = viewModelFactory {
-            initializer { LoginViewModel(authManager, pushTokens) }
+            initializer { LoginViewModel(authManager) }
         },
     )
-    // 33+에서만 런타임 권한이다 — 그 아래는 설치와 함께 허용된 것으로 다룬다(minSdk 24).
-    val askPermission = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission(),
-        viewModel::onPermissionResult,
-    )
-    LaunchedEffect(Unit) { viewModel.refreshPushPermission() }
     val state by viewModel.state.collectAsStateWithLifecycle()
     // 사용자가 스스로 로그아웃한 것이 아니라 서버가 세션을 끊어 여기로 온 경우 —
     // 이유를 알려 주지 않으면 대시보드에서 그냥 튕긴 것으로 보인다.
@@ -135,41 +123,6 @@ fun LoginScreen(
             // 알림 권한은 **로그인 버튼 아래**, 로그인 자체를 막지 않는 자리에 둔다.
             // 진입만으로 묻지 않는 이유는 카메라와 같다 — 명시적 제스처 뒤에만 연다
             // (plan/webrtc.md §7). 안 눌러도 로그인은 그대로 되고, 그 세션이
-            // `Notifications off`가 될 뿐이다(plan/push.md §5-2).
-            when (state.pushPermission) {
-                PushPermission.ASKABLE -> {
-                    Text(
-                        text = stringResource(R.string.push_allow_desc),
-                        color = colors.muted,
-                        fontSize = PrismDimensions.fontCaption,
-                    )
-                    PrismButton(
-                        text = stringResource(R.string.push_allow),
-                        variant = PrismButtonVariant.GHOST,
-                        enabled = !state.isBusy,
-                        onClick = {
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                                askPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
-                            } else {
-                                // 33 미만에는 물을 것이 없다 — 이미 허용된 상태다.
-                                viewModel.onPermissionResult(true)
-                            }
-                        },
-                    )
-                }
-                PushPermission.GRANTED -> Text(
-                    text = stringResource(R.string.push_allow_on),
-                    color = colors.muted,
-                    fontSize = PrismDimensions.fontCaption,
-                )
-                PushPermission.DENIED -> Text(
-                    text = stringResource(R.string.push_allow_denied),
-                    color = colors.muted,
-                    fontSize = PrismDimensions.fontCaption,
-                )
-                // 설정이 없는 빌드에서는 아무 말도 하지 않는다 — 사용자가 할 일이 없다.
-                PushPermission.UNSUPPORTED -> Unit
-            }
 
             Text(
                 text = stringResource(R.string.auth_no_personal_data),

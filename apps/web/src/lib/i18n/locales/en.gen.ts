@@ -261,11 +261,8 @@ export const messages: Messages = {
   // 권한은 로그인 화면에서 먼저 받는다 — 토큰이 로그인 요청에 실려야 하기 때문이다(§5-2)
   'push.allow': 'Turn on notifications',
   'push.allow_desc': 'Lets this device receive calls and pushes while the app is closed.',
-  'push.allow_on': 'Notifications on',
   'push.allow_denied': 'Notifications are blocked for this app. Turn them back on in your settings.',
   'push.allow_unsupported': 'This browser can\'t receive notifications.',
-  // 토큰은 로그인 시점에만 세션에 실린다 — 늦게 준 권한과 회전된 토큰이 여기서 드러난다
-  'push.reauth_hint': 'Notifications are on for this device but this session started without them. Sign in again to turn them on.',
 
   // ── error ──
   // 오류 메시지 — 키는 계약의 오류 코드와 1:1로 대응한다 (contracts.ts)

@@ -13,7 +13,6 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kr.hs.jung.prism.R
 import kr.hs.jung.prism.core.network.ApiError
-import kr.hs.jung.prism.core.push.PushTokens
 import kr.hs.jung.prism.core.util.AppLog
 
 /**
@@ -32,7 +31,6 @@ data class LoginUiState(
      * 알림 권한의 상태. **로그인 전에 묻는 이유는 등록 토큰이 로그인 요청에 실려야
      * 세션 안으로 들어가기 때문이다**(plan/push.md §5-2).
      */
-    val pushPermission: PushPermission = PushPermission.UNSUPPORTED,
 ) {
     val isBusy: Boolean get() = pending != null
 }
@@ -53,35 +51,13 @@ enum class PushPermission {
 
 class LoginViewModel(
     private val authManager: AuthManager,
-    private val pushTokens: PushTokens,
 ) : ViewModel() {
     private val _state = MutableStateFlow(LoginUiState())
     val state: StateFlow<LoginUiState> = _state.asStateFlow()
 
     private var job: Job? = null
 
-    /** 화면에 들어올 때·권한 창이 닫힌 뒤 다시 읽는다. */
-    fun refreshPushPermission() {
-        _state.update { it.copy(pushPermission = readPermission()) }
-    }
 
-    private fun readPermission(): PushPermission = when {
-        !pushTokens.enabled -> PushPermission.UNSUPPORTED
-        pushTokens.permissionGranted() -> PushPermission.GRANTED
-        else -> PushPermission.ASKABLE
-    }
-
-    /**
-     * 권한 창이 닫혔다. **거부는 되돌릴 수 없다** — 다시 물으면 시스템이 조용히 무시하므로,
-     * 화면이 설정으로 안내하도록 갈래를 나눈다.
-     */
-    fun onPermissionResult(granted: Boolean) {
-        _state.update {
-            it.copy(
-                pushPermission = if (granted) PushPermission.GRANTED else PushPermission.DENIED,
-            )
-        }
-    }
 
     // SDK UI(native)·브라우저 탭(redirect)은 Activity가 있어야 뜬다(데모 native만 null 허용).
     fun signIn(option: AuthOption, activity: Activity? = null) {
@@ -90,13 +66,7 @@ class LoginViewModel(
 
         job = viewModelScope.launch {
             try {
-                // 등록 토큰은 **로그인 요청에 실려야** 세션 안으로 들어간다. 권한이
-                // 없으면 null이고, 그 세션은 재로그인 전까지 `Notifications off`다.
-                val pushToken = pushTokens.current()
-                authManager.signIn(option.provider, option.method, activity, pushToken)
-                // 회전을 나중에 알아채려고 보낸 값을 남긴다 — 푸시 화면이 지금 토큰과
-                // 대조해 "다시 로그인하세요"를 띄운다.
-                pushToken?.let(pushTokens::rememberSent)
+                authManager.signIn(option.provider, option.method, activity)
                 // 성공하면 화면 전환은 AuthManager.state를 보는 쪽이 한다 —
                 // 여기서 화면을 밀면 세션의 진실이 두 곳에 생긴다.
             } catch (e: CancellationException) {

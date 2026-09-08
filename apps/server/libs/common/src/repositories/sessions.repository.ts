@@ -392,6 +392,40 @@ export class SessionsRepository {
     };
   }
 
+  /**
+   * 살아 있는 세션에 등록 토큰을 붙인다. **유휴 창은 밀지 않는다.**
+   *
+   * 원래는 이 문을 열지 않았다(§5-2) — 세션 레코드를 고치면 남은 TTL을 보존해야 하는데
+   * `setEx`뿐이라 수명이 리셋되기 때문이었다. 그 사이 `SET ... KEEPTTL`이 들어와
+   * 기술적 이유는 사라졌고, 남은 것은 판단이었다. **재로그인 한 번**으로 치기엔 대가가
+   * 컸다: 권한을 준 뒤 로그인을 두 번 해야 하고, 그 사실을 화면이 계속 설명해야 했다.
+   *
+   * 그래서 로그인 화면에서 권한을 먼저 받는 흐름을 버리고, 푸시 화면이 권한과 등록을
+   * 함께 처리한다. 자세한 것은 plan/push.md §5-2.
+   *
+   * 소유권은 여기서 확인한다 — 남의 세션 id로 남의 기기에 토큰을 심을 수 있으면
+   * 그것 자체가 공격이다(`pushTargetFor`와 같은 자리).
+   *
+   * **활동으로 치지 않는다.** 알림을 켜는 것은 사용자의 손짓이지만, 그것으로 세션 수명을
+   * 밀면 유휴 창이 "손을 뗀 지 얼마나 됐나"를 말하지 않게 된다(plan/auth.md §6).
+   */
+  async attachPushToken(
+    userId: string,
+    sessionId: string,
+    push: PushRegistration,
+  ): Promise<boolean> {
+    const record = await this.readRecord(sessionId);
+    if (!record || record.userId !== userId) return false;
+    return this.redis.setKeepTtl(
+      sessionKey(sessionId),
+      JSON.stringify({
+        ...record,
+        pushToken: push.token,
+        locale: push.locale,
+      }),
+    );
+  }
+
   // 소유권 범위 폐기 — 세션 id만으로 지우지 않는다. 남의 id를 넣어도 지워지면 안 된다.
   //
   // 소유권은 **세션 본체**로 판단하고, 자격증명을 먼저 지운 뒤 인덱스를 정리한다.

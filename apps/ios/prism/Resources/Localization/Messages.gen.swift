@@ -217,10 +217,8 @@ enum MessageKey: String, CaseIterable, Sendable {
     case pushChannelGeneral = "push.channel_general"
     case pushAllow = "push.allow"
     case pushAllowDesc = "push.allow_desc"
-    case pushAllowOn = "push.allow_on"
     case pushAllowDenied = "push.allow_denied"
     case pushAllowUnsupported = "push.allow_unsupported"
-    case pushReauthHint = "push.reauth_hint"
     // Error
     case errorGeneric = "error.generic"
     case errorSigninFailed = "error.signin_failed"
@@ -438,10 +436,8 @@ enum MessageKey: String, CaseIterable, Sendable {
              .pushChannelGeneral,
              .pushAllow,
              .pushAllowDesc,
-             .pushAllowOn,
              .pushAllowDenied,
-             .pushAllowUnsupported,
-             .pushReauthHint:
+             .pushAllowUnsupported:
             "Push"
         case .errorGeneric,
              .errorSigninFailed,

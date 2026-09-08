@@ -875,29 +875,6 @@
         }
       }
     },
-    "push.allow_on": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Notifications on"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "알림 켜짐"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "通知オン"
-          }
-        }
-      }
-    },
     "push.allow_denied": {
       "extractionState": "manual",
       "localizations": {
@@ -940,29 +917,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "このブラウザーは通知を受け取れません。"
-          }
-        }
-      }
-    },
-    "push.reauth_hint": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Notifications are on for this device but this session started without them. Sign in again to turn them on."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "이 기기의 알림은 켜져 있지만 이 세션은 알림 없이 시작됐습니다. 다시 로그인하면 켜집니다."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "この端末の通知はオンですが、このセッションは通知なしで開始されました。再度サインインするとオンになります。"
           }
         }
       }

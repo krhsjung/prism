@@ -142,30 +142,36 @@ struct PushView: View {
         }
     }
 
+    /// 권한을 묻고 등록까지 하는 줄. 두 갈래(안 물음·물었지만 등록 전)가 같은 것을 쓴다 —
+    /// 사용자가 할 일은 어느 쪽이든 "켜기" 하나뿐이라 컨트롤을 둘로 두지 않는다.
+    private var allowRow: some View {
+        VStack(alignment: .leading, spacing: AppDimension.Call.fieldSpacing) {
+            Text(t(.pushAllowDesc))
+                .font(.system(size: AppDimension.Call.fontCaption))
+                .foregroundStyle(AppColor.muted)
+            PrismButton(
+                title: t(.pushAllow),
+                variant: .outline,
+                fillsWidth: false,
+                action: { Task { await allowNotifications() } },
+            )
+        }
+    }
+
     @ViewBuilder
     private var permissionNotice: some View {
         switch permission {
         case .askable:
             // 진입만으로 묻지 않는다 — 명시적 제스처 뒤에만 연다(plan/webrtc.md §7).
-            VStack(alignment: .leading, spacing: AppDimension.Call.fieldSpacing) {
-                Text(t(.pushAllowDesc))
-                    .font(.system(size: AppDimension.Call.fontCaption))
-                    .foregroundStyle(AppColor.muted)
-                PrismButton(
-                    title: t(.pushAllow),
-                    variant: .outline,
-                    fillsWidth: false,
-                    action: { Task { await allowNotifications() } },
-                )
-            }
+            allowRow
         case .denied:
             note(t(.pushAllowDenied))
         case .unsupported:
             EmptyView()
+        // 권한은 켜졌는데 이 세션이 등록 전이면 **여기서 바로 붙일 수 있다**
+        // (§5-2를 뒤집었다) — 안내가 아니라 같은 켜기 버튼을 다시 내놓는다.
         case .granted:
-            if staleRegistration, pushTokens.sentToken != nil {
-                note(t(.pushReauthHint))
-            }
+            if staleRegistration { allowRow }
         }
     }
 
@@ -331,9 +337,17 @@ struct PushView: View {
             .fixedSize(horizontal: false, vertical: true)
     }
 
+    /// **권한과 등록을 함께 끝낸다.** 예전에는 토큰이 로그인 요청에만 실려서, 여기서
+    /// 권한을 켜도 그 세션은 재로그인 전까지 대상이 아니었다(§5-2를 뒤집었다).
     private func allowNotifications() async {
-        _ = await pushTokens.requestPermissionAndToken()
+        var token = await pushTokens.requestPermissionAndToken()
+        // 이미 허용돼 있으면 위가 nil일 수 있다 — 그때는 지금 토큰을 그대로 쓴다.
+        if token == nil { token = await pushTokens.current() }
         permission = await pushTokens.permission()
+        guard let token, let access = accessToken() else { return }
+        // 실패해도 화면은 사실을 말한다 — 그 줄이 `Notifications off`로 남는다.
+        _ = try? await push.register(token: token, accessToken: access)
+        await load(background: true)
     }
 
     private func load(background: Bool = false) async {

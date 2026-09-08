@@ -482,31 +482,20 @@ describe('푸시', () => {
     ).rejects.toBeInstanceOf(ApiError);
   });
 
-  // 소셜 로그인은 세션이 서버 콜백에서 만들어져 토큰을 실을 body가 없다 —
-  // 떠나기 전에 맡겨 두는 경로다.
-  it('맡기기는 토큰만 보내고 세션을 만들지 않는다', async () => {
+  // 등록은 **로그인과 분리됐다**(§5-2를 뒤집었다) — 살아 있는 세션에 토큰을 붙인다.
+  it('등록은 지금 세션에 토큰을 붙인다', async () => {
     const sent = mockFetchWithHeaders({
-      '/auth/push/pending': [new Response(null, { status: 204 })],
+      '/auth/push/register': [json(200, { registered: true })],
     });
 
-    await api.stashPushToken('fcm-tok-1');
-
-    expect(sent[0]?.path).toBe('/auth/push/pending');
+    await expect(api.registerPush('fcm-tok-1')).resolves.toEqual({
+      registered: true,
+    });
+    expect(sent[0]?.path).toBe('/auth/push/register');
     expect(sent[0]?.body).toBe(JSON.stringify({ pushToken: 'fcm-tok-1' }));
   });
 
-  // 데모 로그인은 body가 있으므로 맡기기가 필요 없다.
-  it('데모 로그인은 토큰을 body로 함께 보낸다', async () => {
-    const sent = mockFetchWithHeaders({
-      '/auth/demo': [json(200, sessionUser)],
-    });
-
-    await api.demoLogin('fcm-tok-1');
-
-    expect(sent[0]?.body).toBe(JSON.stringify({ pushToken: 'fcm-tok-1' }));
-  });
-
-  it('토큰이 없으면 빈 body로 보낸다', async () => {
+  it('데모 로그인은 더 이상 토큰을 싣지 않는다', async () => {
     const sent = mockFetchWithHeaders({ '/auth/demo': [json(200, sessionUser)] });
 
     await api.demoLogin();

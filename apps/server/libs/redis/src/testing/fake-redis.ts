@@ -26,6 +26,14 @@ export class FakeRedis implements RedisClient {
     return Promise.resolve();
   }
 
+  // 값만 갈고 만료 시각은 그대로 둔다(실제 Lua의 SET ... KEEPTTL XX).
+  setKeepTtl(key: string, value: string): Promise<boolean> {
+    const found = this.values.get(key);
+    if (!found || found.expiresAt <= Date.now()) return Promise.resolve(false);
+    this.values.set(key, { value, expiresAt: found.expiresAt });
+    return Promise.resolve(true);
+  }
+
   get(key: string): Promise<string | null> {
     const entry = this.values.get(key);
     if (!entry) return Promise.resolve(null);

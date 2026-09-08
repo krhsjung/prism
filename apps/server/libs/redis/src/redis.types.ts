@@ -84,6 +84,13 @@ export interface ScoredMember {
 export interface RedisClient {
   // 값 + TTL(초). 세션 본체는 TTL로 자연 소멸한다.
   setEx(key: string, value: string, ttlSeconds: number): Promise<void>;
+  // 값만 갈고 **수명은 손대지 않는다**(SET ... KEEPTTL XX).
+  //
+  // 살아 있는 레코드의 한 필드를 고칠 때 쓴다. `setEx`로 다시 쓰면 유휴 창이 리셋되어
+  // "사용자가 손을 뗀 지 얼마나 됐나"가 거짓이 되고, 세션이 조용히 길어진다.
+  // `XX`라서 **없는 키를 되살리지 않는다** — 그 사이 만료된 세션은 만료된 채로 둔다.
+  // 바뀌었으면 true, 키가 없으면 false.
+  setKeepTtl(key: string, value: string): Promise<boolean>;
   get(key: string): Promise<string | null>;
   // 값을 읽으면서 **원자적으로** 지운다(GETDEL) — 일회용 토큰/코드의 소비에 쓴다.
   // get 후 del로 나누면 그 틈에 두 요청이 같은 값을 읽어 한 번만 유효해야 할 코드가

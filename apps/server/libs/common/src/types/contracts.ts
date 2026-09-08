@@ -853,6 +853,24 @@ export const MAX_PUSH_TARGETS = 20;
 export const MAX_PUSH_URL_LENGTH = 2048;
 
 // 푸시 화면이 보내는 요청. **토큰은 없다** — 대상은 세션 id로 가리키고 서버가 꺼낸다.
+// 지금 세션에 등록 토큰을 붙이는 요청(`POST /auth/push/register`).
+//
+// **로그인 요청에는 더 이상 토큰을 싣지 않는다**(§5-2를 뒤집었다). 권한과 등록을 푸시
+// 화면이 함께 처리하므로, 로그인 화면은 로그인만 한다.
+export interface PushRegisterRequest {
+  pushToken: string;
+}
+
+export interface PushRegisterResponse {
+  // 그 세션이 아직 살아 있고 내 것이면 true. 아니면 false — 화면은 목록을 다시 부른다.
+  registered: boolean;
+}
+
+export function decodePushRegisterResponse(v: JsonValue): PushRegisterResponse {
+  const obj = decodeObject(v, 'PushRegisterResponse');
+  return { registered: obj.registered === true };
+}
+
 export interface PushSendRequest {
   sessionIds: string[];
   message: string;

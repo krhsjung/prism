@@ -108,12 +108,9 @@ export function PushPage() {
 
   const registered = sessions.filter((session) => session.pushRegistered);
   const current = sessions.find((session) => session.isCurrent);
-  // 토큰은 **로그인 시점에만** 세션에 실린다(§5-2). 그래서 이 화면에서 권한을 허용해도
-  // 지금 세션은 여전히 토큰이 없다 — 권한은 켜졌는데 줄은 `Notifications off`다.
-  //
-  // ⚠️ **보낸 토큰이 남아 있는지로 이 안내를 가르지 않는다.** 그러면 처음 허용한
-  //    사람에게는(아직 로그인에 토큰을 실어 본 적이 없으므로) 아무 설명도 안 뜨고,
-  //    화면이 막다른 길이 된다 — 켜기 줄은 사라졌는데 줄은 그대로 꺼져 있다.
+  // 권한은 켜졌는데 이 세션이 아직 등록 전인 경우. 예전에는 재로그인 말고는 길이
+  // 없었지만(§5-2), 지금은 여기서 바로 붙일 수 있다 — 그래서 안내가 아니라
+  // **켜기 버튼**을 다시 내놓는다.
   const staleRegistration =
     permission === 'granted' && current !== undefined && !current.pushRegistered;
 
@@ -128,9 +125,19 @@ export function PushPage() {
     );
   }
 
+  // **권한과 등록을 여기서 함께 끝낸다.** 예전에는 토큰이 로그인 요청에만 실려서,
+  // 여기서 권한을 켜도 그 세션은 재로그인 전까지 대상이 아니었다(§5-2를 뒤집었다).
   async function allowNotifications() {
-    await requestPermissionAndToken();
+    const token = await requestPermissionAndToken();
     setPermission(currentPermission());
+    if (!token) return;
+    try {
+      await api.registerPush(token);
+      // 목록을 다시 부른다 — 방금 이 세션이 대상이 됐다.
+      await load(true);
+    } catch {
+      // 등록이 실패해도 화면은 사실을 말한다: 그 줄이 `Notifications off`로 남는다.
+    }
   }
 
   async function send() {
@@ -167,7 +174,9 @@ export function PushPage() {
   // 안내는 **한 번에 하나만** 뜬다 — 권한의 세 상태가 서로 배타적이고 재로그인 안내는
   // `granted`일 때만 나온다. 그래서 카드에서도 구획 하나를 차지한다.
   let notice: ReactNode = null;
-  if (permission === 'default') {
+  // 권한이 없으면 묻고, 있는데 이 세션이 등록 전이면 등록만 한다 — **같은 버튼**이다.
+  // 사용자가 할 일은 어느 쪽이든 "켜기" 하나뿐이라 컨트롤을 둘로 두지 않는다.
+  if (permission === 'default' || staleRegistration) {
     notice = (
       <div className="push__permission">
         <p className="card__note">{t('push.allow_desc')}</p>
@@ -186,8 +195,6 @@ export function PushPage() {
     notice = (
       <div className="alert alert--info">{t('push.allow_unsupported')}</div>
     );
-  } else if (staleRegistration) {
-    notice = <div className="alert alert--info">{t('push.reauth_hint')}</div>;
   }
 
   return (

@@ -29,6 +29,9 @@ data class PushOutcome(val sessionId: String, val result: PushSendResult)
  * 일도 없다(전송에는 서버 자격증명이 필요하다).
  */
 interface PushApi {
+    /** 지금 세션에 등록 토큰을 붙인다 — 푸시 화면의 `알림 켜기`가 부른다(§5-2). */
+    suspend fun register(accessToken: String, token: String): Boolean
+
     suspend fun send(
         accessToken: String,
         sessionIds: List<String>,
@@ -37,6 +40,21 @@ interface PushApi {
 }
 
 class HttpPushApi(private val client: ApiClient) : PushApi {
+    override suspend fun register(accessToken: String, token: String): Boolean {
+        val body = client.request(
+            "POST",
+            "/auth/push/register",
+            body = JSONObject().put("pushToken", token).toString(),
+            accessToken = accessToken,
+        )
+        return try {
+            JSONObject(body).optBoolean("registered")
+        } catch (e: JSONException) {
+            // 형식이 아니면 등록되지 않은 것으로 다룬다 — 화면이 목록으로 사실을 말한다.
+            false
+        }
+    }
+
     override suspend fun send(
         accessToken: String,
         sessionIds: List<String>,

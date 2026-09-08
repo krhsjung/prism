@@ -32,15 +32,10 @@ final class LoginViewModel {
 
     var isBusy: Bool { pending != nil }
 
-    /// 알림 권한의 상태. **로그인 전에 묻는 이유는 등록 토큰이 로그인 요청에 실려야
-    /// 세션 안으로 들어가기 때문이다**(plan/push.md §5-2).
-    private(set) var pushPermission: PushPermission = .unsupported
 
     @ObservationIgnored
     private let authManager: AuthManager
 
-    @ObservationIgnored
-    private let pushTokens: PushTokens
 
     @ObservationIgnored
     private var task: Task<Void, Never>?
@@ -53,22 +48,10 @@ final class LoginViewModel {
     /// 깜박이는 것을 없앤다. 실제(네트워크) 로그인은 이보다 오래 걸려 정상적으로 표시된다.
     private static let busyGrace: Duration = .milliseconds(150)
 
-    init(authManager: AuthManager, pushTokens: PushTokens) {
+    init(authManager: AuthManager) {
         self.authManager = authManager
-        self.pushTokens = pushTokens
     }
 
-    /// 화면에 들어올 때 읽는다. **진입만으로 묻지는 않는다** — 이 저장소가 카메라에
-    /// 세운 규칙("명시적 제스처 뒤에만", plan/webrtc.md §7)과 같은 줄이다.
-    func refreshPushPermission() async {
-        pushPermission = await pushTokens.permission()
-    }
-
-    /// `알림 켜기`를 눌렀다.
-    func allowNotifications() async {
-        _ = await pushTokens.requestPermissionAndToken()
-        pushPermission = await pushTokens.permission()
-    }
 
     func signIn(_ option: AuthOption) {
         // 재진입 가드는 **동기 상태**(task)로 한다 — pending은 유예 뒤에야 켜지므로
@@ -97,17 +80,10 @@ final class LoginViewModel {
                 task = nil
             }
             do {
-                // 등록 토큰은 **로그인 요청에 실려야** 세션 안으로 들어간다. 권한이
-                // 없으면 nil이고, 그 세션은 재로그인 전까지 `Notifications off`다.
-                let pushToken = await pushTokens.current()
                 try await authManager.signIn(
                     with: option.provider,
                     method: option.method,
-                    pushToken: pushToken,
                 )
-                // 회전을 나중에 알아채려고 보낸 값을 남긴다 — 푸시 화면이 지금 토큰과
-                // 대조해 "다시 로그인하세요"를 띄운다.
-                if let pushToken { pushTokens.rememberSent(pushToken) }
                 // 성공하면 화면 전환은 `AuthManager.state`를 보는 쪽이 한다 —
                 // 여기서 화면을 밀면 세션의 진실이 두 곳에 생긴다.
             } catch is CancellationError {

@@ -63,7 +63,6 @@ fun RootScreen(container: ServiceContainer) {
                     auth,
                     container.themeStore,
                     container.localeStore,
-                    container.pushTokens,
                 )
             }
             is AuthManager.State.SignedIn -> {
@@ -173,6 +172,7 @@ private fun SignedIn(container: ServiceContainer, current: AuthManager.State.Sig
             localeStore = container.localeStore,
             sessionsApi = container.sessionsApi,
             pushApi = container.pushApi,
+            pushTokens = container.pushTokens,
             tokens = container.sessionTokens,
             drawerState = drawerState,
             onNavigate = { page = it },

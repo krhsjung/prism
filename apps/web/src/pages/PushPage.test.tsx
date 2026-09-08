@@ -25,7 +25,7 @@ vi.mock('../lib/api', async () => {
   );
   return {
     ...actual,
-    api: { sessions: vi.fn(), sendPush: vi.fn() },
+    api: { sessions: vi.fn(), sendPush: vi.fn(), registerPush: vi.fn() },
   };
 });
 import { api, ApiError } from '../lib/api';
@@ -345,13 +345,31 @@ describe('PushPage', () => {
   });
 
   // 토큰은 로그인 시점에만 세션에 실린다 — 늦게 준 권한과 회전된 토큰이 여기서 드러난다.
-  // 보낸 토큰이 남아 있는지로 가르지 않는다 — 이 화면에서 처음 허용한 사람은 로그인에
-  // 토큰을 실어 본 적이 없어서, 그것으로 가르면 켜기 줄만 사라지고 아무 설명도 안 뜬다.
-  it('권한은 켜졌는데 이 세션이 등록 전이면 다시 로그인하라고 말한다', async () => {
+  // 권한은 켜졌는데 이 세션이 등록 전이면, **여기서 바로 켤 수 있다**(§5-2를 뒤집었다).
+  // 예전에는 재로그인 말고 길이 없어 안내만 띄웠다.
+  it('권한은 켜졌는데 등록 전이면 켜기 버튼을 다시 내놓는다', async () => {
     renderPush([{ ...registered, pushRegistered: false }, unregistered]);
 
     await waitFor(() =>
-      expect(screen.getByText(/Sign in again to turn them on/)).toBeTruthy(),
+      expect(
+        screen.getByRole('button', { name: 'Turn on notifications' }),
+      ).toBeTruthy(),
+    );
+  });
+
+  it('켜기를 누르면 지금 세션에 토큰을 붙이고 목록을 다시 부른다', async () => {
+    vi.mocked(requestPermissionAndToken).mockResolvedValue('fcm-tok-9');
+    renderPush([{ ...registered, pushRegistered: false }, unregistered]);
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: 'Turn on notifications' }),
+      ).toBeTruthy(),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Turn on notifications' }));
+
+    await waitFor(() =>
+      expect(api.registerPush).toHaveBeenCalledWith('fcm-tok-9'),
     );
   });
 });

@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kr.hs.jung.prism.core.network.ApiError
 import kr.hs.jung.prism.core.security.SessionTokens
+import kr.hs.jung.prism.core.push.PushTokens
 import kr.hs.jung.prism.domain.model.MAX_PUSH_TARGETS
 import kr.hs.jung.prism.domain.model.PushActionSet
 import kr.hs.jung.prism.domain.model.PushSendResult
@@ -19,6 +20,8 @@ data class PushUiState(
     val sessions: List<SessionListItem> = emptyList(),
     /** 고른 대상들. **여럿 고를 수 있다**(plan/push.md §5-10). */
     val targetIds: List<String> = emptyList(),
+    /** 이 기기의 알림 권한. 켜기 줄을 그릴지 가른다. */
+    val permissionGranted: Boolean = false,
     val title: String = "",
     val message: String = "",
     val imageUrl: String = "",
@@ -44,9 +47,30 @@ class PushViewModel(
     private val sessionsApi: SessionsApi,
     private val pushApi: PushApi,
     private val tokens: SessionTokens,
+    private val pushTokens: PushTokens,
 ) : ViewModel() {
     private val _state = MutableStateFlow(PushUiState())
     val state: StateFlow<PushUiState> = _state.asStateFlow()
+
+    /** 화면에 들어올 때·권한 창이 닫힌 뒤 다시 읽는다. */
+    fun refreshPermission() = _state.update {
+        it.copy(permissionGranted = pushTokens.enabled && pushTokens.permissionGranted())
+    }
+
+    /**
+     * **권한과 등록을 함께 끝낸다.** 예전에는 토큰이 로그인 요청에만 실려서, 여기서
+     * 권한을 켜도 그 세션은 재로그인 전까지 대상이 아니었다(§5-2를 뒤집었다).
+     */
+    fun registerThisDevice() {
+        viewModelScope.launch {
+            refreshPermission()
+            val access = tokens.access() ?: return@launch
+            val fcm = pushTokens.current() ?: return@launch
+            // 실패해도 화면은 사실을 말한다 — 그 줄이 `Notifications off`로 남는다.
+            runCatching { pushApi.register(access, fcm) }
+            load(background = true)
+        }
+    }
 
     fun load(background: Boolean = false) {
         viewModelScope.launch {

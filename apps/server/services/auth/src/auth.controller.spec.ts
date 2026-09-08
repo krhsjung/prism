@@ -65,7 +65,11 @@ describe('AuthController', () => {
       ids.map((sessionId) => ({ sessionId, result: 'accepted' as const })),
     ),
   );
-  const pushStub = { sendToSessions } as object as PushNotificationService;
+  const registerToken = jest.fn<Promise<boolean>, [string, string, string, string]>();
+  const pushStub = {
+    sendToSessions,
+    registerToken,
+  } as object as PushNotificationService;
 
   const makeConfig = (demoEnabled = true, isProduction = false) =>
     ({
@@ -843,109 +847,39 @@ describe('AuthController', () => {
 
   // ── 푸시 (plan/push.md) ──
   //
-  // 등록 토큰은 **로그인 시점에만** 세션에 실린다(§5-2). 그래서 이 스위트가 보는 것은
-  // "여섯 개 로그인 경로가 토큰을 어떻게 나르는가"이고, 전송 자체는 push.service가 갖는다.
+  // 등록은 **로그인과 분리됐다**(§5-2를 뒤집었다) — 살아 있는 세션에 붙인다. 그래서 이
+  // 스위트가 보는 것은 그 한 경로이고, 로그인 경로들은 더 이상 토큰을 나르지 않는다.
   describe('푸시 등록', () => {
     const TOKEN = 'fcm-token-abcdef';
+    const req = {
+      user: { id: 'u-1' },
+      sessionId: 's-1',
+      headers: { 'accept-language': 'ko' },
+    } as object as Request & { user: User; sessionId: string };
 
-    it('데모 로그인: body의 토큰이 세션에 실린다', async () => {
-      const { res } = makeRes();
-      await controller.demo(reqWith(undefined, 'ko'), res, TOKEN);
+    it('지금 세션에 토큰을 붙이고 요청의 언어를 함께 담는다', async () => {
+      registerToken.mockResolvedValue(true);
 
-      expect(issueDemoSession).toHaveBeenCalledWith({
-        device: 'unknown',
-        push: { token: TOKEN, locale: 'ko' },
+      await expect(controller.registerPush(req, TOKEN)).resolves.toEqual({
+        registered: true,
+      });
+      expect(registerToken).toHaveBeenCalledWith('u-1', 's-1', TOKEN, 'ko');
+    });
+
+    it('그 세션이 사라졌으면 false를 돌려준다 — 화면이 목록으로 사실을 말한다', async () => {
+      registerToken.mockResolvedValue(false);
+
+      await expect(controller.registerPush(req, TOKEN)).resolves.toEqual({
+        registered: false,
       });
     });
 
-    // 권한을 주지 않고 로그인하면 그 세션은 재로그인 전까지 푸시 대상이 아니다 —
-    // 목록에 `Notifications off`로 정직하게 보인다.
-    it('토큰이 없으면 등록 없이 세션이 만들어진다', async () => {
-      const { res } = makeRes();
-      await controller.demo(reqWith(), res);
-
-      expect(issueDemoSession).toHaveBeenCalledWith({ device: 'unknown' });
-    });
-
-    // 언어는 계약이 아니라 Accept-Language가 나른다 — 웹 소셜 로그인은 실을 body가
-    // 없는데 브라우저가 이 헤더를 알아서 싣기 때문이다(plan/push.md D4).
-    it('알림 문구의 언어는 Accept-Language에서 온다', async () => {
-      const { res } = makeRes();
-      await controller.demo(reqWith(undefined, 'ja,en;q=0.8'), res, TOKEN);
-
-      expect(issueDemoSession).toHaveBeenCalledWith({
-        device: 'unknown',
-        push: { token: TOKEN, locale: 'ja' },
-      });
-    });
-
-    // 토큰은 해석하지 않고 형식만 본다 — 공백이 섞인 값은 FCM 토큰이 아니다.
-    it.each([['  '], ['has space'], ['x'.repeat(5000)]])(
-      '형식이 아닌 토큰은 등록하지 않는다 (%#)',
-      async (bad) => {
-        const { res } = makeRes();
-        await controller.demo(reqWith(), res, bad);
-
-        expect(issueDemoSession).toHaveBeenCalledWith({ device: 'unknown' });
+    it.each([['빈 값', '  '], ['없음', undefined]])(
+      '%s이면 400이다',
+      async (_label, value) => {
+        await expect(controller.registerPush(req, value)).rejects.toThrow();
       },
     );
-
-    // 웹 소셜 로그인은 세션이 서버 콜백에서 만들어져 실을 body가 없다 —
-    // 시작 전에 맡겨 둔 쿠키가 그 자리를 대신한다.
-    it('맡겨 둔 쿠키가 body 없는 경로의 토큰이 된다', async () => {
-      const { res } = makeRes();
-      await controller.demo(reqWith(`prism_push_pending=${TOKEN}`), res);
-
-      expect(issueDemoSession).toHaveBeenCalledWith({
-        device: 'unknown',
-        push: { token: TOKEN, locale: 'en' },
-      });
-    });
-
-    it('body의 토큰이 쿠키보다 우선한다', async () => {
-      const { res } = makeRes();
-      await controller.demo(
-        reqWith('prism_push_pending=stale-token'),
-        res,
-        TOKEN,
-      );
-
-      expect(issueDemoSession).toHaveBeenCalledWith({
-        device: 'unknown',
-        push: { token: TOKEN, locale: 'en' },
-      });
-    });
-
-    // 토큰은 세션 안으로 들어갔다 — 브라우저에 사본을 남기지 않는다.
-    it('세션이 서면 맡겨 둔 쿠키를 지운다', async () => {
-      const { fns, res } = makeRes();
-      await controller.demo(reqWith(`prism_push_pending=${TOKEN}`), res);
-
-      expect(fns.clearCookie).toHaveBeenCalledWith(
-        'prism_push_pending',
-        expect.objectContaining({ httpOnly: true }),
-      );
-    });
-
-    it('push/pending: 토큰을 HttpOnly 쿠키로 맡아 둔다', () => {
-      const { fns, res } = makeRes();
-      controller.pushPending(res, TOKEN);
-
-      expect(fns.cookie).toHaveBeenCalledWith(
-        'prism_push_pending',
-        TOKEN,
-        expect.objectContaining({ httpOnly: true }),
-      );
-    });
-
-    // 여기서 거절해도 사용자가 할 수 있는 일이 없다 — 결과는 어차피 화면에 드러난다.
-    it('push/pending: 형식이 아닌 값은 쿠키를 심지 않고 지운다', () => {
-      const { fns, res } = makeRes();
-      controller.pushPending(res, '  ');
-
-      expect(fns.cookie).not.toHaveBeenCalled();
-      expect(fns.clearCookie).toHaveBeenCalled();
-    });
   });
 
   describe('푸시 전송', () => {

@@ -64,10 +64,6 @@
     <!-- 권한은 로그인 화면에서 먼저 받는다 — 토큰이 로그인 요청에 실려야 하기 때문이다(§5-2) -->
     <string name="push_allow">Turn on notifications</string>
     <string name="push_allow_desc">Lets this device receive calls and pushes while the app is closed.</string>
-    <string name="push_allow_on">Notifications on</string>
     <string name="push_allow_denied">Notifications are blocked for this app. Turn them back on in your settings.</string>
     <string name="push_allow_unsupported">This browser can\'t receive notifications.</string>
-
-    <!-- 토큰은 로그인 시점에만 세션에 실린다 — 늦게 준 권한과 회전된 토큰이 여기서 드러난다 -->
-    <string name="push_reauth_hint">Notifications are on for this device but this session started without them. Sign in again to turn them on.</string>
 </resources>

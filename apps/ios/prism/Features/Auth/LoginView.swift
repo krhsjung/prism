@@ -26,10 +26,10 @@ struct LoginView: View {
     /// 바뀌어도 측정은 흔들리지 않는다(뷰포트가 실제로 바뀔 때만 갱신된다).
     @State private var viewportHeight: CGFloat = 0
 
-    init(authManager: AuthManager, pushTokens: PushTokens) {
+    init(authManager: AuthManager) {
         self.authManager = authManager
         _viewModel = State(
-            initialValue: LoginViewModel(authManager: authManager, pushTokens: pushTokens)
+            initialValue: LoginViewModel(authManager: authManager)
         )
     }
 
@@ -103,42 +103,13 @@ struct LoginView: View {
             // 알림 권한은 **로그인 버튼 아래**, 로그인 자체를 막지 않는 자리에 둔다.
             // 진입만으로 묻지 않는 이유는 카메라와 같다 — 명시적 제스처 뒤에만 연다
             // (plan/webrtc.md §7). 안 눌러도 로그인은 그대로 되고, 그 세션이
-            // `Notifications off`가 될 뿐이다(plan/push.md §5-2).
-            pushPermissionRow
 
             Text(t(.authNoPersonalData))
                 .font(.system(size: AppDimension.FontSize.body))
                 .foregroundStyle(AppColor.muted)
         }
-        .task { await viewModel.refreshPushPermission() }
     }
 
-    @ViewBuilder
-    private var pushPermissionRow: some View {
-        switch viewModel.pushPermission {
-        case .askable:
-            VStack(alignment: .leading, spacing: AppDimension.Call.fieldSpacing) {
-                Text(t(.pushAllowDesc))
-                    .font(.system(size: AppDimension.Call.fontCaption))
-                    .foregroundStyle(AppColor.muted)
-                    .fixedSize(horizontal: false, vertical: true)
-                PrismButton(
-                    title: t(.pushAllow),
-                    variant: .ghost,
-                    isEnabled: !viewModel.isBusy,
-                    fillsWidth: false,
-                    action: { Task { await viewModel.allowNotifications() } },
-                )
-            }
-        case .granted:
-            pushNote(t(.pushAllowOn))
-        case .denied:
-            pushNote(t(.pushAllowDenied))
-        // 설정이 없는 빌드에서는 아무 말도 하지 않는다 — 사용자가 할 일이 없다.
-        case .unsupported:
-            EmptyView()
-        }
-    }
 
     private func pushNote(_ text: String) -> some View {
         Text(text)
@@ -177,7 +148,6 @@ struct LoginView: View {
 #Preview {
     LoginView(
         authManager: ServiceContainer.shared.authManager,
-        pushTokens: ServiceContainer.shared.pushTokens,
     )
         .environment(ServiceContainer.shared.localization)
         .environment(ServiceContainer.shared.theme)

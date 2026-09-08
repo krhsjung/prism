@@ -28,10 +28,6 @@ import {
 import { NativeAuthCodeStore } from './session/native-auth-code.service';
 import { originOf, type SessionOrigin } from './session/session-origin';
 import {
-  pushPendingCookieName,
-  pushPendingCookieOptions,
-} from './session/push-cookie';
-import {
   joinPersonName,
   parseAppleUserName,
   type AppleUserName,
@@ -42,6 +38,7 @@ import {
   OAUTH_MESSAGE_TYPE,
   SOCIAL_FLOWS,
   SOCIAL_PROVIDERS,
+  MAX_PUSH_TOKEN_LENGTH,
   localeFrom,
   translate,
   type AuthSession,
@@ -141,13 +138,12 @@ export class AuthController {
   async demo(
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
-    @Body('pushToken') pushToken?: string,
   ): Promise<SessionUser> {
     if (!this.config.demoEnabled) {
       throw new HttpException({ error: AUTH_ERROR_CODES.DEMO_DISABLED }, 503);
     }
     const session = await this.auth.issueDemoSession(
-      this.originOf(req, pushToken),
+      this.originOf(req),
     );
     this.setSession(res, session);
     return {
@@ -164,12 +160,11 @@ export class AuthController {
   @UseGuards(ThrottlerGuard)
   async demoNative(
     @Req() req: Request,
-    @Body('pushToken') pushToken?: string,
   ): Promise<AuthSession> {
     if (!this.config.demoEnabled) {
       throw new HttpException({ error: AUTH_ERROR_CODES.DEMO_DISABLED }, 503);
     }
-    return this.auth.issueDemoSession(this.originOf(req, pushToken));
+    return this.auth.issueDemoSession(this.originOf(req));
   }
 
   // ──────────────────── 콜백 (provider별 프로토콜이 달라 통합하지 않음) ────────────────────
@@ -295,7 +290,6 @@ export class AuthController {
     @Body('identityToken') identityToken?: string,
     @Body('nonce') nonce?: string,
     @Body('user') user?: { name?: AppleUserName },
-    @Body('pushToken') pushToken?: string,
   ): Promise<AuthSession> {
     if (!identityToken || !nonce) {
       throw new HttpException({ error: AUTH_ERROR_CODES.INVALID_TOKEN }, 401);
@@ -305,7 +299,7 @@ export class AuthController {
         identityToken,
         nonce,
         user,
-        this.originOf(req, pushToken),
+        this.originOf(req),
       );
     } catch (e) {
       this.logFailure(`[apple/native] login failed`, e);
@@ -320,7 +314,6 @@ export class AuthController {
   async googleNative(
     @Req() req: Request,
     @Body('idToken') idToken?: string,
-    @Body('pushToken') pushToken?: string,
   ): Promise<AuthSession> {
     if (!idToken) {
       throw new HttpException({ error: AUTH_ERROR_CODES.INVALID_TOKEN }, 401);
@@ -328,7 +321,7 @@ export class AuthController {
     try {
       return await this.auth.loginWithGoogleNative(
         idToken,
-        this.originOf(req, pushToken),
+        this.originOf(req),
       );
     } catch (e) {
       this.logFailure(`[google/native] login failed`, e);
@@ -344,7 +337,6 @@ export class AuthController {
   async kakaoNative(
     @Req() req: Request,
     @Body('accessToken') accessToken?: string,
-    @Body('pushToken') pushToken?: string,
   ): Promise<AuthSession> {
     if (!accessToken) {
       throw new HttpException({ error: AUTH_ERROR_CODES.INVALID_TOKEN }, 401);
@@ -352,7 +344,7 @@ export class AuthController {
     try {
       return await this.auth.loginWithKakaoNative(
         accessToken,
-        this.originOf(req, pushToken),
+        this.originOf(req),
       );
     } catch (e) {
       this.logFailure(`[kakao/native] login failed`, e);
@@ -378,26 +370,16 @@ export class AuthController {
     return session;
   }
 
-  // 세션의 출신을 요청 하나에서 읽는다 — 기기 종류(UA를 enum으로 접은 값)와, 있으면
-  // 푸시 등록(토큰 + 언어)이다. **UA 원문은 여기서 끝이고 아래로 내려가지 않는다**
-  // (plan/dashboard.md §5).
+  // 세션의 출신을 요청 하나에서 읽는다 — 기기 종류(UA를 enum으로 접은 값)다.
+  // **UA 원문은 여기서 끝이고 아래로 내려가지 않는다**(plan/dashboard.md §5).
   //
-  // 토큰의 출처는 둘이다: 요청 body(네이티브 로그인 · 웹 데모 로그인)와, body가 없는
-  // 웹 소셜 로그인을 위해 시작 시점에 심어 둔 쿠키(push-cookie.ts).
-  private originOf(req: Request, bodyToken?: string): SessionOrigin {
-    return originOf(req.headers, bodyToken ?? this.pendingPushToken(req));
+  // 푸시 등록은 **여기를 지나지 않는다**(§5-2를 뒤집었다) — 로그인은 토큰을 나르지 않고,
+  // 푸시 화면이 `POST /auth/push/register`로 살아 있는 세션에 붙인다.
+  private originOf(req: Request): SessionOrigin {
+    return originOf(req.headers);
   }
 
-  private pendingPushToken(req: Request): string | undefined {
-    return cookieOf(req, pushPendingCookieName(this.config.cookiePolicy));
-  }
 
-  private clearPendingPushCookie(res: Response): void {
-    res.clearCookie(
-      pushPendingCookieName(this.config.cookiePolicy),
-      pushPendingCookieOptions(this.config.isProduction),
-    );
-  }
 
   // ──────────────────────── 세션 ────────────────────────
 
@@ -519,26 +501,33 @@ export class AuthController {
   // HttpOnly 쿠키에 담아 두고, 세션을 만드는 그 자리에서 꺼내 쓰고 지운다
   // (push-cookie.ts에 이유가 적혀 있다). 살아 있는 세션을 고치는 경로가 아니다.
   //
-  // **WebOriginGuard가 핵심이다.** 없으면 적대적인 페이지가 *자기* 토큰을 피해자
-  // 브라우저에 심어 피해자의 통화 알림을 받아 간다.
-  @Post('push/pending')
-  @HttpCode(204)
-  @UseGuards(ThrottlerGuard, WebOriginGuard)
-  pushPending(
-    @Res({ passthrough: true }) res: Response,
+
+  // 지금 세션에 등록 토큰을 붙인다(푸시 화면의 `알림 켜기`).
+  //
+  // **§5-2를 뒤집은 결과다.** 원래는 토큰이 로그인 요청에만 실렸고, 살아 있는 세션을
+  // 고치는 문을 열지 않으려 했다. 그 값이 "재로그인 한 번"이라던 계산이 틀렸다 —
+  // 권한을 준 사람이 로그인을 다시 해야 했고, 화면이 그 사실을 계속 설명해야 했다.
+  // `SET ... KEEPTTL`이 들어와 수명이 리셋되던 기술적 이유도 사라졌다.
+  //
+  // 알림을 켜는 것은 **활동이 아니다** — 유휴 창을 밀지 않는다(repository 주석).
+  // 남 대신 켜는 요청은 아니지만 폐기·발송과 같은 문(출처 검증 + 레이트리밋)을 지난다.
+  @Post('push/register')
+  @UseGuards(ThrottlerGuard, WebOriginGuard, JwtAuthGuard)
+  async registerPush(
+    @Req() req: Request & { user: User; sessionId: string },
     @Body('pushToken') pushToken?: string,
-  ): void {
-    // 형식이 아닌 값은 조용히 버린다 — 여기서 거절해도 사용자가 할 수 있는 일이 없고,
-    // 결과는 어차피 "그 세션은 Notifications off"로 화면에 정직하게 드러난다.
-    if (!originOf({}, pushToken).push) {
-      this.clearPendingPushCookie(res);
-      return;
+  ): Promise<{ registered: boolean }> {
+    const token = typeof pushToken === 'string' ? pushToken.trim() : '';
+    if (!token || token.length > MAX_PUSH_TOKEN_LENGTH) {
+      throw new HttpException({ error: AUTH_ERROR_CODES.INVALID_TOKEN }, 400);
     }
-    res.cookie(
-      pushPendingCookieName(this.config.cookiePolicy),
-      pushToken,
-      pushPendingCookieOptions(this.config.isProduction),
+    const registered = await this.push.registerToken(
+      req.user.id,
+      req.sessionId,
+      token,
+      localeFrom(req.headers['accept-language']),
     );
+    return { registered };
   }
 
   // 내 기기들에 알림을 보낸다(푸시 화면).
@@ -688,8 +677,6 @@ export class AuthController {
       session.refreshToken,
       refreshCookieOptions(isProd, maxAge),
     );
-    // 등록 토큰은 세션 안으로 들어갔다 — 브라우저에 사본을 남기지 않는다.
-    this.clearPendingPushCookie(res);
   }
 
   private clearSessionCookies(res: Response): void {

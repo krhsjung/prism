@@ -1,5 +1,9 @@
 package kr.hs.jung.prism.feature.push
 
+import android.Manifest
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -30,6 +34,7 @@ import kr.hs.jung.prism.core.security.SessionTokens
 import kr.hs.jung.prism.core.theme.PrismDimensions
 import kr.hs.jung.prism.core.theme.PrismTheme
 import kr.hs.jung.prism.core.theme.ThemeStore
+import kr.hs.jung.prism.core.push.PushTokens
 import kr.hs.jung.prism.domain.model.MAX_PUSH_MESSAGE_LENGTH
 import kr.hs.jung.prism.domain.model.MAX_PUSH_TITLE_LENGTH
 import kr.hs.jung.prism.domain.model.PushActionSet
@@ -59,6 +64,7 @@ fun PushScreen(
     localeStore: LocaleStore,
     sessionsApi: SessionsApi,
     pushApi: PushApi,
+    pushTokens: PushTokens,
     tokens: SessionTokens,
     drawerState: DrawerState,
     onNavigate: (ShellPage) -> Unit,
@@ -66,13 +72,21 @@ fun PushScreen(
 ) {
     val viewModel: PushViewModel = viewModel(
         factory = viewModelFactory {
-            initializer { PushViewModel(sessionsApi, pushApi, tokens) }
+            initializer { PushViewModel(sessionsApi, pushApi, tokens, pushTokens) }
         },
     )
     val state by viewModel.state.collectAsStateWithLifecycle()
     val colors = PrismTheme.colors
 
-    LaunchedEffect(Unit) { viewModel.load() }
+    // 33+에서만 런타임 권한이다 — 그 아래는 설치와 함께 허용된 것으로 다룬다(minSdk 24).
+    val askPermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { viewModel.registerThisDevice() }
+
+    LaunchedEffect(Unit) {
+        viewModel.refreshPermission()
+        viewModel.load()
+    }
 
     AppShell(
         page = ShellPage.PUSH,
@@ -177,6 +191,29 @@ fun PushScreen(
                 }
 
                 // 제목은 선택이다 — 비우면 서버가 받는 기기의 언어로 그린다(§5-14).
+                // 권한이 없으면 묻고, 있는데 이 세션이 등록 전이면 등록만 한다 — **같은 버튼**이다.
+                // 사용자가 할 일은 어느 쪽이든 "켜기" 하나뿐이라 컨트롤을 둘로 두지 않는다.
+                if (!state.permissionGranted || state.sessions.any { it.isCurrent && !it.pushRegistered }) {
+                    Text(
+                        text = stringResource(R.string.push_allow_desc),
+                        color = colors.muted,
+                        fontSize = PrismDimensions.fontCaption,
+                    )
+                    PrismButton(
+                        text = stringResource(R.string.push_allow),
+                        variant = PrismButtonVariant.OUTLINE,
+                        onClick = {
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                                !state.permissionGranted
+                            ) {
+                                askPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+                            } else {
+                                viewModel.registerThisDevice()
+                            }
+                        },
+                    )
+                }
+
                 Field(R.string.push_title_label) {
                     OutlinedTextField(
                         value = state.title,

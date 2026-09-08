@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import {
   SessionsRepository,
   translate,
+  type Locale,
   type PushActionSet,
   type PushSendOutcome,
   type PushSendResult,
@@ -30,6 +31,21 @@ export class PushNotificationService {
     private readonly sender: PushSender,
     private readonly config: PrismConfigService,
   ) {}
+
+  /**
+   * 지금 세션에 등록 토큰을 붙인다(푸시 화면의 `알림 켜기`).
+   *
+   * 저장소를 이미 들고 있는 쪽에 둔다 — 컨트롤러가 저장소를 직접 알 이유가 없다.
+   * 소유권 확인과 수명 보존은 저장소가 한다(plan/push.md §5-2).
+   */
+  async registerToken(
+    userId: string,
+    sessionId: string,
+    token: string,
+    locale: Locale,
+  ): Promise<boolean> {
+    return this.sessions.attachPushToken(userId, sessionId, { token, locale });
+  }
 
   /**
    * 고른 세션들에 보낸다. **대상마다 결말을 따로 답한다.**

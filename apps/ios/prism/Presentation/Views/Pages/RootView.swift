@@ -90,7 +90,7 @@ struct RootView: View {
                 .background(AppColor.surface)
                 .accessibilityLabel(t(.commonLoading))
         case .signedOut:
-            LoginView(authManager: auth, pushTokens: ServiceContainer.shared.pushTokens)
+            LoginView(authManager: auth)
                 // 로그아웃하면 소켓도 닫는다 — 서버가 TTL을 기다리지 않고 presence를
                 // 지워, 다른 기기의 목록에서 이 기기가 곧바로 사라진다.
                 .task {

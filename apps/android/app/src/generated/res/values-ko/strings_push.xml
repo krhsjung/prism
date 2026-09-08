@@ -64,10 +64,6 @@
     <!-- 권한은 로그인 화면에서 먼저 받는다 — 토큰이 로그인 요청에 실려야 하기 때문이다(§5-2) -->
     <string name="push_allow">알림 켜기</string>
     <string name="push_allow_desc">앱이 닫혀 있어도 이 기기가 통화와 푸시를 받게 합니다.</string>
-    <string name="push_allow_on">알림 켜짐</string>
     <string name="push_allow_denied">이 앱의 알림이 차단돼 있습니다. 설정에서 다시 켜 주세요.</string>
     <string name="push_allow_unsupported">이 브라우저는 알림을 받을 수 없습니다.</string>
-
-    <!-- 토큰은 로그인 시점에만 세션에 실린다 — 늦게 준 권한과 회전된 토큰이 여기서 드러난다 -->
-    <string name="push_reauth_hint">이 기기의 알림은 켜져 있지만 이 세션은 알림 없이 시작됐습니다. 다시 로그인하면 켜집니다.</string>
 </resources>

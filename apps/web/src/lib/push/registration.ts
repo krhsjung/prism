@@ -11,28 +11,6 @@ import { log } from '../log';
 //  - denied:      사용자가 막았다. **다시 물을 수 없다** — 설정으로 안내한다
 export type PushPermission = 'unsupported' | 'default' | 'granted' | 'denied';
 
-// 로그인 요청에 실어 보낸 토큰. **회전을 알아채려고 남긴다** — 토큰은 로그인 시점에만
-// 세션에 실리므로(plan/push.md §5-2), 지금 토큰이 이 값과 다르면 그 세션은 죽은 토큰을
-// 들고 있다. 화면은 그때 "다시 로그인하세요" 한 줄을 띄운다.
-const SENT_TOKEN_KEY = 'prism.push.sentToken';
-
-export function readSentToken(): string | null {
-  try {
-    return localStorage.getItem(SENT_TOKEN_KEY);
-  } catch {
-    // 사생활 보호 모드·저장 차단. 회전을 못 알아채는 것뿐이라 조용히 넘어간다.
-    return null;
-  }
-}
-
-export function rememberSentToken(token: string): void {
-  try {
-    localStorage.setItem(SENT_TOKEN_KEY, token);
-  } catch {
-    /* 위와 같다 */
-  }
-}
-
 export function currentPermission(): PushPermission {
   if (!firebaseWebConfig()) return 'unsupported';
   if (typeof Notification === 'undefined') return 'unsupported';

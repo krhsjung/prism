@@ -64,6 +64,12 @@ export class IoredisService implements RedisClient, OnModuleDestroy {
     await this.conn.setex(key, ttlSeconds, value);
   }
 
+  async setKeepTtl(key: string, value: string): Promise<boolean> {
+    // XX = 있을 때만. KEEPTTL = 만료 시각을 그대로 둔다.
+    const result = await this.conn.set(key, value, 'KEEPTTL', 'XX');
+    return result === 'OK';
+  }
+
   get(key: string): Promise<string | null> {
     return this.conn.get(key);
   }
