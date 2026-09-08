@@ -508,20 +508,7 @@ IP를 저장해야 하는데, 그러면 개인정보 미저장 원칙이 깨진�
 
 ---
 
-## 7. 개발 마일스톤
-
-1. ✅ Figma 시안 (Desktop/Mobile · 테마 변수 대응, 별도 다크 시안 없음)
-2. ✅ 디자인 토큰 sync — 다크 `Primary` 보정 + `Text Strong` 토큰 도입 (web 반영/배포)
-3. ✅ 기기 메타 컨트랙트 결정 (§5) — **기기 종류만** 담는다(UA 원문·IP 미저장)
-4. ✅ `apps/web` Dashboard UI — 셸 + 세션 목록 · Revoke · Sign out all
-5. ✅ 서버 연동 (`GET /auth/sessions`, `POST .../revoke`, `.../revoke-all`, `logout`)
-6. ✅ 상태 처리 (Loading · Empty · Error)
-7. ⏳ iOS / Android 세션 화면 (동일 컨트랙트 재사용)
-8. ⏳ WebRTC 슬라이스 착수 시 사이드바 `WebRTC` 활성화
-
----
-
-## 8. 오픈 이슈
+## 7. 오픈 이슈
 
 - ~~기기/브라우저/위치 표기~~ — **해결(§5)**: 기기 **종류**(폰·태블릿·데스크톱·모름)만
   계약에 담는다. UA 원문·IP는 저장하지 않으므로 기기명·브라우저·위치는 표시하지 않는다.

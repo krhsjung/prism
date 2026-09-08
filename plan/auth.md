@@ -347,7 +347,7 @@ type User = {
 > 이제 (2)가 대부분 없앤다.
 >
 > **결과**: 유휴 상태에서는 회전 트래픽이 **0**이고, 방치된 화면은 idle 창이 지나면
-> 정직하게 만료돼 로그인 화면으로 간다(아래 §9). 세션이 정말 끝났다는 사실은 세션
+> 정직하게 만료돼 로그인 화면으로 간다(아래 §8). 세션이 정말 끝났다는 사실은 세션
 > 소켓이 재연결에 실패하며 끌고 온다([dashboard.md](./dashboard.md)).
 
 > ### 결정(2026-08-27): **미는 것은 회전이 아니라 활동이다**
@@ -628,23 +628,7 @@ Bearer/Keychain, Android 데모는 쿠키/EncryptedSharedPreferences) 구현은 
 
 ---
 
-## 8. 개발 마일스톤
-
-1. ✅ Figma 시안 6개 확정 (Auth 페이지)
-2. ✅ 디자인 토큰 sync
-3. ⏳ `apps/web` Auth UI 구현 + 다크 모드 토글 (Google · Apple · **데모 버튼**)
-4. ⏳ NestJS mock auth endpoint (`/auth/google`, `/auth/apple`, **`/auth/demo`** — fake JWT 반환)
-5. ⏳ Web ↔ Mock 서버 연동 확인 (**데모 원클릭 포함**)
-6. ⏳ 실제 Google OAuth 연동
-7. ⏳ 실제 Apple Sign In 연동
-8. ✅ iOS 로그인 화면 — UI·다국어·Keychain·Apple/Google/Kakao 네이티브·데모(Bearer)·
-   웹 redirect(`flow=native`) 완료. 모두 `AuthSession`(Bearer) 하나로 통일.
-9. 🔶 Android 로그인 화면 — UI·다국어·다크 테마·Google/Kakao 네이티브·데모(Bearer) 완료.
-   Apple만 공식 네이티브 SDK가 없어 보류(§9)
-
----
-
-## 9. 오픈 이슈
+## 8. 오픈 이슈
 
 - **세션 만료 UX** — 회전은 **요청이 있을 때만** 일어나므로(§6), 방치된 화면은 idle 창이
   지나면 만료된다. 그때 자동 재로그인 대신 Login 화면으로 보낸다(단순) — "세션이

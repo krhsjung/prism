@@ -28,7 +28,7 @@
 | 다국어(en · ko · ja) | ✅ | ✅ | ✅ | ✅ |
 | 라이트 / 다크 테마 | — | ✅ | ✅ | ✅ |
 
-<sup>1</sup> Android에는 공식 Sign in with Apple 네이티브 SDK가 없어 웹 redirect 경로만 둡니다([plan/auth.md](plan/auth.md) §9).
+<sup>1</sup> Android에는 공식 Sign in with Apple 네이티브 SDK가 없어 웹 redirect 경로만 둡니다([plan/auth.md](plan/auth.md) §8).
 
 ## 기능
 

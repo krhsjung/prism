@@ -106,7 +106,7 @@ fun LoginScreen(
             Column(verticalArrangement = Arrangement.spacedBy(PrismDimensions.spacingSm)) {
                 // 각 provider를 native(SDK)·redirect(웹) 두 방식으로 나눠 보여 준다(iOS와 동일).
                 // **Apple은 redirect뿐이다** — 안드로이드에는 공식 네이티브 Sign in with
-                // Apple SDK가 없어(plan/auth.md §9) native 버튼은 눌러도 "사용할 수 없다"만
+                // Apple SDK가 없어(plan/auth.md §8) native 버튼은 눌러도 "사용할 수 없다"만
                 // 뜬다. 누를 수 없는 버튼을 두는 대신 되는 경로 하나만 남긴다.
                 SignInButton(AuthProvider.GOOGLE, AuthMethod.NATIVE, PrismButtonVariant.OUTLINE, state, viewModel)
                 SignInButton(AuthProvider.GOOGLE, AuthMethod.REDIRECT, PrismButtonVariant.OUTLINE, state, viewModel)

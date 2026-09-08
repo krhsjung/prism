@@ -224,7 +224,7 @@ PRISM_LIVE_API_URL=https://<서버> ./gradlew testDebugUnitTest --tests '*Sessio
 담고 `Authorization: Bearer`로 쓴다.
 
 **Apple에는 native 버튼을 두지 않는다** — 안드로이드에는 공식 네이티브 Sign in with Apple
-SDK가 없어(plan/auth.md §9) 눌러도 "사용할 수 없다"만 뜨는 버튼이 된다. 대신 redirect
+SDK가 없어(plan/auth.md §8) 눌러도 "사용할 수 없다"만 뜨는 버튼이 된다. 대신 redirect
 경로 하나만 남긴다(`AuthManager.signIn`의 native/APPLE 분기는 방어용으로 남아 있다).
 
 ### 네이티브 로그인 설정(빌드 전)
