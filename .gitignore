@@ -22,6 +22,8 @@ infra/deploy/charts/*/values.generated.yaml
 # gitignore는 인라인 주석을 지원하지 않으므로 설명은 이 위에만 둔다:
 #   .p8=Apple Sign In 비공개 키, GoogleService-Info.plist=Google 서비스 키,
 #   Secrets.xcconfig=빌드 설정에 담은 앱 키 등.
+#   google-services.json=Firebase Android 설정. 비밀은 아니지만(클라이언트에 박히는 값)
+#   배포마다 다른 값이라 레포에 두지 않는다 — secrets.properties와 같은 규칙이다.
 .env
 .env.*
 !.env.example
@@ -30,6 +32,7 @@ infra/deploy/charts/*/values.generated.yaml
 !infra/docker/*/.env
 *.p8
 GoogleService-Info.plist
+google-services.json
 Secrets.xcconfig
 *.secret.xcconfig
 
