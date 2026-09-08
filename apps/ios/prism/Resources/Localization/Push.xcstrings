@@ -392,6 +392,29 @@
         }
       }
     },
+    "push.image_desktop_note": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desktop browsers may not show the picture."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "데스크톱 브라우저에서는 그림이 표시되지 않을 수 있습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デスクトップのブラウザーでは画像が表示されないことがあります。"
+          }
+        }
+      }
+    },
     "push.image_placeholder": {
       "extractionState": "manual",
       "localizations": {

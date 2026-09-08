@@ -243,6 +243,11 @@ export function PushPage() {
                   {t('push.image_label')}
                 </label>
                 <p className="setup__hint">{t('push.image_hint')}</p>
+                {/* **그리는 것은 결국 OS다.** 주소도 페이로드도 맞는데 데스크톱에서는
+                    그림이 빠진다 — macOS Chrome이 시스템 알림 센터를 쓰고 거기엔 큰
+                    그림 자리가 없다(§5-11). 화면이 먼저 말하지 않으면 배관이 깨진
+                    것으로 읽힌다(실제로 그렇게 읽혔다). */}
+                <p className="setup__hint">{t('push.image_desktop_note')}</p>
                 {/* 샘플은 이 사이트가 서빙한다 — 리뷰어가 아무 준비 없이 시연할 수 있게.
                     배포된 주소에서만 뜬다: FCM이 localhost를 가져올 수 없다(§5-11). */}
                 <div className="push__samples">

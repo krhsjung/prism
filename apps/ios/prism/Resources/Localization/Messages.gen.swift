@@ -196,6 +196,7 @@ enum MessageKey: String, CaseIterable, Sendable {
     case pushSend = "push.send"
     case pushImageLabel = "push.image_label"
     case pushImageHint = "push.image_hint"
+    case pushImageDesktopNote = "push.image_desktop_note"
     case pushImagePlaceholder = "push.image_placeholder"
     case pushImageNone = "push.image_none"
     case pushLinkLabel = "push.link_label"
@@ -416,6 +417,7 @@ enum MessageKey: String, CaseIterable, Sendable {
              .pushSend,
              .pushImageLabel,
              .pushImageHint,
+             .pushImageDesktopNote,
              .pushImagePlaceholder,
              .pushImageNone,
              .pushLinkLabel,

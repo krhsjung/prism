@@ -234,6 +234,8 @@ export const messages: Messages = {
   // 알림이 실을 수 있는 것들 — 셋 다 선택이다(§5-11 ~ §5-13)
   'push.image_label': '이미지',
   'push.image_hint': '공개 https 주소입니다. 아래 샘플은 이 사이트가 서빙합니다.',
+  // 그리는 것은 결국 OS다 — macOS Chrome은 시스템 알림 센터를 쓰고 거기엔 큰 그림 자리가 없다(§5-11)
+  'push.image_desktop_note': '데스크톱 브라우저에서는 그림이 표시되지 않을 수 있습니다.',
   'push.image_placeholder': 'https://example.com/photo.jpg',
   'push.image_none': '이미지 없음',
   'push.link_label': '링크',

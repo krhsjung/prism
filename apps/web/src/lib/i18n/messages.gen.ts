@@ -191,6 +191,7 @@ export const MESSAGE_KEYS = [
   'push.send',
   'push.image_label',
   'push.image_hint',
+  'push.image_desktop_note',
   'push.image_placeholder',
   'push.image_none',
   'push.link_label',
