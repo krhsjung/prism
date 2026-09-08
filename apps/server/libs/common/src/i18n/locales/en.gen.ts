@@ -10,4 +10,11 @@ export const messages: Messages = {
   'page.signin_title': 'Signing in — Prism',
   'page.noscript_notice': 'JavaScript is turned off so this page can’t continue on its own.',
   'page.noscript_continue': 'Continue to Prism',
+
+  // ── push ──
+  // 푸시 알림 — 서버가 그리는 유일한 문구다. 받는 기기의 언어는 요청에서 알 수 없어 세션에 담아 둔 값을 쓴다(plan/push.md D4)
+  // 기기 종류는 본문에 넣지 않는다: 라벨 9개가 이 마스터에 복제되면 client.csv와 갈라진다. 종류는 data로 가고 앱을 연 화면이 그린다
+  'push.call_title': 'Incoming call',
+  'push.call_body': 'Open Prism to answer.',
+  'push.demo_title': 'Test push',
 };

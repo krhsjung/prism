@@ -96,7 +96,7 @@ export const messages: Messages = {
   'webrtc.devices': '自分の端末',
   // 소켓이 붙어 있으면 바로 울리고(isConnected) 아니면 알림으로 깨운다(pushRegistered).
   // 둘 다 없는 세션만 걸 수 없다 — 그 줄에는 버튼 대신 이유를 둔다
-  'webrtc.devices_desc': '接続中の端末はすぐに鳴ります。それ以外にはまだ発信できません。',
+  'webrtc.devices_desc': '接続中の端末はすぐに鳴ります。それ以外には通知が届きます。',
   'webrtc.call': '発信',
   // 푸시 경로임을 행이 말한다 — 기다리는 시간이 왜 긴지를 화면이 설명해야 한다
   'webrtc.will_notify': '通知を送ります',
@@ -208,6 +208,59 @@ export const messages: Messages = {
   'webrtc.log_empty': 'まだありません。',
   // 루프백은 시그널링을 타지 않으므로 로그가 비어 있는 것이 정상이다
   'webrtc.log_loopback': 'ループバックはシグナリングサーバーを使用しません。',
+
+  // ── push ──
+  // 푸시 — 내 기기에 알림을 보내 보는 화면(plan/push.md)
+  'push.title': 'プッシュ',
+  'push.desc': '端末を選んで通知を送ってみましょう。',
+  // 카드 바닥 한 줄 — 토큰이 어디에 사는지 말한다(§5-3). 목록 응답에 토큰이 실리지 않는 이유이기도 하다
+  'push.foot': '登録トークンはセッション内にあり、サーバーの外に出ません。サインアウトすると一緒に消えます。',
+  // 목록은 대시보드·WebRTC 로비와 같은 데이터다. 다른 것은 할 수 있는 일뿐이다
+  'push.devices': '端末に送信',
+  'push.devices_desc': '登録済みの端末が通知を受け取れます。それ以外はまだです。',
+  // 여럿 고를 수 있다. 같은 설치가 여러 세션에 걸리면 서버가 합쳐 한 번만 보낸다(§5-10)
+  'push.select_all': 'すべて選択',
+  'push.clear_all': '解除',
+  'push.selected_count': '{count} 件選択中',
+  // 고른 줄은 버튼 글자로 말한다 — 목록에 라디오를 따로 두면 누를 곳이 둘이 된다
+  'push.select': '選択',
+  'push.selected': '選択中',
+  'push.message_label': 'メッセージ',
+  'push.message_placeholder': '端末に表示する文言を入力',
+  'push.send': '送信',
+  // 알림이 실을 수 있는 것들 — 셋 다 선택이다(§5-11 ~ §5-13)
+  'push.image_label': '画像',
+  'push.image_hint': '公開 https アドレスです。下のサンプルはこのサイトが配信します。',
+  'push.image_placeholder': 'https://example.com/photo.jpg',
+  'push.image_none': '画像なし',
+  'push.link_label': 'リンク',
+  'push.link_hint': '通知をタップしたときに開く場所です。',
+  'push.link_placeholder': 'https://example.com',
+  'push.actions_label': 'ボタン',
+  'push.actions_none': 'なし',
+  'push.actions_open': '開く',
+  'push.actions_open_dismiss': '開くと閉じる',
+  // 알림에 붙는 버튼의 문구. **서버가 보내지 않는다** — iOS는 등록 시점에 굳어 요청의 언어를 알 수 없다(§5-13)
+  'push.action_open': '開く',
+  'push.action_dismiss': '閉じる',
+  // FCM이 알려 주는 것은 받아들였다까지다 — 배달도 열람도 알 수 없다
+  'push.result_accepted': '送信しました。端末が起動していれば通知が表示されます。',
+  // 같은 설치가 여러 세션에 걸렸다 — 실패가 아니라 한 번만 보냈다는 사실이다(§5-5)
+  'push.result_duplicate': '別の行と同じ端末です — 一度だけ送信しました。',
+  'push.result_unknown': 'そのセッションはありません。一覧を更新してください。',
+  'push.result_no_token': 'その端末には通知トークンがありません。その端末で再度サインインすると有効になります。',
+  'push.result_rejected': 'Firebase がその端末のトークンを拒否しました。その端末で再度サインインしてください。',
+  // Android 알림 채널 이름 — 시스템 설정에 그대로 보인다. 통화와 데모를 가르는 이유는 하나를 끌 때 둘 다 꺼지지 않게 하려는 것이다
+  'push.channel_calls': '通話',
+  'push.channel_general': '通知',
+  // 권한은 로그인 화면에서 먼저 받는다 — 토큰이 로그인 요청에 실려야 하기 때문이다(§5-2)
+  'push.allow': '通知をオンにする',
+  'push.allow_desc': 'アプリを閉じていても、この端末が通話とプッシュを受け取れるようになります。',
+  'push.allow_on': '通知オン',
+  'push.allow_denied': 'このアプリの通知はブロックされています。設定でオンに戻してください。',
+  'push.allow_unsupported': 'このブラウザーは通知を受け取れません。',
+  // 토큰은 로그인 시점에만 세션에 실린다 — 늦게 준 권한과 회전된 토큰이 여기서 드러난다
+  'push.reauth_hint': 'この端末の通知はオンですが、このセッションは通知なしで開始されました。再度サインインするとオンになります。',
 
   // ── error ──
   // 오류 메시지 — 키는 계약의 오류 코드와 1:1로 대응한다 (contracts.ts)

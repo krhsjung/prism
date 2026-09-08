@@ -96,7 +96,7 @@ export const messages: Messages = {
   'webrtc.devices': '내 기기',
   // 소켓이 붙어 있으면 바로 울리고(isConnected) 아니면 알림으로 깨운다(pushRegistered).
   // 둘 다 없는 세션만 걸 수 없다 — 그 줄에는 버튼 대신 이유를 둔다
-  'webrtc.devices_desc': '연결된 기기는 바로 울립니다. 나머지는 아직 부를 수 없습니다.',
+  'webrtc.devices_desc': '연결된 기기는 바로 울립니다. 나머지는 알림을 받습니다.',
   'webrtc.call': '걸기',
   // 푸시 경로임을 행이 말한다 — 기다리는 시간이 왜 긴지를 화면이 설명해야 한다
   'webrtc.will_notify': '알림을 보냅니다',
@@ -208,6 +208,59 @@ export const messages: Messages = {
   'webrtc.log_empty': '아직 없습니다.',
   // 루프백은 시그널링을 타지 않으므로 로그가 비어 있는 것이 정상이다
   'webrtc.log_loopback': '루프백은 시그널링 서버를 쓰지 않습니다.',
+
+  // ── push ──
+  // 푸시 — 내 기기에 알림을 보내 보는 화면(plan/push.md)
+  'push.title': '푸시',
+  'push.desc': '기기를 골라 알림을 보내 보세요.',
+  // 카드 바닥 한 줄 — 토큰이 어디에 사는지 말한다(§5-3). 목록 응답에 토큰이 실리지 않는 이유이기도 하다
+  'push.foot': '등록 토큰은 세션 안에 있고 서버 밖으로 나가지 않습니다. 로그아웃하면 함께 사라집니다.',
+  // 목록은 대시보드·WebRTC 로비와 같은 데이터다. 다른 것은 할 수 있는 일뿐이다
+  'push.devices': '기기로 보내기',
+  'push.devices_desc': '등록된 기기가 알림을 받을 수 있습니다. 나머지는 아직입니다.',
+  // 여럿 고를 수 있다. 같은 설치가 여러 세션에 걸리면 서버가 합쳐 한 번만 보낸다(§5-10)
+  'push.select_all': '모두 선택',
+  'push.clear_all': '해제',
+  'push.selected_count': '{count}개 선택됨',
+  // 고른 줄은 버튼 글자로 말한다 — 목록에 라디오를 따로 두면 누를 곳이 둘이 된다
+  'push.select': '선택',
+  'push.selected': '선택됨',
+  'push.message_label': '문구',
+  'push.message_placeholder': '기기에 뜰 문구를 적으세요',
+  'push.send': '보내기',
+  // 알림이 실을 수 있는 것들 — 셋 다 선택이다(§5-11 ~ §5-13)
+  'push.image_label': '이미지',
+  'push.image_hint': '공개 https 주소입니다. 아래 샘플은 이 사이트가 서빙합니다.',
+  'push.image_placeholder': 'https://example.com/photo.jpg',
+  'push.image_none': '이미지 없음',
+  'push.link_label': '링크',
+  'push.link_hint': '알림을 누르면 여는 곳입니다.',
+  'push.link_placeholder': 'https://example.com',
+  'push.actions_label': '버튼',
+  'push.actions_none': '없음',
+  'push.actions_open': '열기',
+  'push.actions_open_dismiss': '열기와 닫기',
+  // 알림에 붙는 버튼의 문구. **서버가 보내지 않는다** — iOS는 등록 시점에 굳어 요청의 언어를 알 수 없다(§5-13)
+  'push.action_open': '열기',
+  'push.action_dismiss': '닫기',
+  // FCM이 알려 주는 것은 받아들였다까지다 — 배달도 열람도 알 수 없다
+  'push.result_accepted': '보냈습니다. 기기가 깨어 있으면 알림이 뜹니다.',
+  // 같은 설치가 여러 세션에 걸렸다 — 실패가 아니라 한 번만 보냈다는 사실이다(§5-5)
+  'push.result_duplicate': '다른 줄과 같은 기기입니다 — 한 번만 보냈습니다.',
+  'push.result_unknown': '그 세션이 사라졌습니다. 목록을 새로 고치세요.',
+  'push.result_no_token': '그 기기에는 알림 토큰이 없습니다. 그 기기에서 다시 로그인하면 켜집니다.',
+  'push.result_rejected': 'Firebase가 그 기기의 토큰을 거부했습니다. 그 기기에서 다시 로그인하세요.',
+  // Android 알림 채널 이름 — 시스템 설정에 그대로 보인다. 통화와 데모를 가르는 이유는 하나를 끌 때 둘 다 꺼지지 않게 하려는 것이다
+  'push.channel_calls': '통화',
+  'push.channel_general': '알림',
+  // 권한은 로그인 화면에서 먼저 받는다 — 토큰이 로그인 요청에 실려야 하기 때문이다(§5-2)
+  'push.allow': '알림 켜기',
+  'push.allow_desc': '앱이 닫혀 있어도 이 기기가 통화와 푸시를 받게 합니다.',
+  'push.allow_on': '알림 켜짐',
+  'push.allow_denied': '이 앱의 알림이 차단돼 있습니다. 설정에서 다시 켜 주세요.',
+  'push.allow_unsupported': '이 브라우저는 알림을 받을 수 없습니다.',
+  // 토큰은 로그인 시점에만 세션에 실린다 — 늦게 준 권한과 회전된 토큰이 여기서 드러난다
+  'push.reauth_hint': '이 기기의 알림은 켜져 있지만 이 세션은 알림 없이 시작됐습니다. 다시 로그인하면 켜집니다.',
 
   // ── error ──
   // 오류 메시지 — 키는 계약의 오류 코드와 1:1로 대응한다 (contracts.ts)

@@ -178,6 +178,46 @@ enum MessageKey: String, CaseIterable, Sendable {
     case webrtcLogClear = "webrtc.log_clear"
     case webrtcLogEmpty = "webrtc.log_empty"
     case webrtcLogLoopback = "webrtc.log_loopback"
+    // Push
+    case pushTitle = "push.title"
+    case pushDesc = "push.desc"
+    case pushFoot = "push.foot"
+    case pushDevices = "push.devices"
+    case pushDevicesDesc = "push.devices_desc"
+    case pushSelectAll = "push.select_all"
+    case pushClearAll = "push.clear_all"
+    case pushSelectedCount = "push.selected_count"
+    case pushSelect = "push.select"
+    case pushSelected = "push.selected"
+    case pushMessageLabel = "push.message_label"
+    case pushMessagePlaceholder = "push.message_placeholder"
+    case pushSend = "push.send"
+    case pushImageLabel = "push.image_label"
+    case pushImageHint = "push.image_hint"
+    case pushImagePlaceholder = "push.image_placeholder"
+    case pushImageNone = "push.image_none"
+    case pushLinkLabel = "push.link_label"
+    case pushLinkHint = "push.link_hint"
+    case pushLinkPlaceholder = "push.link_placeholder"
+    case pushActionsLabel = "push.actions_label"
+    case pushActionsNone = "push.actions_none"
+    case pushActionsOpen = "push.actions_open"
+    case pushActionsOpenDismiss = "push.actions_open_dismiss"
+    case pushActionOpen = "push.action_open"
+    case pushActionDismiss = "push.action_dismiss"
+    case pushResultAccepted = "push.result_accepted"
+    case pushResultDuplicate = "push.result_duplicate"
+    case pushResultUnknown = "push.result_unknown"
+    case pushResultNoToken = "push.result_no_token"
+    case pushResultRejected = "push.result_rejected"
+    case pushChannelCalls = "push.channel_calls"
+    case pushChannelGeneral = "push.channel_general"
+    case pushAllow = "push.allow"
+    case pushAllowDesc = "push.allow_desc"
+    case pushAllowOn = "push.allow_on"
+    case pushAllowDenied = "push.allow_denied"
+    case pushAllowUnsupported = "push.allow_unsupported"
+    case pushReauthHint = "push.reauth_hint"
     // Error
     case errorGeneric = "error.generic"
     case errorSigninFailed = "error.signin_failed"
@@ -357,6 +397,46 @@ enum MessageKey: String, CaseIterable, Sendable {
              .webrtcLogEmpty,
              .webrtcLogLoopback:
             "Webrtc"
+        case .pushTitle,
+             .pushDesc,
+             .pushFoot,
+             .pushDevices,
+             .pushDevicesDesc,
+             .pushSelectAll,
+             .pushClearAll,
+             .pushSelectedCount,
+             .pushSelect,
+             .pushSelected,
+             .pushMessageLabel,
+             .pushMessagePlaceholder,
+             .pushSend,
+             .pushImageLabel,
+             .pushImageHint,
+             .pushImagePlaceholder,
+             .pushImageNone,
+             .pushLinkLabel,
+             .pushLinkHint,
+             .pushLinkPlaceholder,
+             .pushActionsLabel,
+             .pushActionsNone,
+             .pushActionsOpen,
+             .pushActionsOpenDismiss,
+             .pushActionOpen,
+             .pushActionDismiss,
+             .pushResultAccepted,
+             .pushResultDuplicate,
+             .pushResultUnknown,
+             .pushResultNoToken,
+             .pushResultRejected,
+             .pushChannelCalls,
+             .pushChannelGeneral,
+             .pushAllow,
+             .pushAllowDesc,
+             .pushAllowOn,
+             .pushAllowDenied,
+             .pushAllowUnsupported,
+             .pushReauthHint:
+            "Push"
         case .errorGeneric,
              .errorSigninFailed,
              .errorDemoDisabled,

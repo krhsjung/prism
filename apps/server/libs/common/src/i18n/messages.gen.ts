@@ -29,6 +29,9 @@ export const MESSAGE_KEYS = [
   'page.signin_title',
   'page.noscript_notice',
   'page.noscript_continue',
+  'push.call_title',
+  'push.call_body',
+  'push.demo_title',
 ] as const;
 
 export type MessageKey = (typeof MESSAGE_KEYS)[number];
