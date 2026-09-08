@@ -44,6 +44,7 @@ const currentSession: SessionListItem = {
   expiresAt: "2026-01-01T17:00:00.000Z",
   isCurrent: true,
   isConnected: true,
+  pushRegistered: true,
   device: "mac",
 };
 const otherSession: SessionListItem = {
@@ -53,6 +54,7 @@ const otherSession: SessionListItem = {
   isCurrent: false,
   // 기본 픽스처는 **붙어 있지 않다** — 소켓이 ready일 때만 그 사실이 배지에 드러난다.
   isConnected: false,
+  pushRegistered: false,
   device: "iphone",
 };
 

@@ -589,7 +589,12 @@ export function CallProvider({ children }: { children: ReactNode }) {
           return;
 
         case 'ringing':
+        case 'notified': {
           // 보낸 `call`의 답이다 — 어느 쪽으로 갈리든 다음 통화를 열어 준다.
+          //
+          // 둘은 **같은 답이고 다른 상태다**: 서버가 상대에게 닿는 방법을 골랐고
+          // (소켓이냐 알림이냐), 그 선택이 화면의 배지와 문구를 가른다(§4).
+          // 클라이언트는 경로를 요청하지 않는다 — 그러면 푸시를 강제로 쏘는 길이 열린다.
           settleAttempt();
           // 기다리는 사이에 취소했다 — 이제야 id를 알았으니 그때 못 보낸 것을 보낸다.
           if (cancelPendingRef.current) {
@@ -598,8 +603,12 @@ export function CallProvider({ children }: { children: ReactNode }) {
             return;
           }
           if (!current || current.callId) return;
-          patchCall({ callId: message.callId });
+          patchCall({
+            callId: message.callId,
+            status: message.type === 'notified' ? 'notified' : 'ringing',
+          });
           return;
+        }
 
         case 'accepted':
           if (!current || current.callId !== message.callId) return;
@@ -1065,6 +1074,24 @@ export function CallProvider({ children }: { children: ReactNode }) {
     [],
   );
 
+  /**
+   * 알림을 열고 들어왔다 — **이 통화가 아직 살아 있나.**
+   *
+   * 늦게 온 기기의 유일한 질문이다(§6). 살아 있으면 서버가 `incoming`으로 답해 벨이
+   * 다시 울리고, 아니면 `expired`로 "이미 끝난 통화"를 그린다 — 그것이 **푸시 경로의
+   * 정상 결말**이다(§8-10).
+   *
+   * 소켓이 아직 안 붙었으면 보내지 않는다. 붙는 순간 서버가 벨을 배달하므로
+   * (`CallGateway.opened`) 놓치는 통화는 없다.
+   */
+  const resumeCall = useCallback(
+    (callId: string): void => {
+      if (callRef.current || incomingRef.current) return;
+      sendSignal({ type: 'resume', callId });
+    },
+    [sendSignal],
+  );
+
   const value = useMemo<CallContextValue>(
     () => ({
       localStream,
@@ -1098,6 +1125,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
       cancelCall,
       retryCall,
       hangUp,
+      resumeCall,
     }),
     [
       acceptIncoming,
@@ -1108,6 +1136,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
       cancelCall,
       retryCall,
       declineIncoming,
+      resumeCall,
       releaseMedia,
       hangUp,
       icePolicy,

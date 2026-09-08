@@ -44,7 +44,13 @@ function mockFetch(routes: { [path: string]: Response[] }) {
 
 // 헤더·본문까지 봐야 하는 테스트용 — 경로와 함께 보낸 값을 남긴다.
 function mockFetchWithHeaders(routes: { [path: string]: Response[] }) {
-  const sent: { path: string; body: string | null; activity?: string }[] = [];
+  const sent: {
+    path: string;
+    body: string | null;
+    activity?: string;
+    language?: string;
+    contentType?: string;
+  }[] = [];
   vi.stubGlobal(
     'fetch',
     vi.fn((input: string | URL | Request, init?: RequestInit) => {
@@ -54,6 +60,8 @@ function mockFetchWithHeaders(routes: { [path: string]: Response[] }) {
         path,
         body: (init?.body as string | undefined) ?? null,
         activity: headers['X-Prism-Activity'],
+        language: headers['Accept-Language'],
+        contentType: headers['Content-Type'],
       });
       const next = routes[path]?.shift();
       if (!next) throw new Error(`예상하지 못한 요청: ${path}`);
@@ -406,5 +414,126 @@ describe('보내기 전 선제 회전', () => {
     await api.sessions();
 
     expect(calls).toEqual(['/auth/sessions']);
+  });
+});
+
+// ── 푸시 (plan/push.md) ──
+describe('푸시', () => {
+  // 클라이언트는 **대상 세션 id들과 내용만** 준다 — 토큰은 서버가 레코드에서
+  // 꺼낸다(§5-3). 답은 대상마다 따로 온다(§5-10).
+  it('전송은 대상 id들과 내용만 싣는다', async () => {
+    const sent = mockFetchWithHeaders({
+      '/auth/push/send': [
+        json(200, {
+          results: [
+            { sessionId: 's-1', result: 'accepted' },
+            { sessionId: 's-2', result: 'duplicate' },
+          ],
+        }),
+      ],
+    });
+
+    await expect(
+      api.sendPush({ sessionIds: ['s-1', 's-2'], message: 'hello' }),
+    ).resolves.toEqual({
+      results: [
+        { sessionId: 's-1', result: 'accepted' },
+        { sessionId: 's-2', result: 'duplicate' },
+      ],
+    });
+    expect(sent[0]?.body).toBe(
+      JSON.stringify({ sessionIds: ['s-1', 's-2'], message: 'hello' }),
+    );
+    // 사용자가 누른 요청이다 — 유휴 창을 민다.
+    expect(sent[0]?.activity).toBe('1');
+  });
+
+  it('이미지·링크·버튼도 함께 싣는다', async () => {
+    const sent = mockFetchWithHeaders({
+      '/auth/push/send': [json(200, { results: [] })],
+    });
+
+    await api.sendPush({
+      sessionIds: ['s-1'],
+      message: 'hi',
+      imageUrl: 'https://cdn.example/a.png',
+      link: 'https://example.com/x',
+      actions: 'open-dismiss',
+    });
+
+    expect(JSON.parse(sent[0]?.body ?? '{}')).toEqual({
+      sessionIds: ['s-1'],
+      message: 'hi',
+      imageUrl: 'https://cdn.example/a.png',
+      link: 'https://example.com/x',
+      actions: 'open-dismiss',
+    });
+  });
+
+  it('계약에 없는 결과는 거부한다', async () => {
+    mockFetch({
+      '/auth/push/send': [
+        json(200, { results: [{ sessionId: 's-1', result: 'delivered' }] }),
+      ],
+    });
+
+    await expect(
+      api.sendPush({ sessionIds: ['s-1'], message: 'hi' }),
+    ).rejects.toBeInstanceOf(ApiError);
+  });
+
+  // 소셜 로그인은 세션이 서버 콜백에서 만들어져 토큰을 실을 body가 없다 —
+  // 떠나기 전에 맡겨 두는 경로다.
+  it('맡기기는 토큰만 보내고 세션을 만들지 않는다', async () => {
+    const sent = mockFetchWithHeaders({
+      '/auth/push/pending': [new Response(null, { status: 204 })],
+    });
+
+    await api.stashPushToken('fcm-tok-1');
+
+    expect(sent[0]?.path).toBe('/auth/push/pending');
+    expect(sent[0]?.body).toBe(JSON.stringify({ pushToken: 'fcm-tok-1' }));
+  });
+
+  // 데모 로그인은 body가 있으므로 맡기기가 필요 없다.
+  it('데모 로그인은 토큰을 body로 함께 보낸다', async () => {
+    const sent = mockFetchWithHeaders({
+      '/auth/demo': [json(200, sessionUser)],
+    });
+
+    await api.demoLogin('fcm-tok-1');
+
+    expect(sent[0]?.body).toBe(JSON.stringify({ pushToken: 'fcm-tok-1' }));
+  });
+
+  it('토큰이 없으면 빈 body로 보낸다', async () => {
+    const sent = mockFetchWithHeaders({ '/auth/demo': [json(200, sessionUser)] });
+
+    await api.demoLogin();
+
+    expect(sent[0]?.body).toBe('{}');
+  });
+
+  // 서버는 이 헤더로 **세션의 언어**를 정하고, 나중에 그 기기로 보내는 알림 문구를
+  // 그 언어로 그린다(plan/push.md D4). 브라우저 기본값이 아니라 앱에서 고른 언어다.
+  it('모든 요청이 화면의 언어를 싣는다', async () => {
+    const sent = mockFetchWithHeaders({ '/auth/sessions': [json(200, [])] });
+
+    await api.sessions();
+
+    expect(sent[0]?.language).toBeTruthy();
+  });
+
+  // ⚠️ 회귀 방지: 한때 `...init`이 헤더 뒤에 있어, 활동 표시가 붙는 요청마다
+  // `Content-Type`이 통째로 사라졌다. body를 실은 POST가 서버에서 파싱되지 않는다.
+  it('활동 표시가 붙어도 Content-Type이 살아남는다', async () => {
+    const sent = mockFetchWithHeaders({
+      '/auth/push/send': [json(200, { results: [] })],
+    });
+
+    await api.sendPush({ sessionIds: ['s-1'], message: 'hi' });
+
+    expect(sent[0]?.contentType).toBe('application/json');
+    expect(sent[0]?.activity).toBe('1');
   });
 });

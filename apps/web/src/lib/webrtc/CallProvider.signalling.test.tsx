@@ -67,7 +67,8 @@ let deliver: (message: CallServerMessage) => void;
 
 function Probe() {
   const {
-    startCall, acceptIncoming, cancelCall, hangUp, setIcePolicy, call, incoming, notice,
+    startCall, acceptIncoming, cancelCall, hangUp, setIcePolicy, resumeCall,
+    call, incoming, notice,
   } = useCall();
   return (
     <>
@@ -76,6 +77,7 @@ function Probe() {
       <button onClick={cancelCall}>cancel</button>
       <button onClick={hangUp}>hangup</button>
       <button onClick={() => setIcePolicy('relay')}>relay</button>
+      <button onClick={() => resumeCall('c-1')}>resume</button>
       <span data-testid="status">{call ? call.status : 'none'}</span>
       <span data-testid="incoming">{incoming ? 'ringing' : 'none'}</span>
       <span data-testid="notice">{notice?.kind ?? 'none'}</span>
@@ -379,5 +381,84 @@ describe('CallProvider — 시그널링', () => {
     view.setReady(false);
 
     await waitFor(() => expect(status()).toBe('none'));
+  });
+  // ── 푸시로 깨우기 (plan/webrtc.md §8-9) ──
+  //
+  // 소켓이 없는 기기는 서버가 알림으로 깨우고 `notified`로 답한다. `ringing`과 **같은
+  // 답이고 다른 상태다** — 기다리는 성격이 달라 화면의 배지와 문구를 가른다(§4).
+  describe('푸시 경로', () => {
+    it('notified는 ringing과 같은 자리를 채우되 상태가 다르다', async () => {
+      renderApp();
+      fireEvent.click(screen.getByText('call'));
+      await waitFor(() => expect(sent).toContainEqual({ type: 'call', to: 'peer-1' }));
+
+      deliver({ type: 'notified', callId: 'c-1' });
+
+      await waitFor(() => expect(status()).toBe('notified'));
+    });
+
+    // 클라이언트는 경로를 요청하지 않는다 — 알림으로 알렸든 소켓으로 울렸든 그 뒤의
+    // 흐름은 같다(수락하면 `accepted`가 오고 offer를 낸다).
+    it('알림 경로에서도 수락되면 그대로 연결로 간다', async () => {
+      renderApp();
+      fireEvent.click(screen.getByText('call'));
+      await waitFor(() => expect(sent).toContainEqual({ type: 'call', to: 'peer-1' }));
+      deliver({ type: 'notified', callId: 'c-1' });
+      await waitFor(() => expect(status()).toBe('notified'));
+
+      deliver({ type: 'accepted', callId: 'c-1', iceServers: [] });
+
+      await waitFor(() => expect(status()).toBe('connecting'));
+    });
+
+    // `ringing` 전에 취소한 경우와 **같은 규칙**이다 — id를 받는 순간 보낸다.
+    it('notified 전에 취소하면 id를 받는 순간 cancel을 보낸다', async () => {
+      renderApp();
+      fireEvent.click(screen.getByText('call'));
+      await waitFor(() => expect(sent).toContainEqual({ type: 'call', to: 'peer-1' }));
+      fireEvent.click(screen.getByText('cancel'));
+
+      deliver({ type: 'notified', callId: 'c-1' });
+
+      await waitFor(() => expect(sent).toContainEqual({ type: 'cancel', callId: 'c-1' }));
+    });
+
+    // 알림을 열고 들어왔다 — 늦게 온 기기의 유일한 질문이다(§6).
+    it('resume은 통화가 없을 때만 나간다', async () => {
+      renderApp();
+
+      fireEvent.click(screen.getByText('resume'));
+
+      await waitFor(() =>
+        expect(sent).toContainEqual({ type: 'resume', callId: 'c-1' }),
+      );
+    });
+
+    it('이미 벨이 울리는 중이면 resume을 보내지 않는다', async () => {
+      renderApp();
+      deliver({ type: 'incoming', callId: 'c-1', from: { id: 'peer-1', device: 'mac' } });
+      await waitFor(() =>
+        expect(screen.getByTestId('incoming').textContent).toBe('ringing'),
+      );
+
+      fireEvent.click(screen.getByText('resume'));
+
+      expect(sent).not.toContainEqual({ type: 'resume', callId: 'c-1' });
+    });
+
+    // 창이 지난 뒤 열었다 — 이것이 **푸시 경로의 정상 결말**이다(§8-10).
+    it('expired는 이미 끝난 통화를 알린다', async () => {
+      renderApp();
+
+      deliver({
+        type: 'expired',
+        callId: 'c-1',
+        from: { id: 'peer-1', device: 'mac' },
+      });
+
+      await waitFor(() =>
+        expect(screen.getByTestId('notice').textContent).toBe('expired'),
+      );
+    });
   });
 });

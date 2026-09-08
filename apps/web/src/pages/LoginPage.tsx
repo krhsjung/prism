@@ -4,6 +4,11 @@ import { Button } from '../components/Button';
 import { LocaleSwitcher } from '../components/LocaleSwitcher';
 import { ThemeSwitcher } from '../components/ThemeSwitcher';
 import { API_ORIGIN, ApiError, api } from '../lib/api';
+import {
+  currentPermission,
+  rememberSentToken,
+  requestPermissionAndToken,
+} from '../lib/push/registration';
 import { log } from '../lib/log';
 import { useAuth } from '../lib/auth-context';
 import { useI18n } from '../lib/i18n/i18n-context';
@@ -44,6 +49,11 @@ export function LoginPage() {
   const { t } = useI18n();
   const [searchParams] = useSearchParams();
   const [pending, setPending] = useState<Pending>(null);
+  // 알림 권한은 **로그인 전에** 묻는다. 등록 토큰이 로그인 요청에 실려야 세션 안으로
+  // 들어가고(plan/push.md §5-2), 로그인 뒤에 받은 토큰을 올릴 경로는 두지 않았다.
+  // 안 눌러도 로그인은 그대로 된다 — 그 세션이 `Notifications off`가 될 뿐이다.
+  const [permission, setPermission] = useState(currentPermission);
+  const [pushToken, setPushToken] = useState<string | null>(null);
   // 진행 중인 팝업 핸들 — 언마운트 시 정리해야 리스너·타이머가 남지 않는다.
   const popupRef = useRef<OAuthPopupHandle | null>(null);
   // 오류는 문구가 아니라 키로 들고 있다가 그릴 때 번역한다 — 언어를 바꾸면 화면에 떠
@@ -74,8 +84,34 @@ export function LoginPage() {
   // 화면을 떠날 때 진행 중인 팝업을 정리한다(리스너·타이머 누수 방지).
   useEffect(() => () => popupRef.current?.cancel(), []);
 
+  async function allowNotifications() {
+    const token = await requestPermissionAndToken();
+    setPushToken(token);
+    setPermission(currentPermission());
+    // **토큰을 얻는 즉시 맡긴다.** 소셜 로그인은 세션이 서버 콜백에서 만들어져 토큰을
+    // 실을 body가 없고(push-cookie.ts), 로그인 버튼을 누른 뒤에 맡기면 그 `await`가
+    // 사용자 제스처와 팝업 사이에 끼어 브라우저가 팝업을 차단한다.
+    //
+    // 쿠키 수명은 OAuth state와 같은 10분이다 — 로그인을 마치기에 충분하고, 넘기면
+    // 그 세션이 `Notifications off`가 될 뿐이다.
+    if (token) await stashForSocial(token);
+  }
+
+  async function stashForSocial(token: string) {
+    try {
+      await api.stashPushToken(token);
+      rememberSentToken(token);
+    } catch {
+      // 맡기지 못해도 로그인은 계속된다 — 그 세션이 `Notifications off`가 될 뿐이다.
+    }
+  }
+
   // 전체 페이지 이동 — 서버가 OAuth 제공자로 redirect한다.
-  function startRedirect(provider: SocialProvider) {
+  //
+  // 여기서는 맡기기를 한 번 더 한다. 페이지를 통째로 떠나는 경로라 팝업 차단이 없고,
+  // 권한을 준 지 10분이 지난 경우를 이 한 번이 되살린다.
+  async function startRedirect(provider: SocialProvider) {
+    if (pushToken) await stashForSocial(pushToken);
     window.location.assign(api.socialLoginUrl(provider, 'redirect'));
   }
 
@@ -136,7 +172,8 @@ export function LoginPage() {
     try {
       // 세션 쿠키는 서버가 응답에 심는다 — 웹은 사용자만 채택한다.
       // (토큰 수명은 api 계층이 같은 응답에서 이미 만료 시각으로 바꿔 뒀다)
-      const { user } = await api.demoLogin();
+      const { user } = await api.demoLogin(pushToken ?? undefined);
+      if (pushToken) rememberSentToken(pushToken);
       signIn(user);
       log.auth('signin', { outcome: 'success', provider: 'demo', method: 'demo' });
       navigate('/dashboard', { replace: true });
@@ -194,6 +231,27 @@ export function LoginPage() {
             {pending === 'demo' ? t('auth.connecting') : t('auth.try_the_demo')}
           </Button>
         </div>
+
+        {/* 알림 권한은 **로그인 버튼 아래**, 로그인 자체를 막지 않는 자리에 둔다.
+            진입만으로 묻지 않는 이유는 카메라와 같다 — 명시적 제스처 뒤에만 연다
+            (plan/webrtc.md §7). 안 눌러도 로그인은 그대로 되고, 그 세션이
+            `Notifications off`가 될 뿐이다. */}
+        {permission === 'default' && (
+          <div className="push__permission">
+            <p className="card__note">{t('push.allow_desc')}</p>
+            <Button
+              variant="ghost"
+              className="btn--compact"
+              disabled={busy}
+              onClick={() => void allowNotifications()}
+            >
+              {t('push.allow')}
+            </Button>
+          </div>
+        )}
+        {permission === 'granted' && pushToken !== null && (
+          <p className="card__note">{t('push.allow_on')}</p>
+        )}
 
         <p className="card__note">{t('auth.no_personal_data')}</p>
       </section>

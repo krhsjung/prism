@@ -9,15 +9,25 @@ import { useI18n } from '../lib/i18n/i18n-context';
 import { useMediaQuery } from '../lib/useMediaQuery';
 
 /** 사이드바가 아는 페이지. 라우트가 늘면 여기가 먼저 걸린다. */
-export type ShellPage = 'dashboard' | 'webrtc';
+export type ShellPage = 'dashboard' | 'webrtc' | 'push';
 
-const NAV: {
-  page: ShellPage;
-  to: string;
-  key: 'dashboard.title' | 'webrtc.title';
-}[] = [
-  { page: 'dashboard', to: '/dashboard', key: 'dashboard.title' },
-  { page: 'webrtc', to: '/webrtc', key: 'webrtc.title' },
+/**
+ * 페이지 이름 — 사이드바 항목과 상단 바 제목이 **같은 값**을 쓴다. 맵이라 페이지가 늘면
+ * 컴파일이 먼저 걸린다(삼항으로 갈랐더니 푸시 화면의 상단 바가 `Dashboard`였다).
+ */
+const TITLES: {
+  [P in ShellPage]: 'dashboard.title' | 'webrtc.title' | 'push.title';
+} = {
+  dashboard: 'dashboard.title',
+  push: 'push.title',
+  webrtc: 'webrtc.title',
+};
+
+/** 사이드바 차례. 푸시가 통화 앞인 것은 **보내 보는 화면이 통화보다 앞선 단계**여서다. */
+const NAV: { page: ShellPage; to: string }[] = [
+  { page: 'dashboard', to: '/dashboard' },
+  { page: 'push', to: '/push' },
+  { page: 'webrtc', to: '/webrtc' },
 ];
 
 /**
@@ -111,7 +121,7 @@ export function AppShell({
     </>
   );
 
-  const title = t(page === 'webrtc' ? 'webrtc.title' : 'dashboard.title');
+  const title = t(TITLES[page]);
 
   return (
     <div className="shell">
@@ -142,7 +152,7 @@ export function AppShell({
                 className="navitem navitem--active"
                 aria-current="page"
               >
-                {t(item.key)}
+                {t(TITLES[item.page])}
               </span>
             ) : (
               <Link
@@ -153,7 +163,7 @@ export function AppShell({
                 // 패널이 남으면 새 화면이 그 뒤에 가려진다.
                 onClick={() => setNavOpen(false)}
               >
-                {t(item.key)}
+                {t(TITLES[item.page])}
               </Link>
             ),
           )}

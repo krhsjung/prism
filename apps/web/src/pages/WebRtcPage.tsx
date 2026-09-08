@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { AppShell } from '../components/AppShell';
 import { Button } from '../components/Button';
 import { CallControls } from '../components/webrtc/CallControls';
@@ -20,6 +21,9 @@ import type { MessageKey } from '../lib/i18n/messages.gen';
 // 배지는 `Atom/Badge`의 **기존 여섯 변형을 그대로** 쓴다 — 새 변형 없음(plan/webrtc.md §4).
 const STATUS: Record<CallStatus, { variant: string; key: MessageKey }> = {
   ringing: { variant: 'neutral', key: 'webrtc.status_ringing' },
+  // `Ringing`과 갈라 둔다 — 알림이 뜨고 사람이 기기를 집어 앱을 여는 시간이 창 안에
+  // 들어가므로 체감이 다르다. 같은 배지로 뭉뚱그리면 느린 쪽이 고장으로 읽힌다(§4).
+  notified: { variant: 'neutral', key: 'webrtc.status_notified' },
   connecting: { variant: 'info', key: 'webrtc.status_connecting' },
   connected: { variant: 'success', key: 'webrtc.status_connected' },
   reconnecting: { variant: 'warning', key: 'webrtc.status_reconnecting' },
@@ -71,6 +75,7 @@ export function WebRtcPage() {
   const { t } = useI18n();
   const isMobile = useMediaQuery('(max-width: 720px)');
   const { ready: socketReady, changed } = useSessionSocket();
+  const [params, setParams] = useSearchParams();
   const {
     localStream,
     remoteStream,
@@ -95,6 +100,7 @@ export function WebRtcPage() {
     starting,
     startCall,
     startLoopback,
+    resumeCall,
     startPreview,
     cancelCall,
     retryCall,
@@ -140,6 +146,24 @@ export function WebRtcPage() {
     void fetchSessions(true);
   }, [changed, fetchSessions]);
 
+  // 알림을 눌러 들어왔다 — **이 통화가 아직 살아 있나**(§6).
+  //
+  // 소켓이 붙은 뒤에야 물을 수 있다. 살아 있으면 벨이 다시 울리고, 아니면
+  // `Call expired`를 본다 — 그것이 푸시 경로의 정상 결말이다(§8-10).
+  //
+  // 물은 뒤에는 **주소에서 지운다**(`replace`) — 남겨 두면 새로고침할 때마다 같은
+  // 통화를 다시 물어 이미 끝난 통화의 알림이 되풀이된다.
+  const resumed = useRef<string | null>(null);
+  useEffect(() => {
+    const callId = params.get('callId');
+    if (!callId || !socketReady || resumed.current === callId) return;
+    resumed.current = callId;
+    resumeCall(callId);
+    const next = new URLSearchParams(params);
+    next.delete('callId');
+    setParams(next, { replace: true });
+  }, [params, setParams, socketReady, resumeCall]);
+
   const inCall = call !== null;
   const peerLabel = call?.isLoopback
     ? t('webrtc.loopback_peer')
@@ -156,7 +180,16 @@ export function WebRtcPage() {
           title: t('webrtc.calling', { device: peerLabel }),
           desc: `${t('webrtc.ringing_desc')} ${t('webrtc.ring_timeout_note')}`,
         }
-      : { title: t('webrtc.in_call'), desc: undefined };
+      : call.status === 'notified'
+        ? {
+            // 기다리는 시간이 **왜 긴지**를 화면이 말한다(§4).
+            //
+            // `ring_timeout_note`를 덧붙이지 않는다 — `notified_desc`가 이미 45초를
+            // 말하고 있어 숫자가 두 번 나온다. 상한은 화면에 **한 번만** 적는다(§4).
+            title: t('webrtc.calling', { device: peerLabel }),
+            desc: t('webrtc.notified_desc', { device: peerLabel }),
+          }
+        : { title: t('webrtc.in_call'), desc: undefined };
 
   const controls = (
     <CallControls
@@ -469,6 +502,8 @@ function peerTileMessage(
   t: (key: MessageKey) => string,
 ): string | undefined {
   if (status === 'ringing') return t('webrtc.tile_ringing');
+  // 소켓 경로와 다른 문구다 — 기다리는 것이 "응답"이 아니라 "기기가 열리는 것"이다.
+  if (status === 'notified') return t('webrtc.tile_notified');
   if (status === 'reconnecting') return t('webrtc.tile_reconnecting');
   // 실패 타일은 **문구를 갖지 않는다** — 배지가 이미 그 말을 한다(§4).
   if (status === 'failed') return undefined;

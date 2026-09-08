@@ -4,6 +4,7 @@ import { AuthCallbackPage } from "./pages/AuthCallbackPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { LoginPage } from "./pages/LoginPage";
 import { WebRtcPage } from "./pages/WebRtcPage";
+import { PushPage } from "./pages/PushPage";
 import { IncomingCallDialog } from "./components/webrtc/IncomingCallDialog";
 import { CallProvider } from "./lib/webrtc/CallProvider";
 import { useCall } from "./lib/webrtc/call-context";
@@ -83,6 +84,14 @@ export default function App() {
                 element={
                   <RequireAuth>
                     <WebRtcPage />
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/push"
+                element={
+                  <RequireAuth>
+                    <PushPage />
                   </RequireAuth>
                 }
               />

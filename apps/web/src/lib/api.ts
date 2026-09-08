@@ -8,7 +8,10 @@ import {
   type JsonValue,
   type SocialFlow,
   type SocialProvider,
+  decodePushSendResponse,
+  type PushSendRequest,
 } from './contracts.gen';
+import { currentLocale } from './i18n/locale';
 import { log, routeTemplate } from './log';
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
@@ -36,8 +39,19 @@ async function fetchOrThrow(path: string, init?: RequestInit): Promise<Response>
   const route = routeTemplate(path);
   try {
     const res = await fetch(`${API_URL}${path}`, {
-      headers: { 'Content-Type': 'application/json', ...(init?.headers ?? {}) },
       ...init,
+      // ⚠️ **`...init` 뒤에 온다.** 앞에 두면 `init.headers`가 병합 결과를 통째로
+      // 덮어쓴다 — 활동 표시가 붙는 요청은 전부 `init.headers`를 갖고 있으므로
+      // `Content-Type`이 조용히 사라지고, body를 실은 POST가 서버에서 파싱되지 않는다.
+      headers: {
+        'Content-Type': 'application/json',
+        // 서버가 **세션의 언어**를 여기서 읽는다 — 로그인 시점에 세션에 담아 두고,
+        // 나중에 그 기기로 보내는 알림 문구를 그 언어로 그린다(plan/push.md D4).
+        // 브라우저의 기본 헤더가 아니라 **앱에서 고른 언어**를 싣는다: 언어 스위처가
+        // 있는 앱에서 둘은 자주 다르고, 사용자가 보는 것은 후자다.
+        'Accept-Language': currentLocale(),
+        ...(init?.headers ?? {}),
+      },
       // 세션은 HttpOnly 쿠키다 — JS가 토큰을 들고 다니지 않으므로 쿠키를 실어 보낸다.
       // (로컬은 웹:5173 ↔ API:3000으로 교차 출처라 이 옵션이 없으면 쿠키가 빠진다)
       credentials: 'include',
@@ -305,8 +319,12 @@ async function requestEmpty(path: string, init?: RequestInit): Promise<void> {
 
 export const api = {
   // 응답에 토큰이 없다 — 세션은 서버가 심은 HttpOnly 쿠키에만 있다.
-  demoLogin: () =>
-    requestJson('/auth/demo', decodeAndNoteSession, { method: 'POST' }),
+  demoLogin: (pushToken?: string) =>
+    requestJson('/auth/demo', decodeAndNoteSession, {
+      method: 'POST',
+      // 등록 토큰은 **로그인 시점에만** 세션에 실린다(plan/push.md §5-2).
+      body: JSON.stringify(pushToken ? { pushToken } : {}),
+    }),
   // 소셜 로그인은 fetch가 아니라 브라우저 이동(전체 페이지 또는 popup)으로 시작한다.
   // flow는 서버가 서명된 state에 실어 콜백까지 가져가고, 결과 전달 방식을 결정한다.
   socialLoginUrl: (provider: SocialProvider, flow: SocialFlow) =>
@@ -334,4 +352,23 @@ export const api = {
   // 내 모든 세션 폐기(현재 세션 포함) — 이후 쿠키는 무효가 된다.
   revokeAllSessions: () =>
     requestEmpty('/auth/sessions/revoke-all', { method: 'POST' }),
+  // 이 기기의 등록 토큰을 **로그인 시작 전에** 서버에 맡긴다(소셜 로그인 전용).
+  //
+  // 소셜 로그인은 브라우저 이동으로 시작해 서버 콜백에서 세션이 만들어진다 — 토큰을
+  // 실을 요청 body가 없다. 서버가 짧은 수명의 HttpOnly 쿠키에 담아 두었다가 세션을
+  // 만드는 자리에서 꺼내 쓴다(services/auth/src/session/push-cookie.ts).
+  //
+  // 데모 로그인은 이 경로가 필요 없다 — `demoLogin`이 body로 직접 싣는다.
+  stashPushToken: (pushToken: string) =>
+    requestEmpty('/auth/push/pending', {
+      method: 'POST',
+      body: JSON.stringify({ pushToken }),
+    }),
+  // 내 기기**들**에 알림을 보낸다. **토큰은 보내지 않는다** — 서버가 세션 레코드에서
+  // 꺼낸다(plan/push.md §5-3). 답은 **대상마다** 따로 온다(§5-10).
+  sendPush: (request: PushSendRequest) =>
+    requestJson('/auth/push/send', decodePushSendResponse, {
+      method: 'POST',
+      body: JSON.stringify(request),
+    }),
 };

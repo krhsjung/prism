@@ -39,11 +39,23 @@ export function readStoredLocale(): Locale | null {
 }
 
 export function storeLocale(locale: Locale): void {
+  chosen = locale;
   try {
     localStorage.setItem(LOCALE_STORAGE_KEY, locale);
   } catch {
     // 저장에 실패해도 이번 세션의 선택은 유효하다 — 다음 방문에 기억되지 않을 뿐이다.
   }
+}
+
+// 이번 세션에서 고른 값. **저장이 실패해도 남는다** — 사파리 프라이빗 모드에서
+// localStorage가 던지면 `detectLocale`은 선택을 못 보지만 이 값은 본다.
+let chosen: Locale | null = null;
+
+// 화면이 지금 쓰고 있는 언어. React 밖(API 클라이언트)에서 읽으려고 둔다 —
+// 훅을 쓸 수 없는 자리이고, 서버는 이 값을 `Accept-Language`로 받아 **세션의 언어**로
+// 담아 둔다(plan/push.md D4).
+export function currentLocale(): Locale {
+  return chosen ?? detectLocale();
 }
 
 // 표시할 언어를 정한다: 사용자가 고른 값 > 브라우저 선호 순서 > 기본 언어.
