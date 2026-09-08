@@ -12,6 +12,7 @@ import { PrismConfigService } from '@app/config';
 import { CallGateway } from './call.gateway';
 import type { SocketConnection } from './connection';
 import { ConnectionRegistry } from './connection-registry';
+import type { PushSender } from '@app/push';
 
 const ICE_SERVERS: IceServer[] = [{ urls: ['stun:stun.example:3478'] }];
 
@@ -22,20 +23,33 @@ const owned: SessionInfo[] = [
     startedAt: '2026-08-28T00:00:00.000Z',
     expiresAt: '2026-08-29T00:00:00.000Z',
     device: 'mac',
+    pushRegistered: false,
   },
   {
     id: 's-phone',
     startedAt: '2026-08-28T00:00:00.000Z',
     expiresAt: '2026-08-29T00:00:00.000Z',
     device: 'iphone',
+    pushRegistered: false,
   },
   {
     id: 's-idle',
     startedAt: '2026-08-28T00:00:00.000Z',
     expiresAt: '2026-08-29T00:00:00.000Z',
     device: 'windows',
+    pushRegistered: false,
+  },
+  // 소켓은 없지만 **등록 토큰이 있는** 기기 — 푸시로 깨우는 줄이다(plan/webrtc.md §8-9).
+  {
+    id: 's-push',
+    startedAt: '2026-08-28T00:00:00.000Z',
+    expiresAt: '2026-08-29T00:00:00.000Z',
+    device: 'galaxy',
+    pushRegistered: true,
   },
 ];
+
+const PUSH_TARGET = { token: 'fcm-tok-1', locale: 'ko' as const };
 
 // 소켓 없이 도메인만 본다 — 게이트웨이가 `ws`가 아니라 SocketConnection에만 의존하도록
 // 짠 이유가 이것이다(presence 스펙과 같은 모양).
@@ -75,7 +89,8 @@ describe('CallGateway', () => {
   let redis: FakeRedis;
   let registry: ConnectionRegistry;
   let presence: PresenceRepository;
-  let sessions: { listForUser: jest.Mock };
+  let sessions: { listForUser: jest.Mock; pushTargetFor: jest.Mock };
+  let push: { send: jest.Mock };
   let gateway: CallGateway;
   let mac: FakeConnection;
   let phone: FakeConnection;
@@ -85,11 +100,25 @@ describe('CallGateway', () => {
     redis = new FakeRedis();
     registry = new ConnectionRegistry();
     presence = new PresenceRepository(redis);
-    sessions = { listForUser: jest.fn(() => Promise.resolve(owned)) };
+    sessions = {
+      listForUser: jest.fn(() => Promise.resolve(owned)),
+      pushTargetFor: jest.fn((_userId: string, sessionId: string) =>
+        Promise.resolve(
+          sessionId === 's-push'
+            ? { kind: 'ok', target: PUSH_TARGET }
+            : { kind: 'no-token' },
+        ),
+      ),
+    };
+    push = { send: jest.fn(() => Promise.resolve('accepted')) };
     gateway = new CallGateway(
       registry,
       sessions as object as SessionsRepository,
-      { iceServersFor: () => ICE_SERVERS } as object as PrismConfigService,
+      {
+        iceServersFor: () => ICE_SERVERS,
+        webAppUrl: 'https://prism.example',
+      } as object as PrismConfigService,
+      push as object as PushSender,
     );
     mac = connect('c-mac', 's-mac');
     phone = connect('c-phone', 's-phone');
@@ -187,11 +216,160 @@ describe('CallGateway', () => {
     expect(mac.last()).toEqual({ type: 'callError', code: 'unknown-session' });
   });
 
-  // 소켓이 없는 내 세션. 푸시로 깨우는 경로는 push 슬라이스와 함께 붙는다(§8-11).
-  it('소켓이 없는 세션은 unreachable이다', async () => {
+  // 소켓도 없고 **등록 토큰도 없다** — 닿을 방법이 없다. 화면은 이 줄에 애초에 버튼을
+  // 두지 않으므로(`Notifications off`) 여기 오는 것은 경합뿐이다.
+  it('소켓도 토큰도 없는 세션은 unreachable이다', async () => {
     await send(mac, { type: 'call', to: 's-idle' });
 
     expect(mac.last()).toEqual({ type: 'callError', code: 'unreachable' });
+    expect(push.send).not.toHaveBeenCalled();
+  });
+
+  // ── 푸시로 깨우기 (plan/webrtc.md §8-9) ──
+  describe('소켓 없는 기기 깨우기', () => {
+    it('토큰이 있으면 통화를 세우고 notified로 답한다', async () => {
+      await send(mac, { type: 'call', to: 's-push' });
+
+      const notified = mac.last();
+      expect(notified).toEqual({
+        type: 'notified',
+        callId: expect.any(String) as string,
+      });
+      // 거는 쪽에는 `ringing`이 가지 않는다 — 기다리는 성격이 다르다는 것을
+      // 화면이 말해야 한다(§4).
+      expect(mac.types()).not.toContain('ringing');
+    });
+
+    it('페이로드에는 callId와 건 기기 종류만 담는다', async () => {
+      await send(mac, { type: 'call', to: 's-push' });
+      await Promise.resolve();
+
+      const [token, text, payload, link] = push.send.mock.calls[0] as [
+        string,
+        { title: string; body: string },
+        { kind: string; callId: string; device: string },
+        string,
+      ];
+      expect(token).toBe(PUSH_TARGET.token);
+      // 문구는 **세션에 담아 둔 언어**로 그려진다(plan/push.md D4).
+      expect(text).toEqual({
+        title: '걸려 온 통화',
+        body: '받으려면 Prism을 여세요.',
+      });
+      expect(payload).toEqual({
+        kind: 'call',
+        callId: (mac.last() as { callId: string }).callId,
+        device: 'mac',
+      });
+      expect(link).toContain('/webrtc?callId=');
+      // 세션 id·SDP·사용자 정보는 어디에도 실리지 않는다(plan/webrtc.md §7).
+      expect(JSON.stringify(payload)).not.toContain('s-mac');
+    });
+
+    // **타이머는 FCM 왕복 앞에 건다** — 기다리면 받는 쪽의 45초가 그만큼 짧아지고,
+    // await 구간에서 예외가 나면 타이머 없는 통화가 영원히 남는다.
+    it('전송을 기다리지 않고 답하며 45초는 그대로 흐른다', async () => {
+      // 영원히 끝나지 않는 전송 — 그래도 답과 타이머는 이미 서 있어야 한다.
+      push.send.mockReturnValueOnce(new Promise(() => {}));
+      await send(mac, { type: 'call', to: 's-push' });
+
+      expect(mac.last()).toMatchObject({ type: 'notified' });
+
+      jest.advanceTimersByTime(RING_TIMEOUT_MS);
+      expect(mac.last()).toEqual({
+        type: 'ended',
+        callId: expect.any(String) as string,
+        reason: 'timeout',
+      });
+    });
+
+    // FCM의 "받아들였다"는 배달을 뜻하지 않는다 — 성공/실패로 화면을 가르면 없는
+    // 사실을 지어내는 것이다. **푸시가 갔든 안 갔든 결말이 같다**(§8-10).
+    it('전송이 실패해도 통화를 접지 않는다', async () => {
+      push.send.mockResolvedValueOnce('failed');
+      await send(mac, { type: 'call', to: 's-push' });
+      await Promise.resolve();
+
+      expect(mac.last()).toMatchObject({ type: 'notified' });
+
+      jest.advanceTimersByTime(RING_TIMEOUT_MS);
+      expect(mac.last()).toMatchObject({ type: 'ended', reason: 'timeout' });
+    });
+
+    // 알림 폭탄 방지 — 소켓 경로에서는 벨이 겹칠 뿐이지만 푸시 경로에서는 잠금화면이
+    // 배너로 덮인다(plan/webrtc.md §7 "아직 아닌 것").
+    it('창 안에서 상한을 넘기면 더 깨우지 않는다', async () => {
+      for (let attempt = 0; attempt < 3; attempt++) {
+        await send(mac, { type: 'call', to: 's-push' });
+        const callId = (mac.last() as { callId: string }).callId;
+        await send(mac, { type: 'cancel', callId });
+      }
+      expect(push.send).toHaveBeenCalledTimes(3);
+
+      await send(mac, { type: 'call', to: 's-push' });
+
+      expect(mac.last()).toEqual({ type: 'callError', code: 'unreachable' });
+      expect(push.send).toHaveBeenCalledTimes(3);
+    });
+
+    // 알림을 **열어** 들어온 기기의 질문. `resume`은 손대지 않았다 — 벨이 울리는 중이면
+    // `incoming`을 돌려주는 코드가 그대로 푸시 경로를 받는다.
+    it('resume이 벨을 되살린다', async () => {
+      await send(mac, { type: 'call', to: 's-push' });
+      const callId = (mac.last() as { callId: string }).callId;
+
+      const woken = connect('c-push', 's-push');
+      await send(woken, { type: 'resume', callId });
+
+      expect(woken.last()).toEqual({
+        type: 'incoming',
+        callId,
+        from: { id: 's-mac', device: 'mac' },
+      });
+    });
+
+    // 알림을 **열지 않고** 앱만 연 경우 — `resume`이 오지 않으므로 소켓이 붙는
+    // 순간 서버가 벨을 배달한다.
+    it('알림 없이 앱만 열어도 벨이 배달된다', async () => {
+      await send(mac, { type: 'call', to: 's-push' });
+      const callId = (mac.last() as { callId: string }).callId;
+
+      const woken = connect('c-push', 's-push');
+      gateway.opened(woken);
+
+      expect(woken.last()).toEqual({
+        type: 'incoming',
+        callId,
+        from: { id: 's-mac', device: 'mac' },
+      });
+    });
+
+    it('남의 통화는 소켓이 붙어도 배달하지 않는다', async () => {
+      await connected();
+      const stranger = new FakeConnection('c-x', 'u-2', 's-push');
+      registry.add(stranger);
+
+      gateway.opened(stranger);
+
+      expect(stranger.sent).toEqual([]);
+    });
+
+    // 창이 지난 뒤 열었다 — 이미 서버가 끊은 통화다. 그때 보는 것이 `Call expired`이고,
+    // 그것이 **푸시 경로의 정상 결말**이다(§8-10).
+    it('창이 지난 뒤의 resume은 expired다', async () => {
+      await send(mac, { type: 'call', to: 's-push' });
+      const callId = (mac.last() as { callId: string }).callId;
+      jest.advanceTimersByTime(RING_TIMEOUT_MS);
+
+      const woken = connect('c-push', 's-push');
+      await send(woken, { type: 'resume', callId });
+
+      expect(woken.last()).toEqual({
+        type: 'expired',
+        callId,
+        from: { id: 's-mac', device: 'mac' },
+      });
+    });
   });
 
   it('한 세션은 한 통화만 — 통화 중인 상대는 busy다', async () => {

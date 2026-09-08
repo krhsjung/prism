@@ -1,15 +1,18 @@
-import { Injectable, OnModuleDestroy } from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import {
   RING_TIMEOUT_MS,
   SessionsRepository,
+  translate,
   type CallClientMessage,
   type CallEndReason,
   type CallServerMessage,
   type DeviceKind,
+  type PushTarget,
   type SessionRef,
 } from '@app/common';
 import { PrismConfigService } from '@app/config';
+import { PushSender } from '@app/push';
 import type { SocketConnection } from './connection';
 import { ConnectionRegistry } from './connection-registry';
 
@@ -30,6 +33,17 @@ const ENDED_RETENTION_MS = 5 * 60_000;
 // 못한다. 넘치면 **가장 오래된 것부터** 버린다 — 늦게 열린 알림이 물어볼 만한 통화는
 // 언제나 최근 것이다.
 const MAX_RETAINED_CALLS = 512;
+
+// 한 세션을 이만큼 자주만 깨운다.
+//
+// **소켓 경로에는 없던 문제다.** 지금 상한은 연결당 프레임 수(창 10초에 `call` 10개)라
+// 탭을 여럿 연 클라이언트는 그만큼 곱해 걸 수 있고, `call` → `cancel`을 반복하면 세션
+// 자리가 매번 풀려 "한 세션은 한 통화만"도 막지 못한다. 소켓 경로에서는 벨이 겹칠
+// 뿐이지만 **푸시 경로에서는 잠금화면이 배너로 덮인다**(plan/webrtc.md §7 "아직 아닌 것").
+//
+// `bySession`과 같은 프로세스 메모리이고, 다중 인스턴스로 가면 같은 자리에서 같은 승격을 한다.
+const WAKE_WINDOW_MS = 60_000;
+const MAX_WAKES_PER_WINDOW = 3;
 
 type CallPhase = 'ringing' | 'active' | 'ended';
 
@@ -73,14 +87,18 @@ const refOf = (party: CallParty): SessionRef => ({
 // 한다(파드를 늘리면 @app/redis pub/sub).
 @Injectable()
 export class CallGateway implements OnModuleDestroy {
+  private readonly logger = new Logger(CallGateway.name);
   private readonly calls = new Map<string, Call>();
   // 세션 → 진행 중인 통화. "한 세션은 한 통화만"을 **서버가** 강제하는 자리다.
   private readonly bySession = new Map<string, string>();
+  // 세션 → 최근에 깨운 시각들. 알림 폭탄을 막는 자리다(WAKE_WINDOW_MS).
+  private readonly wakes = new Map<string, number[]>();
 
   constructor(
     private readonly registry: ConnectionRegistry,
     private readonly sessions: SessionsRepository,
     private readonly config: PrismConfigService,
+    private readonly push: PushSender,
   ) {}
 
   async handle(
@@ -130,6 +148,65 @@ export class CallGateway implements OnModuleDestroy {
         call.callee.connection === connection;
       if (bound) this.end(call, 'peer-gone');
     }
+  }
+
+  // 소켓이 붙었다. **알림을 열지 않고 앱을 그냥 연 경우가 여기다** — 그때는 `resume`이
+  // 오지 않으므로, 벨이 울리는 중인 내 통화가 있으면 이 연결에 배달한다.
+  //
+  // `close`의 짝이고, 소켓 서버가 연결을 받아들인 직후 부른다.
+  opened(connection: SocketConnection): void {
+    for (const call of this.calls.values()) {
+      if (call.phase !== 'ringing') continue;
+      if (call.userId !== connection.userId) continue;
+      if (call.callee.sessionId !== connection.sessionId) continue;
+      connection.send({
+        type: 'incoming',
+        callId: call.id,
+        from: refOf(call.caller),
+      });
+    }
+  }
+
+  // 이 세션을 지금 깨워도 되는가. 창 안에서 상한을 넘겼으면 안 된다.
+  private allowWake(sessionId: string): boolean {
+    const now = Date.now();
+    const recent = (this.wakes.get(sessionId) ?? []).filter(
+      (at) => now - at < WAKE_WINDOW_MS,
+    );
+    if (recent.length >= MAX_WAKES_PER_WINDOW) {
+      this.wakes.set(sessionId, recent);
+      return false;
+    }
+    recent.push(now);
+    this.wakes.set(sessionId, recent);
+    return true;
+  }
+
+  // 기기를 깨운다. **던지고 잊는다.**
+  //
+  // 실패해도 통화를 접지 않는다. `ended`에 실을 사유를 새로 만들게 되고, FCM의
+  // "받아들였다"는 어차피 배달을 뜻하지 않아 성공/실패로 화면을 가르면 **없는 사실을
+  // 지어내는 것**이다(plan/push.md §7). 45초가 지나면 타이머가 양쪽에 `ended{'timeout'}`을
+  // 보내고 늦게 연 기기는 `resume`에 `expired`를 받는다 — **푸시가 갔든 안 갔든 결말이
+  // 같다**(plan/webrtc.md §8-10).
+  private async wakeDevice(
+    call: Call,
+    wake: { kind: 'ok'; target: PushTarget },
+  ): Promise<void> {
+    const { locale } = wake.target;
+    const outcome = await this.push.send(
+      wake.target.token,
+      {
+        title: translate(locale, 'push.call_title'),
+        body: translate(locale, 'push.call_body'),
+      },
+      // **페이로드는 이 둘이 전부다.** SDP·ICE·세션 id·사용자 정보는 넣지 않는다 —
+      // 알림은 잠금화면에 뜨고 OS 로그에 남는다(plan/webrtc.md §7). 기기 종류는
+      // 앱을 연 화면이 "누가 걸었나"를 그리는 데 쓴다.
+      { kind: 'call', callId: call.id, device: call.caller.device },
+      `${this.config.webAppUrl}/webrtc?callId=${call.id}`,
+    );
+    if (outcome !== 'accepted') this.logger.warn(`call wake ${outcome}`);
   }
 
   // 거는 쪽이 상대를 지목했다.
@@ -191,12 +268,26 @@ export class CallGateway implements OnModuleDestroy {
         connection.userId,
         callee.id,
       );
+
+      // 소켓이 없으면 **알림으로 깨운다**(§8-9). 토큰 조회를 통화보다 먼저 하는 이유는
+      // 소켓도 토큰도 없는 기기는 통화를 만들지 않고 거절해야 하기 때문이다.
+      const wake =
+        ring.length === 0
+          ? await this.sessions.pushTargetFor(connection.userId, callee.id)
+          : null;
+      // 조회하는 사이에 거는 쪽이 사라졌을 수 있다 — 위의 확인과 같은 이유다.
+      if (!this.registry.has(connection)) return;
+
       if (ring.length === 0) {
-        // 소켓이 없다. **푸시로 깨우는 경로는 push 슬라이스와 함께 붙는다**(§8-11) —
-        // 그때까지 소켓 없는 기기는 걸 수 없고, 화면은 그 줄을 `Notifications off`로
-        // 그린다(문구는 이미 i18n에 있다).
-        connection.send({ type: 'callError', code: 'unreachable' });
-        return;
+        // 소켓도 없고 토큰도 없다 — 닿을 방법이 없다. 화면은 이 줄에 애초에 버튼을
+        // 두지 않으므로(`Notifications off`) 여기 오는 것은 경합뿐이다.
+        //
+        // **알림 폭탄도 같은 코드로 접는다.** 사유를 나누면 "너무 자주 걸었다"를
+        // 화면이 말해야 하는데, 그건 사용자가 고칠 수 있는 일이 아니다.
+        if (wake?.kind !== 'ok' || !this.allowWake(callee.id)) {
+          connection.send({ type: 'callError', code: 'unreachable' });
+          return;
+        }
       }
 
       // **callId는 서버가 발급한다**(추측 불가 난수). 클라가 만든 id를 믿으면 남의
@@ -215,14 +306,28 @@ export class CallGateway implements OnModuleDestroy {
       };
       this.calls.set(call.id, call);
       // **타이머는 서버만 갖는다** — 클라가 재면 시계가 두 벌이 되고 어긋난다(§6).
+      //
+      // 푸시 경로에서도 **FCM 왕복 앞에** 건다. 창은 사용자에게 한 약속인데 FCM은
+      // 느릴 수도, 요청 타임아웃까지 갈 수도 있다 — 기다리면 받는 쪽의 45초가 그만큼
+      // 짧아진다. 게다가 `calls.set` 다음의 await 구간에서 예외가 나면 타이머 없는
+      // 통화가 영원히 남는다.
       call.timer = this.arm(RING_TIMEOUT_MS, () => this.end(call, 'timeout'));
 
       const from = refOf(call.caller);
-      for (const target of ring) {
-        target.send({ type: 'incoming', callId: call.id, from });
+      if (ring.length > 0) {
+        for (const target of ring) {
+          target.send({ type: 'incoming', callId: call.id, from });
+        }
+        // 거는 쪽에는 **이 연결에만** 간다 — 창구가 이미 정해져 있다.
+        connection.send({ type: 'ringing', callId: call.id });
+        return;
       }
-      // 거는 쪽에는 **이 연결에만** 간다 — 창구가 이미 정해져 있다.
-      connection.send({ type: 'ringing', callId: call.id });
+
+      // 푸시 경로. **거는 쪽에는 지금 답한다** — 서버는 `call` 하나에 정확히 한 번
+      // 답하고, 클라이언트는 그 답을 10초 안에 기다린다(ANSWER_TIMEOUT_MS).
+      connection.send({ type: 'notified', callId: call.id });
+      // 전송은 **던지고 잊는다**(아래 wakeDevice 참고).
+      void this.wakeDevice(call, wake as { kind: 'ok'; target: PushTarget });
     } finally {
       // 통화가 서지 못했으면(위 어느 갈래든, 조회가 던졌든) 잡아 둔 자리를 되돌린다.
       // 통화가 섰으면 `calls`에 있으므로 이 해제는 아무것도 하지 않는다.
@@ -440,5 +545,6 @@ export class CallGateway implements OnModuleDestroy {
     }
     this.calls.clear();
     this.bySession.clear();
+    this.wakes.clear();
   }
 }

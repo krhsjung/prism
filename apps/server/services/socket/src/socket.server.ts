@@ -163,6 +163,9 @@ export class PrismSocketServer {
       ws.on('close', () => this.disconnect(connection));
       ws.on('error', () => this.disconnect(connection));
       await this.gateway.open(connection);
+      // 알림을 **열지 않고** 앱만 연 경우, 벨이 울리는 중인 통화를 이 연결에 배달한다.
+      // 알림을 눌러 들어오면 클라이언트가 `resume`을 보내므로 그쪽은 이 경로가 아니다.
+      this.calls.opened(connection);
     } catch (error) {
       this.logger.warn(`socket accept failed: ${String(error)}`);
       this.send(ws, { type: 'error', code: AUTH_ERROR_CODES.UNAUTHORIZED });

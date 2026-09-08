@@ -27,6 +27,7 @@ import {
 import { AppController } from './app.controller';
 import { CallGateway } from './call.gateway';
 import { ConnectionRegistry } from './connection-registry';
+import { PushSender } from '@app/push';
 import { PrismSocketServer } from './socket.server';
 import { SessionPresenceGateway } from './session-presence.gateway';
 
@@ -46,12 +47,14 @@ const owned: SessionInfo[] = [
     startedAt: '2026-08-28T00:00:00.000Z',
     expiresAt: '2026-08-29T00:00:00.000Z',
     device: 'mac',
+    pushRegistered: false,
   },
   {
     id: 's-2',
     startedAt: '2026-08-28T00:00:00.000Z',
     expiresAt: '2026-08-29T00:00:00.000Z',
     device: 'iphone',
+    pushRegistered: false,
   },
 ];
 
@@ -99,6 +102,11 @@ describe('세션 소켓 경계', () => {
         PrismSocketServer,
         { provide: APP_GUARD, useClass: JwtAuthGuard },
         { provide: SessionsRepository, useValue: sessions },
+        // 이 스위트는 소켓 경계(업그레이드 인증·Origin)를 본다 — 전송은 관심사가 아니다.
+        {
+          provide: PushSender,
+          useValue: { send: jest.fn(() => Promise.resolve('accepted')) },
+        },
         { provide: REDIS, useValue: new FakeRedis() },
         PresenceRepository,
         {

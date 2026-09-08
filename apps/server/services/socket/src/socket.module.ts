@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { PrismConfigModule, PrismConfigService } from '@app/config';
 import { RedisModule } from '@app/redis';
+import { PushModule } from '@app/push';
 import { JwtAuthGuard, SessionModule } from '@app/session';
 import { AppController } from './app.controller';
 import { CallGateway } from './call.gateway';
@@ -25,6 +26,8 @@ import { SessionPresenceGateway } from './session-presence.gateway';
       useFactory: (config: PrismConfigService) => config.redisConfig,
     }),
     SessionModule,
+    // 소켓 없는 기기를 깨우는 FCM 전송기. auth 서비스도 같은 lib을 쓴다(푸시 화면).
+    PushModule,
   ],
   controllers: [AppController],
   providers: [
