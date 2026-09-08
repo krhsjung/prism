@@ -31,6 +31,7 @@ import kr.hs.jung.prism.core.theme.PrismDimensions
 import kr.hs.jung.prism.core.theme.PrismTheme
 import kr.hs.jung.prism.core.theme.ThemeStore
 import kr.hs.jung.prism.domain.model.MAX_PUSH_MESSAGE_LENGTH
+import kr.hs.jung.prism.domain.model.MAX_PUSH_TITLE_LENGTH
 import kr.hs.jung.prism.domain.model.PushActionSet
 import kr.hs.jung.prism.domain.model.PushSendResult
 import kr.hs.jung.prism.domain.model.User
@@ -173,6 +174,21 @@ fun PushScreen(
                             }
                         }
                     }
+                }
+
+                // 제목은 선택이다 — 비우면 서버가 받는 기기의 언어로 그린다(§5-14).
+                Field(R.string.push_title_label) {
+                    OutlinedTextField(
+                        value = state.title,
+                        onValueChange = { next ->
+                            if (next.length <= MAX_PUSH_TITLE_LENGTH) viewModel.editTitle(next)
+                        },
+                        placeholder = {
+                            Text(stringResource(R.string.push_title_placeholder))
+                        },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
                 }
 
                 Field(R.string.push_message_label) {

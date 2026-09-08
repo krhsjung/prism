@@ -26,6 +26,7 @@ struct PushView: View {
     @State private var items: [SessionListItem] = []
     /// 고른 대상들. **여럿 고를 수 있다**(plan/push.md §5-10).
     @State private var targetIds: [String] = []
+    @State private var title = ""
     @State private var message = ""
     @State private var imageUrl = ""
     @State private var link = ""
@@ -70,6 +71,8 @@ struct PushView: View {
                     header
                     permissionNotice
                     deviceList
+                    // 제목은 선택이다 — 비우면 서버가 받는 기기의 언어로 그린다(§5-14).
+                    titleField
                     messageField
                     // 이미지·링크·버튼은 **셋 다 선택이다** — 없으면 문구만 있는
                     // 알림이다(plan/push.md §5-11 ~ §5-13).
@@ -211,6 +214,30 @@ struct PushView: View {
         }
     }
 
+    private var titleField: some View {
+        VStack(alignment: .leading, spacing: AppDimension.Call.fieldSpacing) {
+            Text(t(.pushTitleLabel))
+                .font(.system(size: AppDimension.FontSize.body))
+                .foregroundStyle(AppColor.text)
+            TextField(t(.pushTitlePlaceholder), text: $title)
+                .textFieldStyle(.plain)
+                .font(.system(size: AppDimension.FontSize.body))
+                .padding(AppDimension.Call.rowHorizontalPadding)
+                .background(AppColor.card)
+                .clipShape(.rect(cornerRadius: AppDimension.Radius.md))
+                .overlay {
+                    RoundedRectangle(cornerRadius: AppDimension.Radius.md)
+                        .stroke(AppColor.border, lineWidth: 1)
+                }
+                .onChange(of: title) { _, next in
+                    // 상한은 계약이 정한다 — 서버도 같은 값으로 거부한다.
+                    if next.count > MAX_PUSH_TITLE_LENGTH {
+                        title = String(next.prefix(MAX_PUSH_TITLE_LENGTH))
+                    }
+                }
+        }
+    }
+
     private var messageField: some View {
         VStack(alignment: .leading, spacing: AppDimension.Call.fieldSpacing) {
             Text(t(.pushMessageLabel))
@@ -328,6 +355,7 @@ struct PushView: View {
             let outcomes = try await push.send(
                 PushContent(
                     message: message.trimmingCharacters(in: .whitespacesAndNewlines),
+                    title: title,
                     imageUrl: imageUrl,
                     link: link,
                     actions: actions

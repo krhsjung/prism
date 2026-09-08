@@ -19,6 +19,7 @@ data class PushUiState(
     val sessions: List<SessionListItem> = emptyList(),
     /** 고른 대상들. **여럿 고를 수 있다**(plan/push.md §5-10). */
     val targetIds: List<String> = emptyList(),
+    val title: String = "",
     val message: String = "",
     val imageUrl: String = "",
     val link: String = "",
@@ -78,6 +79,7 @@ class PushViewModel(
     }
 
     fun edit(message: String) = _state.update { it.copy(message = message) }
+    fun editTitle(title: String) = _state.update { it.copy(title = title) }
     fun editImageUrl(url: String) = _state.update { it.copy(imageUrl = url) }
     fun editLink(link: String) = _state.update { it.copy(link = link) }
     fun selectActions(actions: PushActionSet) = _state.update { it.copy(actions = actions) }
@@ -99,6 +101,7 @@ class PushViewModel(
                     snapshot.targetIds,
                     PushContent(
                         message = snapshot.message.trim(),
+                        title = snapshot.title.trim().ifBlank { null },
                         imageUrl = snapshot.imageUrl.trim().ifBlank { null },
                         link = snapshot.link.trim().ifBlank { null },
                         actions = snapshot.actions,

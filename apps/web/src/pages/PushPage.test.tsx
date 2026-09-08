@@ -187,6 +187,9 @@ describe('PushPage', () => {
     await waitFor(() => expect(checkboxes()).toHaveLength(1));
     fireEvent.click(checkboxes()[0]!);
     fireEvent.change(messageBox(), { target: { value: 'hi' } });
+    fireEvent.change(screen.getByLabelText('Title'), {
+      target: { value: 'Deploy done' },
+    });
     fireEvent.change(screen.getByLabelText('Image'), {
       target: { value: 'https://cdn.example/a.png' },
     });
@@ -202,10 +205,27 @@ describe('PushPage', () => {
       expect(api.sendPush).toHaveBeenCalledWith({
         sessionIds: ['sess-registered-1'],
         message: 'hi',
+        title: 'Deploy done',
         imageUrl: 'https://cdn.example/a.png',
         link: 'https://example.com/x',
         actions: 'open-dismiss',
       }),
+    );
+  });
+
+  // 비우면 서버가 받는 기기의 언어로 그린다 — 빈 문자열을 실어 보내면 그 말이 거짓이 된다.
+  it('제목을 비우면 요청에 싣지 않는다', async () => {
+    renderPush();
+    await waitFor(() => expect(checkboxes()).toHaveLength(1));
+    fireEvent.click(checkboxes()[0]!);
+    fireEvent.change(messageBox(), { target: { value: 'hi' } });
+
+    fireEvent.click(sendButton());
+
+    await waitFor(() =>
+      expect(api.sendPush).toHaveBeenCalledWith(
+        expect.not.objectContaining({ title: expect.anything() }),
+      ),
     );
   });
 

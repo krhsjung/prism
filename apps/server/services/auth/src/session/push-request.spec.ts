@@ -1,3 +1,4 @@
+import { MAX_PUSH_TITLE_LENGTH } from '@app/common';
 import { decodePushRequest } from './push-request';
 
 // 경계에서 파싱·검증한다(parse, don't validate) — 지나온 값은 형식이 맞다.
@@ -75,5 +76,23 @@ describe('decodePushRequest', () => {
       'none',
     );
     expect(decodePushRequest({ ...ok, actions: 'open' }).actions).toBe('open');
+  });
+
+  // 제목은 선택이다 — 비면 서버가 받는 기기의 언어로 그린다(push.service).
+  it('제목을 적어 보내면 그대로 실린다', () => {
+    expect(decodePushRequest({ ...ok, title: '  배포 알림  ' }).title).toBe(
+      '배포 알림',
+    );
+  });
+
+  it('제목이 비면 아예 싣지 않는다 — 빈 문자열과 미지정을 가르지 않는다', () => {
+    expect(decodePushRequest({ ...ok, title: '   ' }).title).toBeUndefined();
+    expect(decodePushRequest(ok).title).toBeUndefined();
+  });
+
+  it('제목이 상한을 넘으면 거부한다', () => {
+    expect(() =>
+      decodePushRequest({ ...ok, title: 'x'.repeat(MAX_PUSH_TITLE_LENGTH + 1) }),
+    ).toThrow();
   });
 });

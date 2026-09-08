@@ -125,5 +125,11 @@ sealed interface SocketServerMessage {
  */
 const val MAX_PUSH_MESSAGE_LENGTH = 120
 
+/**
+ * 알림 제목의 상한(서버 계약의 `MAX_PUSH_TITLE_LENGTH`). 본문보다 짧다 —
+ * 잠금화면은 제목을 한 줄로 자른다.
+ */
+const val MAX_PUSH_TITLE_LENGTH = 60
+
 /** 한 번에 고를 수 있는 대상 수(서버 계약의 `MAX_PUSH_TARGETS`). */
 const val MAX_PUSH_TARGETS = 20

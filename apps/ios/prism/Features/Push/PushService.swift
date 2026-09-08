@@ -10,6 +10,8 @@ import Foundation
 /// 보내는 내용. 문구 외에는 **전부 선택이다**(plan/push.md §5-11 ~ §5-13).
 struct PushContent: Sendable {
     let message: String
+    /// 비우면 서버가 받는 기기의 언어로 그린다(plan/push.md §5-14).
+    var title: String?
     var imageUrl: String?
     var link: String?
     var actions: PushActionSet = .none
@@ -51,6 +53,7 @@ struct PushService: PushServicing {
             body: PushSendRequest(
                 sessionIds: sessionIds,
                 message: content.message,
+                title: content.title?.trimmed.nilIfEmpty,
                 // 빈 값은 키조차 만들지 않는다 — 없는 필드와 빈 문자열은 서버에서 같은
                 // 뜻이지만(둘 다 없음), 없는 쪽이 의도가 분명하다.
                 imageUrl: content.imageUrl?.trimmed.nilIfEmpty,
@@ -66,6 +69,7 @@ struct PushService: PushServicing {
 private struct PushSendRequest: Encodable {
     let sessionIds: [String]
     let message: String
+    let title: String?
     let imageUrl: String?
     let link: String?
     let actions: PushActionSet

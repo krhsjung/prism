@@ -225,6 +225,9 @@ export const messages: Messages = {
   // 고른 줄은 버튼 글자로 말한다 — 목록에 라디오를 따로 두면 누를 곳이 둘이 된다
   'push.select': '선택',
   'push.selected': '선택됨',
+  // 제목은 선택이다 — 비우면 서버가 받는 기기의 언어로 그린다(server.csv의 demo_title)
+  'push.title_label': '제목',
+  'push.title_placeholder': '비우면 기본 제목이 쓰입니다',
   'push.message_label': '문구',
   'push.message_placeholder': '기기에 뜰 문구를 적으세요',
   'push.send': '보내기',

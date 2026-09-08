@@ -12,6 +12,7 @@ import { PushSender } from '@app/push';
 // 사람이 채워 보내는 알림의 내용. 문구 외에는 **전부 선택이다**.
 export interface PushContent {
   message: string;
+  title?: string;
   imageUrl?: string;
   link?: string;
   actions: PushActionSet;
@@ -79,12 +80,13 @@ export class PushNotificationService {
     target: { token: string; locale: Parameters<typeof translate>[0] },
     content: PushContent,
   ): Promise<PushSendResult> {
-    // 제목만 서버가 그린다. **본문은 사람이 적은 문구라 번역하지 않는다** —
-    // 받는 기기의 언어는 세션에 담아 둔 값에서 온다(plan/push.md §5-7).
+    // 제목을 적어 보냈으면 **그대로 간다**. 사람이 적은 글자는 번역할 수 없고, 본문이
+    // 이미 같은 성질이다. 비워 두면 서버가 받는 기기의 언어로 그린다 — 그 언어는
+    // 세션에 담아 둔 값에서 온다(plan/push.md §5-7).
     const outcome = await this.sender.send(
       target.token,
       {
-        title: translate(target.locale, 'push.demo_title'),
+        title: content.title ?? translate(target.locale, 'push.demo_title'),
         body: content.message,
       },
       {

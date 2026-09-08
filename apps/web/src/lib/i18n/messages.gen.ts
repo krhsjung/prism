@@ -184,6 +184,8 @@ export const MESSAGE_KEYS = [
   'push.selected_count',
   'push.select',
   'push.selected',
+  'push.title_label',
+  'push.title_placeholder',
   'push.message_label',
   'push.message_placeholder',
   'push.send',

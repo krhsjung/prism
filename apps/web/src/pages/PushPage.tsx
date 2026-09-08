@@ -20,6 +20,7 @@ import {
 import { PUSH_SAMPLE_IMAGES } from '../lib/push/samples';
 import {
   MAX_PUSH_MESSAGE_LENGTH,
+  MAX_PUSH_TITLE_LENGTH,
   MAX_PUSH_TARGETS,
   PUSH_ACTION_SETS,
   type PushActionSet,
@@ -67,6 +68,7 @@ export function PushPage() {
   const { changed } = useSessionSocket();
   const [sessions, setSessions] = useState<SessionListItem[]>([]);
   const [targets, setTargets] = useState<string[]>([]);
+  const [title, setTitle] = useState('');
   const [message, setMessage] = useState('');
   const [imageUrl, setImageUrl] = useState('');
   const [link, setLink] = useState('');
@@ -141,6 +143,8 @@ export function PushPage() {
       const response = await api.sendPush({
         sessionIds: targets,
         message: text,
+        // 비우면 아예 싣지 않는다 — 서버가 받는 기기의 언어로 그린다(§5-14).
+        ...(title.trim() ? { title: title.trim() } : {}),
         ...(imageUrl.trim() ? { imageUrl: imageUrl.trim() } : {}),
         ...(link.trim() ? { link: link.trim() } : {}),
         actions,
@@ -202,6 +206,23 @@ export function PushPage() {
         <div className="push__body">
           <div className="push__columns">
             <div className="push__compose">
+              {/* 제목이 문구보다 위다 — 알림에서 읽히는 순서가 그렇다. 비워 두면
+                  서버가 받는 기기의 언어로 그리므로 필수 표시를 두지 않는다(§5-14). */}
+              <div className="setup__field">
+                <label className="setup__label" htmlFor="push-title">
+                  {t('push.title_label')}
+                </label>
+                <input
+                  id="push-title"
+                  className="input"
+                  type="text"
+                  maxLength={MAX_PUSH_TITLE_LENGTH}
+                  placeholder={t('push.title_placeholder')}
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                />
+              </div>
+
               <div className="setup__field">
                 <label className="setup__label" htmlFor="push-message">
                   {t('push.message_label')}

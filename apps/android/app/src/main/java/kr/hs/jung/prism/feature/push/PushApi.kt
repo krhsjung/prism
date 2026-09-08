@@ -11,6 +11,8 @@ import org.json.JSONObject
 /** 보내는 내용. 문구 외에는 **전부 선택이다**(plan/push.md §5-11 ~ §5-13). */
 data class PushContent(
     val message: String,
+    /** 비우면 서버가 받는 기기의 언어로 그린다(plan/push.md §5-14). */
+    val title: String? = null,
     val imageUrl: String? = null,
     val link: String? = null,
     val actions: PushActionSet = PushActionSet.NONE,
@@ -47,6 +49,7 @@ class HttpPushApi(private val client: ApiClient) : PushApi {
             .apply {
                 // 빈 값은 키조차 만들지 않는다 — 없는 필드와 빈 문자열은 서버에서 같은
                 // 뜻이지만(둘 다 없음), 없는 쪽이 의도가 분명하다.
+                content.title?.takeIf { it.isNotBlank() }?.let { put("title", it) }
                 content.imageUrl?.takeIf { it.isNotBlank() }?.let { put("imageUrl", it) }
                 content.link?.takeIf { it.isNotBlank() }?.let { put("link", it) }
             }

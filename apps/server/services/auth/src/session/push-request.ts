@@ -3,6 +3,7 @@ import {
   AUTH_ERROR_CODES,
   type JsonValue,
   MAX_PUSH_MESSAGE_LENGTH,
+  MAX_PUSH_TITLE_LENGTH,
   MAX_PUSH_TARGETS,
   MAX_PUSH_URL_LENGTH,
   PUSH_ACTION_SETS,
@@ -13,6 +14,7 @@ import {
 export interface PushSendBody {
   sessionIds?: JsonValue;
   message?: JsonValue;
+  title?: JsonValue;
   imageUrl?: JsonValue;
   link?: JsonValue;
   actions?: JsonValue;
@@ -21,6 +23,7 @@ export interface PushSendBody {
 export interface PushRequest {
   sessionIds: string[];
   message: string;
+  title?: string;
   imageUrl?: string;
   link?: string;
   actions: PushActionSet;
@@ -37,6 +40,11 @@ export function decodePushRequest(body: PushSendBody): PushRequest {
   const message = str(body.message).trim();
   if (!message || message.length > MAX_PUSH_MESSAGE_LENGTH) reject();
 
+  // 제목은 선택이다 — 비면 서버가 받는 기기의 언어로 그린다. 빈 문자열과 미지정을
+  // 가르지 않는다: 둘 다 "안 적었다"이고, 화면에서도 같은 상태다.
+  const title = str(body.title).trim();
+  if (title.length > MAX_PUSH_TITLE_LENGTH) reject();
+
   const sessionIds = Array.isArray(body.sessionIds)
     ? body.sessionIds.filter(
         (v): v is string => typeof v === 'string' && v.length > 0,
@@ -51,6 +59,7 @@ export function decodePushRequest(body: PushSendBody): PushRequest {
   return {
     sessionIds: unique,
     message,
+    ...(title ? { title } : {}),
     ...optionalUrl('imageUrl', body.imageUrl),
     ...optionalUrl('link', body.link),
     actions,

@@ -110,6 +110,22 @@ describe('PushNotificationService', () => {
     expect(enText).toEqual({ title: 'Test push', body: 'hello' });
   });
 
+  // 사람이 적은 제목은 번역할 수 없다 — 본문과 같은 성질이라 언어와 무관하게 그대로 간다.
+  it('제목을 적어 보내면 언어와 무관하게 그 글자가 간다', async () => {
+    const { service, send } = make();
+
+    await service.sendToSessions('u-1', ['s-mac', 's-phone'], {
+      ...content,
+      title: '배포 알림',
+    });
+
+    const texts = send.mock.calls.map(
+      (call) =>
+        (call as object as [string, { title: string; body: string }])[1],
+    );
+    expect(texts.map((t) => t.title)).toEqual(['배포 알림', '배포 알림']);
+  });
+
   it('이미지·링크·버튼을 페이로드로 넘긴다', async () => {
     const { service, send } = make();
 

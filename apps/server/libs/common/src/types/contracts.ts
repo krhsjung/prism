@@ -774,6 +774,9 @@ export const MAX_PUSH_TOKEN_LENGTH = 4096;
 // 더 길게 받아도 화면에 없는 것을 저장하는 셈이 된다.
 export const MAX_PUSH_MESSAGE_LENGTH = 120;
 
+// 알림 제목의 상한. 본문보다 짧다 — 잠금화면은 제목을 한 줄로 자른다.
+export const MAX_PUSH_TITLE_LENGTH = 60;
+
 // 전송 결과. **FCM이 알려 주는 것은 "받아들였다"까지다** — 기기에 떴는지, 사람이
 // 봤는지는 우리가 알 수 없고, 화면이 그 이상을 말하면 없는 사실을 지어내게 된다
 // (plan/push.md §7).
@@ -849,6 +852,10 @@ export const MAX_PUSH_URL_LENGTH = 2048;
 export interface PushSendRequest {
   sessionIds: string[];
   message: string;
+  // 비워 두면 **서버가 그린다** — 받는 기기의 언어로(`push.demo_title`). 적어 보내면
+  // 그 글자가 그대로 간다: 사람이 적은 제목을 번역할 수는 없고, 본문이 이미 같은
+  // 성질이다. 통화 알림의 제목은 이 경로를 지나지 않아 여전히 서버가 그린다.
+  title?: string;
   imageUrl?: string;
   link?: string;
   actions?: PushActionSet;

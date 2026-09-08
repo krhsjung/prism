@@ -189,6 +189,8 @@ enum MessageKey: String, CaseIterable, Sendable {
     case pushSelectedCount = "push.selected_count"
     case pushSelect = "push.select"
     case pushSelected = "push.selected"
+    case pushTitleLabel = "push.title_label"
+    case pushTitlePlaceholder = "push.title_placeholder"
     case pushMessageLabel = "push.message_label"
     case pushMessagePlaceholder = "push.message_placeholder"
     case pushSend = "push.send"
@@ -407,6 +409,8 @@ enum MessageKey: String, CaseIterable, Sendable {
              .pushSelectedCount,
              .pushSelect,
              .pushSelected,
+             .pushTitleLabel,
+             .pushTitlePlaceholder,
              .pushMessageLabel,
              .pushMessagePlaceholder,
              .pushSend,
