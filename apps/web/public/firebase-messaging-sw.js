@@ -18,7 +18,6 @@ firebase.initializeApp({
   messagingSenderId: params.get('messagingSenderId'),
   appId: params.get('appId'),
 });
-firebase.messaging();
 
 // 알림 버튼의 **문구는 서버가 보내지 않는다** — 여기서 그린다(plan/push.md §5-13).
 // iOS가 등록 시점에 문구를 굳혀야 해서 서버가 언어를 알 수 없고, 그 하나 때문에 서버
@@ -47,11 +46,16 @@ function actionsFor(set, language) {
   return actions;
 }
 
-// 버튼이 있는 알림은 **우리가 그린다.**
+// **알림은 우리가 그린다 — 언제나.**
 //
-// FCM SDK의 자동 표시는 `notification` 페이로드만 그리고 버튼을 붙이지 못한다. 그래서
-// 버튼이 있을 때만 여기서 가로채 직접 띄운다 — 버튼이 없으면 SDK에 맡긴다(두 번 그리면
-// 알림이 두 개 뜬다).
+// ⚠️ 이 리스너는 `firebase.messaging()`보다 **먼저** 등록돼야 한다. push 이벤트의
+// 리스너는 등록 순서대로 불리므로, SDK가 먼저 등록되면 그쪽이 이미 그린 뒤라
+// `stopImmediatePropagation()`이 아무것도 막지 못한다.
+//
+// SDK에 맡기지 않는 이유는 **탭이 앞에 있을 때 SDK가 알림을 그리지 않기 때문이다.**
+// 그때는 페이지의 `onMessage`로 넘기는데, 우리는 그 핸들러를 두지 않았다 — 그래서
+// 자기 자신에게 보내 보는 이 앱의 기본 시연에서 아무것도 뜨지 않았다.
+// 우리가 늘 그리면 앞/뒤 구분 없이 한 번만 뜬다.
 self.addEventListener('push', (event) => {
   let payload;
   try {
@@ -59,24 +63,27 @@ self.addEventListener('push', (event) => {
   } catch {
     return;
   }
-  const data = payload && payload.data;
+  const data = (payload && payload.data) || {};
   const notification = payload && payload.notification;
-  if (!data || !notification) return;
-  const actions = actionsFor(data.actions, self.navigator.language);
-  if (actions.length === 0) return;
+  if (!notification) return;
 
+  // SDK가 같은 알림을 또 그리지 않게 한다(위 순서 주석 참고).
   event.stopImmediatePropagation();
   event.waitUntil(
     self.registration.showNotification(notification.title || '', {
       body: notification.body || '',
       image: notification.image,
       icon: '/apple-touch-icon.png',
-      requireInteraction: true,
-      actions,
+      // 버튼이 있으면 사용자가 고를 때까지 남는다 — 고를 것이 있는데 사라지면 안 된다.
+      requireInteraction: data.actions === 'open' || data.actions === 'open-dismiss',
+      actions: actionsFor(data.actions, self.navigator.language),
       data: { link: data.link },
     }),
   );
 });
+
+// 토큰 발급에 필요하다. **리스너 등록 뒤에 부른다** — 위 주석의 순서 문제다.
+firebase.messaging();
 
 // 누른 곳에 따라 연다. `dismiss`는 닫기만 하고 아무것도 열지 않는다 —
 // 알림을 치우려고 누른 사람에게 창을 띄우면 버튼을 둔 의미가 반대로 뒤집힌다.
@@ -98,3 +105,8 @@ self.addEventListener('notificationclick', (event) => {
       }),
   );
 });
+
+// 갱신된 워커가 **기다리지 않고** 일을 넘겨받는다. 없으면 탭을 전부 닫을 때까지
+// 옛 워커가 남아, 고친 내용이 다음 방문에도 반영되지 않는다.
+self.addEventListener('install', () => self.skipWaiting());
+self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim()));
