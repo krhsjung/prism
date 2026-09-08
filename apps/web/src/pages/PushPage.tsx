@@ -15,7 +15,6 @@ import { useI18n } from '../lib/i18n/i18n-context';
 import { useSessionSocket } from '../lib/session-socket-context';
 import {
   currentPermission,
-  readSentToken,
   requestPermissionAndToken,
 } from '../lib/push/registration';
 import { PUSH_SAMPLE_IMAGES } from '../lib/push/samples';
@@ -107,8 +106,12 @@ export function PushPage() {
 
   const registered = sessions.filter((session) => session.pushRegistered);
   const current = sessions.find((session) => session.isCurrent);
-  // 토큰은 **로그인 시점에만** 세션에 실린다(§5-2). 권한을 나중에 줬거나 FCM이 토큰을
-  // 회전시키면 권한은 켜져 있는데 세션은 알림을 못 받는다 — 화면이 그 사실을 말한다.
+  // 토큰은 **로그인 시점에만** 세션에 실린다(§5-2). 그래서 이 화면에서 권한을 허용해도
+  // 지금 세션은 여전히 토큰이 없다 — 권한은 켜졌는데 줄은 `Notifications off`다.
+  //
+  // ⚠️ **보낸 토큰이 남아 있는지로 이 안내를 가르지 않는다.** 그러면 처음 허용한
+  //    사람에게는(아직 로그인에 토큰을 실어 본 적이 없으므로) 아무 설명도 안 뜨고,
+  //    화면이 막다른 길이 된다 — 켜기 줄은 사라졌는데 줄은 그대로 꺼져 있다.
   const staleRegistration =
     permission === 'granted' && current !== undefined && !current.pushRegistered;
 
@@ -179,7 +182,7 @@ export function PushPage() {
     notice = (
       <div className="alert alert--info">{t('push.allow_unsupported')}</div>
     );
-  } else if (staleRegistration && readSentToken() !== null) {
+  } else if (staleRegistration) {
     notice = <div className="alert alert--info">{t('push.reauth_hint')}</div>;
   }
 

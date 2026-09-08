@@ -33,7 +33,6 @@ import { api, ApiError } from '../lib/api';
 // 권한 상태는 브라우저에 달려 있다 — 화면이 그 갈래마다 무엇을 말하는지가 관심사다.
 vi.mock('../lib/push/registration', () => ({
   currentPermission: vi.fn(() => 'granted'),
-  readSentToken: vi.fn(() => 'fcm-tok-1'),
   requestPermissionAndToken: vi.fn(),
 }));
 import {
@@ -326,6 +325,8 @@ describe('PushPage', () => {
   });
 
   // 토큰은 로그인 시점에만 세션에 실린다 — 늦게 준 권한과 회전된 토큰이 여기서 드러난다.
+  // 보낸 토큰이 남아 있는지로 가르지 않는다 — 이 화면에서 처음 허용한 사람은 로그인에
+  // 토큰을 실어 본 적이 없어서, 그것으로 가르면 켜기 줄만 사라지고 아무 설명도 안 뜬다.
   it('권한은 켜졌는데 이 세션이 등록 전이면 다시 로그인하라고 말한다', async () => {
     renderPush([{ ...registered, pushRegistered: false }, unregistered]);
 
