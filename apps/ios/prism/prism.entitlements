@@ -2,6 +2,11 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<!-- APNs 환경. 개발 빌드는 `development`, 배포 빌드는 Xcode가 `production`으로
+	     바꿔 서명한다. 이것이 없으면 registerForRemoteNotifications가 조용히 실패하고
+	     FCM 토큰이 영원히 나오지 않는다 — 화면에는 `Notifications off`로만 보인다. -->
+	<key>aps-environment</key>
+	<string>development</string>
 	<key>com.apple.developer.applesignin</key>
 	<array>
 		<string>Default</string>

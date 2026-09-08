@@ -28,6 +28,10 @@ final class ServiceContainer {
     let authManager: AuthManager
     /// 활성 세션 조회·폐기(`/auth/sessions*`). 인증은 Keychain의 Bearer로 한다.
     let sessionsService: SessionsService
+    /// 푸시 전송(`POST /auth/sessions/:id/push`). 토큰은 서버가 레코드에서 꺼낸다.
+    let pushService: PushService
+    /// 이 기기의 FCM 등록 토큰. 로그인 화면이 로그인 **전에** 받아 로그인에 실어 보낸다.
+    let pushTokens: PushTokens
     /// 세션 소켓. 목록을 나르지 않고 "바뀌었다"는 신호만 준다 — 목록은 늘 위 서비스가
     /// 가져온다(그래야 재조회가 스탬핑·공유 회전이 붙은 HTTP 경로를 탄다).
     let sessionSocket: SessionSocket
@@ -46,6 +50,8 @@ final class ServiceContainer {
         network = NetworkManager()
         authService = AuthService(network: network)
         sessionsService = SessionsService(network: network)
+        pushService = PushService(network: network)
+        pushTokens = PushTokens()
         // 네이티브 소셜 로그인(Google/Kakao) 토큰 획득. 키 미설정 시 각 SDK가 실패로
         // 막으므로(데모·Apple은 그대로), 키 없는 빌드도 부팅에는 문제가 없다.
         let social = SocialSignInController(
@@ -74,6 +80,10 @@ final class ServiceContainer {
         // 않고 그대로 넘기므로(SessionSocket.onCallMessage), 듣는 쪽이 하나여야 한다.
         // 번역기를 **먼저** 세운다 — 컨트롤러가 장치 이름을 만들 때 이것을 든다.
         localization = LocalizationStore()
+        // 값이 아니라 **읽는 법**을 준다 — 언어 스위처로 고르면 다음 요청부터 반영돼야
+        // 한다. `LocalizationStore.locale`은 MainActor의 것이라 Sendable 클로저에서 읽을
+        // 수 없으므로, 같은 원천(UserDefaults)을 보는 격리 없는 헬퍼를 쓴다.
+        network.languageTag = { LocalizationStore.current().rawValue }
         call = CallController(socket: sessionSocket, localization: localization)
 
         theme = ThemeStore()

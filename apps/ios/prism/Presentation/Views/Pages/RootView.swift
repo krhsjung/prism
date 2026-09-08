@@ -90,7 +90,7 @@ struct RootView: View {
                 .background(AppColor.surface)
                 .accessibilityLabel(t(.commonLoading))
         case .signedOut:
-            LoginView(authManager: auth)
+            LoginView(authManager: auth, pushTokens: ServiceContainer.shared.pushTokens)
                 // 로그아웃하면 소켓도 닫는다 — 서버가 TTL을 기다리지 않고 presence를
                 // 지워, 다른 기기의 목록에서 이 기기가 곧바로 사라진다.
                 .task {
@@ -110,6 +110,21 @@ struct RootView: View {
                 // 매단다 — 다른 화면을 보는 동안 내 기기가 스스로를 "비활성"으로
                 // 보고하면 안 된다.
                 .task { ServiceContainer.shared.sessionSocket.start() }
+                // 알림을 눌러 들어왔다 — 통화 화면으로 옮기고 **이 통화가 아직 살아
+                // 있나**를 묻는다(§6). 소켓이 붙은 뒤에야 물을 수 있다.
+                //
+                // 살아 있으면 벨이 다시 울리고, 아니면 `Call expired`를 본다 — 그것이
+                // 푸시 경로의 정상 결말이다(§8-10). 값은 **한 번만** 소비한다 —
+                // 남겨 두면 화면을 되돌아올 때마다 다시 물어본다.
+                .onChange(of: PushLinkTrigger(
+                    callId: PushLinks.shared.pendingCallId,
+                    socketReady: ServiceContainer.shared.sessionSocket.isReady,
+                )) { _, trigger in
+                    guard let callId = trigger.callId, trigger.socketReady else { return }
+                    page = .webrtc
+                    ServiceContainer.shared.call.resumeCall(callId)
+                    PushLinks.shared.consume()
+                }
                 // 수락은 대시보드에서도 일어난다 — 통화는 통화 화면에서 그린다.
                 .onChange(of: ServiceContainer.shared.call.wantsCallScreen) { _, wants in
                     guard wants else { return }
@@ -132,6 +147,17 @@ struct RootView: View {
                 sessions: container.sessionsService,
                 accessToken: token,
                 socket: container.sessionSocket,
+                onNavigate: { page = $0 },
+            ) {
+                await auth.signOut()
+            }
+        case .push:
+            PushView(
+                user: user,
+                sessions: container.sessionsService,
+                push: container.pushService,
+                pushTokens: container.pushTokens,
+                accessToken: token,
                 onNavigate: { page = $0 },
             ) {
                 await auth.signOut()
@@ -163,4 +189,13 @@ struct RootView: View {
             )
         }
     }
+}
+
+/// `onChange`가 볼 수 있는 한 값 — 알림이 가리키는 통화와 소켓의 준비 상태.
+///
+/// 둘 다 바뀔 수 있고 **둘이 함께 참일 때만** 물을 수 있어서, 하나로 묶어야 어느 쪽이
+/// 나중에 오든 같은 자리에서 반응한다.
+private struct PushLinkTrigger: Equatable {
+    let callId: String?
+    let socketReady: Bool
 }

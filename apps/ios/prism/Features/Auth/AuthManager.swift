@@ -199,7 +199,18 @@ final class AuthManager: SessionAuthority {
     ///    가로채이는 문제를 피하는 경로다(plan/auth.md §4.1).
     ///  - demo: `/auth/demo/native`가 `AuthSession`(토큰)을 body로 주고, 다른 네이티브
     ///    경로와 똑같이 Keychain(Bearer)에 담는다. 데모는 방식(native)만 있다.
-    func signIn(with provider: AuthProvider, method: AuthMethod = .native) async throws {
+    /// - Parameter pushToken: 이 기기의 FCM 등록 토큰. **로그인 시점에만 세션에
+    ///   실린다**(plan/push.md §5-2) — 로그인 화면이 권한을 먼저 받아 여기로 넘긴다.
+    ///   nil이면 그 세션은 재로그인 전까지 `Notifications off`다.
+    ///
+    ///   ⚠️ **redirect 경로에는 실을 자리가 없다.** 세션이 서버 콜백에서 만들어지고 앱은
+    ///   그것을 코드로 교환할 뿐이다 — 시작 시점의 쿠키도 소용없다(그 쿠키는 앱이 연
+    ///   시스템 웹 세션의 병에 떨어진다).
+    func signIn(
+        with provider: AuthProvider,
+        method: AuthMethod = .native,
+        pushToken: String? = nil,
+    ) async throws {
         let token = beginAuthAction()
         let gen = generation
         defer { endAuthAction(token) }
@@ -212,13 +223,13 @@ final class AuthManager: SessionAuthority {
         case .native:
             switch provider {
             case .apple:
-                try await signInWithApple(generation: gen)
+                try await signInWithApple(generation: gen, pushToken: pushToken)
             case .google:
-                try await signInWithGoogle(generation: gen)
+                try await signInWithGoogle(generation: gen, pushToken: pushToken)
             case .kakao:
-                try await signInWithKakao(generation: gen)
+                try await signInWithKakao(generation: gen, pushToken: pushToken)
             case .demo:
-                try await signInWithDemo(generation: gen)
+                try await signInWithDemo(generation: gen, pushToken: pushToken)
             }
         }
     }
@@ -511,31 +522,35 @@ final class AuthManager: SessionAuthority {
 
     // MARK: - Private (로그인)
 
-    private func signInWithApple(generation gen: Int) async throws {
+    private func signInWithApple(generation gen: Int, pushToken: String?) async throws {
         let credential = try await appleSignIn.signIn()
         let session = try await service.loginWithApple(
             identityToken: credential.identityToken,
             nonce: credential.nonce,
             name: credential.name,
+            pushToken: pushToken,
         )
         try adopt(session, generation: gen)
     }
 
-    private func signInWithGoogle(generation gen: Int) async throws {
+    private func signInWithGoogle(generation gen: Int, pushToken: String?) async throws {
         let idToken = try await social.googleIdToken()
-        let session = try await service.loginWithGoogle(idToken: idToken)
+        let session = try await service.loginWithGoogle(idToken: idToken, pushToken: pushToken)
         try adopt(session, generation: gen)
     }
 
-    private func signInWithKakao(generation gen: Int) async throws {
+    private func signInWithKakao(generation gen: Int, pushToken: String?) async throws {
         let accessToken = try await social.kakaoAccessToken()
-        let session = try await service.loginWithKakao(accessToken: accessToken)
+        let session = try await service.loginWithKakao(
+            accessToken: accessToken,
+            pushToken: pushToken
+        )
         try adopt(session, generation: gen)
     }
 
     // 데모: SDK 없이 서버가 시드 계정으로 바로 세션을 발급한다(토큰을 body로).
-    private func signInWithDemo(generation gen: Int) async throws {
-        let session = try await service.loginDemo()
+    private func signInWithDemo(generation gen: Int, pushToken: String?) async throws {
+        let session = try await service.loginDemo(pushToken: pushToken)
         try adopt(session, generation: gen)
     }
 

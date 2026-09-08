@@ -10,11 +10,13 @@ import SwiftUI
 /// 셸이 아는 페이지. 라우트가 늘면 여기가 먼저 걸린다.
 enum ShellPage: Hashable {
     case dashboard
+    case push
     case webrtc
 
     var title: MessageKey {
         switch self {
         case .dashboard: .dashboardTitle
+        case .push: .pushTitle
         case .webrtc: .webrtcTitle
         }
     }
@@ -121,6 +123,7 @@ struct AppShellView<Content: View>: View {
             // 레이블을 자식 전부에 덮어씌워 테마·언어·로그아웃까지 "내비게이션"으로 읽힌다.
             VStack(alignment: .leading, spacing: AppDimension.Spacing.lg) {
                 navItem(.dashboard)
+                navItem(.push)
                 navItem(.webrtc)
             }
             .accessibilityElement(children: .contain)

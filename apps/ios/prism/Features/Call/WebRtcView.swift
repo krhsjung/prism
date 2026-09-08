@@ -153,14 +153,22 @@ struct WebRtcView: View {
 
     private var headTitle: String {
         guard let active = call.call else { return t(.webrtcLobbyTitle) }
-        guard active.status == .ringing else { return t(.webrtcInCall) }
+        guard active.status == .ringing || active.status == .notified else {
+            return t(.webrtcInCall)
+        }
         return t(.webrtcCalling, ["device": peerLabel])
     }
 
     private var headSubtitle: String? {
         guard let active = call.call else { return t(.webrtcLobbyDesc) }
         // 상한(45초)은 **이 한 줄에만** 둔다 — 만료 화면에서 되풀이하지 않는다(§4).
-        return active.status == .ringing ? t(.webrtcRingTimeoutNote) : nil
+        if active.status == .ringing { return t(.webrtcRingTimeoutNote) }
+        // 기다리는 시간이 **왜 긴지**를 화면이 말한다(§4). 상한을 덧붙이지 않는다 —
+        // 이 문구가 이미 45초를 말하고 있어 숫자가 두 번 나온다.
+        if active.status == .notified {
+            return t(.webrtcNotifiedDesc, ["device": peerLabel])
+        }
+        return nil
     }
 
     /// 상대 이름은 **기기 종류**다. 루프백에서는 두 타일이 같은 카메라를 나눠 쓰므로
@@ -238,7 +246,7 @@ struct WebRtcView: View {
                     // 타일의 행동은 **하나뿐이다.** 호출 중에는 나가는 길이 `Cancel`
                     // 하나여야 해서 컨트롤 바에 종료를 그리지 않고 타일이 이 버튼을
                     // 갖고(§4), 실패에는 문구가 없으므로 `Try again`만 남는다.
-                    if active.status == .ringing {
+                    if active.status == .ringing || active.status == .notified {
                         PrismButton(
                             title: t(.commonCancel),
                             variant: .secondary,
@@ -370,7 +378,9 @@ struct WebRtcView: View {
             cameraOn: call.cameraOn,
             // 로비에도, 호출 중에도 종료는 **없다** — 아직 통화가 아니고, 나가는 길은
             // 호출 중이라면 `Cancel` 하나여야 한다(§4).
-            end: inCall && call.call?.status != .ringing,
+            end: inCall
+                && call.call?.status != .ringing
+                && call.call?.status != .notified,
             onToggleMic: call.toggleMic,
             onToggleCamera: call.toggleCamera,
             onHangUp: call.hangUp,
@@ -409,6 +419,7 @@ struct WebRtcView: View {
     static func statusKey(_ status: CallStatus) -> MessageKey {
         switch status {
         case .ringing: .webrtcStatusRinging
+        case .notified: .webrtcStatusNotified
         case .connecting: .webrtcStatusConnecting
         case .connected: .webrtcStatusConnected
         case .reconnecting: .webrtcStatusReconnecting
@@ -418,7 +429,8 @@ struct WebRtcView: View {
 
     static func statusVariant(_ status: CallStatus) -> PrismBadge.Variant {
         switch status {
-        case .ringing: .neutral
+        // 소켓 경로와 **같은 무게**다 — 다른 것은 기다리는 시간이지 좋고 나쁨이 아니다.
+        case .ringing, .notified: .neutral
         case .connecting: .info
         case .connected: .success
         case .reconnecting: .warning
@@ -474,7 +486,7 @@ struct WebRtcView: View {
     }
 
     static func peerTileState(_ status: CallStatus, _ hasTrack: Bool) -> TileState {
-        if status == .ringing { return .ringing }
+        if status == .ringing || status == .notified { return .ringing }
         if status == .reconnecting { return .reconnecting }
         if !hasTrack { return .connecting }
         return status == .connected ? .live : .connecting
@@ -482,6 +494,8 @@ struct WebRtcView: View {
 
     private func peerTileMessage(_ status: CallStatus, _ hasTrack: Bool) -> String? {
         if status == .ringing { return t(.webrtcTileRinging) }
+        // 소켓 경로와 다른 문구다 — 기다리는 것이 "응답"이 아니라 "기기가 열리는 것"이다.
+        if status == .notified { return t(.webrtcTileNotified) }
         if status == .reconnecting { return t(.webrtcTileReconnecting) }
         // 실패 타일은 **문구를 갖지 않는다** — 배지가 이미 그 말을 한다(§4).
         if status == .failed { return nil }

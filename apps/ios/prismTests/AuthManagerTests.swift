@@ -77,11 +77,12 @@ private final class FakeService: AuthServicing, @unchecked Sendable {
         return try refreshResult.get()
     }
     func logout(accessToken: String?) async throws {}
-    func loginDemo() async throws -> AuthSession { try loginDemoResult.get() }
+    func loginDemo(pushToken: String?) async throws -> AuthSession { try loginDemoResult.get() }
     func loginWithApple(
         identityToken: String,
         nonce: String,
         name: AppleUserName?,
+        pushToken: String?,
     ) async throws -> AuthSession {
         throw APIError.providerUnavailable
     }
@@ -139,6 +140,7 @@ private final class GatedService: AuthServicing, @unchecked Sendable {
         identityToken: String,
         nonce: String,
         name: AppleUserName?,
+        pushToken: String?,
     ) async throws -> AuthSession {
         throw APIError.providerUnavailable
     }
@@ -159,7 +161,7 @@ private final class FlakyRefreshService: AuthServicing, @unchecked Sendable {
         return rotated
     }
     func logout(accessToken: String?) async throws {}
-    func loginDemo() async throws -> AuthSession {
+    func loginDemo(pushToken: String?) async throws -> AuthSession {
         AuthSession(
             accessToken: "a", refreshToken: "r",
             user: user(), accessTokenTtlMs: 900_000,
@@ -169,6 +171,7 @@ private final class FlakyRefreshService: AuthServicing, @unchecked Sendable {
         identityToken: String,
         nonce: String,
         name: AppleUserName?,
+        pushToken: String?,
     ) async throws -> AuthSession {
         throw APIError.providerUnavailable
     }
@@ -194,7 +197,7 @@ private final class RotateDuringLoginService: AuthServicing, @unchecked Sendable
         await refreshGate.enterAndWait()
         return rotated
     }
-    func loginDemo() async throws -> AuthSession {
+    func loginDemo(pushToken: String?) async throws -> AuthSession {
         await loginGate.enterAndWait()
         return issued
     }
@@ -203,6 +206,7 @@ private final class RotateDuringLoginService: AuthServicing, @unchecked Sendable
         identityToken: String,
         nonce: String,
         name: AppleUserName?,
+        pushToken: String?,
     ) async throws -> AuthSession {
         throw APIError.providerUnavailable
     }
@@ -220,6 +224,7 @@ private final class GatedLogoutService: AuthServicing, @unchecked Sendable {
         identityToken: String,
         nonce: String,
         name: AppleUserName?,
+        pushToken: String?,
     ) async throws -> AuthSession {
         throw APIError.providerUnavailable
     }

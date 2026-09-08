@@ -12,6 +12,9 @@
 		B7E34E32302B639200DB508A /* KakaoSDKAuth in Frameworks */ = {isa = PBXBuildFile; productRef = B7E34E31302B639200DB508A /* KakaoSDKAuth */; };
 		B7E34E34302B639200DB508A /* KakaoSDKCommon in Frameworks */ = {isa = PBXBuildFile; productRef = B7E34E33302B639200DB508A /* KakaoSDKCommon */; };
 		B7E34E36302B639200DB508A /* KakaoSDKUser in Frameworks */ = {isa = PBXBuildFile; productRef = B7E34E35302B639200DB508A /* KakaoSDKUser */; };
+		B7F0A1000000000000000003 /* FirebaseMessaging in Frameworks */ = {isa = PBXBuildFile; productRef = B7F0A1000000000000000002 /* FirebaseMessaging */; };
+		B7F0A200000000000000000B /* FirebaseMessaging in Frameworks */ = {isa = PBXBuildFile; productRef = B7F0A200000000000000000A /* FirebaseMessaging */; };
+		B7F0A200000000000000000D /* prismNotificationService.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = B7F0A2000000000000000002 /* prismNotificationService.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -29,13 +32,35 @@
 			remoteGlobalIDString = B71672B33022F5AA009B744F;
 			remoteInfo = prism;
 		};
+		B7F0A200000000000000000F /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = B71672AC3022F5AA009B744F /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = B7F0A2000000000000000001;
+			remoteInfo = prismNotificationService;
+		};
 /* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		B7F0A200000000000000000C /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				B7F0A200000000000000000D /* prismNotificationService.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		B71672B43022F5AA009B744F /* prism.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = prism.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B71672C13022F5AE009B744F /* prismTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = prismTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		B71672CB3022F5AE009B744F /* prismUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = prismUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		B7C0F1013022F5AE009B744F /* Base.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Base.xcconfig; sourceTree = "<group>"; };
+		B7F0A2000000000000000002 /* prismNotificationService.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = prismNotificationService.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -54,6 +79,11 @@
 			path = prismUITests;
 			sourceTree = "<group>";
 		};
+		B7F0A2000000000000000003 /* prismNotificationService */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = prismNotificationService;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -61,6 +91,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B7F0A1000000000000000003 /* FirebaseMessaging in Frameworks */,
 				B7DD9B903049354200333983 /* WebRTC in Frameworks */,
 				B7E34E36302B639200DB508A /* KakaoSDKUser in Frameworks */,
 				B7E34E2F302B635F00DB508A /* GoogleSignIn in Frameworks */,
@@ -83,6 +114,14 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		B7F0A2000000000000000005 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B7F0A200000000000000000B /* FirebaseMessaging in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -93,6 +132,7 @@
 				B71672B63022F5AA009B744F /* prism */,
 				B71672C43022F5AE009B744F /* prismTests */,
 				B71672CE3022F5AE009B744F /* prismUITests */,
+				B7F0A2000000000000000003 /* prismNotificationService */,
 				B71672B53022F5AA009B744F /* Products */,
 			);
 			sourceTree = "<group>";
@@ -103,6 +143,7 @@
 				B71672B43022F5AA009B744F /* prism.app */,
 				B71672C13022F5AE009B744F /* prismTests.xctest */,
 				B71672CB3022F5AE009B744F /* prismUITests.xctest */,
+				B7F0A2000000000000000002 /* prismNotificationService.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -125,10 +166,12 @@
 				B71672B03022F5AA009B744F /* Sources */,
 				B71672B13022F5AA009B744F /* Frameworks */,
 				B71672B23022F5AA009B744F /* Resources */,
+				B7F0A200000000000000000C /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				B7F0A200000000000000000E /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				B71672B63022F5AA009B744F /* prism */,
@@ -140,6 +183,7 @@
 				B7E34E33302B639200DB508A /* KakaoSDKCommon */,
 				B7E34E35302B639200DB508A /* KakaoSDKUser */,
 				B7E34E41302B640000DB508A /* WebRTC */,
+				B7F0A1000000000000000002 /* FirebaseMessaging */,
 			);
 			productName = prism;
 			productReference = B71672B43022F5AA009B744F /* prism.app */;
@@ -191,6 +235,29 @@
 			productReference = B71672CB3022F5AE009B744F /* prismUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
+		B7F0A2000000000000000001 /* prismNotificationService */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B7F0A2000000000000000007 /* Build configuration list for PBXNativeTarget "prismNotificationService" */;
+			buildPhases = (
+				B7F0A2000000000000000004 /* Sources */,
+				B7F0A2000000000000000005 /* Frameworks */,
+				B7F0A2000000000000000006 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				B7F0A2000000000000000003 /* prismNotificationService */,
+			);
+			name = prismNotificationService;
+			packageProductDependencies = (
+				B7F0A200000000000000000A /* FirebaseMessaging */,
+			);
+			productName = prismNotificationService;
+			productReference = B7F0A2000000000000000002 /* prismNotificationService.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -229,6 +296,7 @@
 				B7E34E2D302B635F00DB508A /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */,
 				B7E34E30302B639200DB508A /* XCRemoteSwiftPackageReference "kakao-ios-sdk" */,
 				B7E34E40302B640000DB508A /* XCRemoteSwiftPackageReference "WebRTC" */,
+				B7F0A1000000000000000001 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = B71672B53022F5AA009B744F /* Products */;
@@ -236,6 +304,7 @@
 			projectRoot = "";
 			targets = (
 				B71672B33022F5AA009B744F /* prism */,
+				B7F0A2000000000000000001 /* prismNotificationService */,
 				B71672C03022F5AE009B744F /* prismTests */,
 				B71672CA3022F5AE009B744F /* prismUITests */,
 			);
@@ -258,6 +327,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		B71672C93022F5AE009B744F /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B7F0A2000000000000000006 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -288,6 +364,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		B7F0A2000000000000000004 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -300,6 +383,11 @@
 			isa = PBXTargetDependency;
 			target = B71672B33022F5AA009B744F /* prism */;
 			targetProxy = B71672CC3022F5AE009B744F /* PBXContainerItemProxy */;
+		};
+		B7F0A200000000000000000E /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = B7F0A2000000000000000001 /* prismNotificationService */;
+			targetProxy = B7F0A200000000000000000F /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -622,6 +710,56 @@
 			};
 			name = Release;
 		};
+		B7F0A2000000000000000008 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = G9MQRF2U8G;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Config/NotificationService-Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "Prism Notifications";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = kr.hs.jung.prism.NotificationService;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		B7F0A2000000000000000009 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = G9MQRF2U8G;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Config/NotificationService-Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "Prism Notifications";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = kr.hs.jung.prism.NotificationService;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -661,6 +799,15 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		B7F0A2000000000000000007 /* Build configuration list for PBXNativeTarget "prismNotificationService" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B7F0A2000000000000000008 /* Debug */,
+				B7F0A2000000000000000009 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
@@ -686,6 +833,14 @@
 			requirement = {
 				kind = upToNextMajorVersion;
 				minimumVersion = 152.0.0;
+			};
+		};
+		B7F0A1000000000000000001 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/firebase/firebase-ios-sdk";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 11.7.0;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */
@@ -715,6 +870,16 @@
 			isa = XCSwiftPackageProductDependency;
 			package = B7E34E40302B640000DB508A /* XCRemoteSwiftPackageReference "WebRTC" */;
 			productName = WebRTC;
+		};
+		B7F0A1000000000000000002 /* FirebaseMessaging */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B7F0A1000000000000000001 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseMessaging;
+		};
+		B7F0A200000000000000000A /* FirebaseMessaging */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B7F0A1000000000000000001 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseMessaging;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

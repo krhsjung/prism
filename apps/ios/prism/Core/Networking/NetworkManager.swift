@@ -68,6 +68,16 @@ final class NetworkManager: Sendable {
     /// (plan/auth.md §6). 소켓이 시킨 재조회만 표시를 달지 않는다.
     static let activityHeader = "X-Prism-Activity"
 
+    /// 화면이 지금 쓰고 있는 언어를 읽는 법.
+    ///
+    /// **값이 아니라 읽는 법인 이유는 값이 바뀌기 때문이다** — 언어 스위처로 고르면
+    /// 다음 요청부터 새 값이 실려야 한다. 서버는 이것을 `Accept-Language`로 받아
+    /// **세션의 언어**로 담아 두고, 나중에 그 기기로 보내는 알림 문구를 그 언어로
+    /// 그린다(plan/push.md D4). 기기 설정이 아니라 앱에서 고른 언어다.
+    ///
+    /// 컨테이너가 꽂기 전(초기화 중·테스트)에는 기본 언어다.
+    nonisolated(unsafe) var languageTag: @Sendable () -> String = { "en" }
+
     private let session: URLSession
     private let decoder = JSONDecoder()
     private let encoder = JSONEncoder()
@@ -227,6 +237,7 @@ final class NetworkManager: Sendable {
         var request = URLRequest(url: endpoint.url)
         request.httpMethod = endpoint.method
         request.setValue(NetworkManager.userAgent, forHTTPHeaderField: "User-Agent")
+        request.setValue(languageTag(), forHTTPHeaderField: "Accept-Language")
         // 소켓이 시킨 재조회만 표시를 달지 않는다 — 나머지는 사용자가 시킨 것이다.
         if !background {
             request.setValue("1", forHTTPHeaderField: NetworkManager.activityHeader)

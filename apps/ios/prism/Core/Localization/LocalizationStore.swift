@@ -86,7 +86,17 @@ final class LocalizationStore {
     // MARK: - Private
 
     /// 표시할 언어: 사용자가 고른 값 > 기기 선호 순서 > 기본 언어.
-    private static func detect(defaults: UserDefaults) -> AppLocale {
+    /// 지금 화면이 쓰고 있는 언어를 **격리 없이** 읽는다.
+    ///
+    /// `locale` 프로퍼티는 MainActor의 것이라 네트워크 계층(Sendable)에서 읽을 수 없다.
+    /// 값의 원천은 어차피 UserDefaults와 시스템 선호 순서라 여기서 다시 계산해도 같다 —
+    /// 웹이 `currentLocale()`을 두는 것과 같은 자리이며, 서버는 이 값을
+    /// `Accept-Language`로 받아 **세션의 언어**로 담아 둔다(plan/push.md D4).
+    nonisolated static func current(defaults: UserDefaults = .standard) -> AppLocale {
+        detect(defaults: defaults)
+    }
+
+    nonisolated private static func detect(defaults: UserDefaults) -> AppLocale {
         if let stored = defaults.string(forKey: StorageKeys.locale),
            let match = AppLocale.matching(stored) {
             return match

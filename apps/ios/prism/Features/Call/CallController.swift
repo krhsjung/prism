@@ -17,6 +17,9 @@ import WebRTC
 /// 문구와 배지는 이미 있으므로 그때 갈래 하나만 늘면 된다.
 enum CallStatus: Sendable {
     case ringing
+    /// 상대에게 **소켓이 없어 푸시로 알렸다.** 기다리는 성격이 `ringing`과 다르므로
+    /// 배지와 문구를 가른다(plan/webrtc.md §4).
+    case notified
     case connecting
     case connected
     case reconnecting
@@ -422,18 +425,14 @@ final class CallController {
             // 이미 통화 중이면 서버가 `busy`로 막으므로 여기 오지 않는다.
             incoming = (callId, from)
 
+        // 둘은 **같은 답이고 다른 상태다**: 서버가 상대에게 닿는 방법을 골랐고
+        // (소켓이냐 알림이냐), 그 선택이 화면의 배지와 문구를 가른다(§4).
+        // 클라이언트는 경로를 요청하지 않는다 — 그러면 푸시를 강제로 쏘는 길이 열린다.
         case let .ringing(callId):
-            // 보낸 `call`의 답이다 — 어느 쪽으로 갈리든 다음 통화를 열어 준다.
-            settleAttempt()
-            // 기다리는 사이에 취소했다 — 이제야 id를 알았으니 그때 못 보낸 것을 보낸다.
-            if cancelPending {
-                cancelPending = false
-                send(.cancel(callId: callId))
-                return
-            }
-            guard var current = call, current.callId == nil else { return }
-            current.callId = callId
-            call = current
+            answerToCall(callId, status: .ringing)
+
+        case let .notified(callId):
+            answerToCall(callId, status: .notified)
 
         case let .accepted(callId, servers):
             guard let current = call, current.callId == callId else { return }
@@ -566,6 +565,23 @@ final class CallController {
         patch { $0.status = .failed }
     }
 
+    /// 서버가 보낸 `call`에 답했다 — `ringing`(소켓으로 울렸다)이든 `notified`(알림으로
+    /// 알렸다)든 이후 흐름은 같고, 화면에 그릴 상태만 다르다.
+    private func answerToCall(_ callId: String, status: CallStatus) {
+        // 어느 쪽으로 갈리든 다음 통화를 열어 준다.
+        settleAttempt()
+        // 기다리는 사이에 취소했다 — 이제야 id를 알았으니 그때 못 보낸 것을 보낸다.
+        if cancelPending {
+            cancelPending = false
+            send(.cancel(callId: callId))
+            return
+        }
+        guard var current = call, current.callId == nil else { return }
+        current.callId = callId
+        current.status = status
+        call = current
+    }
+
     /// 보낸 `call`의 답이 왔다(또는 더 기다리지 않는다) — 다음 통화를 열어 준다.
     private func settleAttempt() {
         answerTimer?.cancel()
@@ -644,6 +660,18 @@ final class CallController {
                 if let call, call.callId == nil { finish(.error(code: .unreachable)) }
             }
         }
+    }
+
+    /// 알림을 열고 들어왔다 — **이 통화가 아직 살아 있나**(§6).
+    ///
+    /// 늦게 온 기기의 유일한 질문이다. 살아 있으면 서버가 `incoming`으로 답해 벨이 다시
+    /// 울리고, 아니면 `expired`로 "이미 끝난 통화"를 그린다 — 그것이 **푸시 경로의 정상
+    /// 결말**이다(§8-10).
+    ///
+    /// 이미 통화 중이거나 벨이 울리는 중이면 아무것도 하지 않는다 — 그 화면이 이미 답이다.
+    func resumeCall(_ callId: String) {
+        guard call == nil, incoming == nil else { return }
+        send(.resume(callId: callId))
     }
 
     func acceptIncoming() {
