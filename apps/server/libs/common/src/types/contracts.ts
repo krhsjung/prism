@@ -759,6 +759,10 @@ export const PUSH_DATA_KEYS = {
   LINK: 'link',
   // 이 알림이 그릴 버튼 조합(`PUSH_ACTION_SETS`).
   ACTIONS: 'actions',
+  // 알림에 붙일 그림. `notification.image`로도 가지만 **웹은 이쪽을 읽는다** —
+  // 서비스 워커가 알림을 직접 그리므로, FCM이 공통 필드를 웹 페이로드로 어떻게
+  // 펼치는지에 기대지 않고 우리가 넣은 자리에서 꺼낸다(링크와 같은 이유).
+  IMAGE: 'image',
 } as const;
 
 // 알림의 갈래. `call`은 소켓 없는 기기를 깨우는 통화 알림(plan/webrtc.md §8-9),

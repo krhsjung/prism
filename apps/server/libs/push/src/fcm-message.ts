@@ -133,6 +133,7 @@ function dataOf(
     [PUSH_DATA_KEYS.LINK]: link,
     [PUSH_DATA_KEYS.ACTIONS]: actions,
   };
+  if (payload.imageUrl) data[PUSH_DATA_KEYS.IMAGE] = payload.imageUrl;
   if (payload.callId) data[PUSH_DATA_KEYS.CALL_ID] = payload.callId;
   if (payload.device) data[PUSH_DATA_KEYS.DEVICE] = payload.device;
   return data;

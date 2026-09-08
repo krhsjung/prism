@@ -98,6 +98,12 @@ describe('buildFcmMessage', () => {
     expect(rich().notification.image).toBe('https://cdn.example/cat.png');
   });
 
+  // 웹은 서비스 워커가 **직접 그린다** — FCM이 공통 필드를 웹 페이로드로 어떻게
+  // 펼치는지에 기대지 않고, 링크처럼 data에서 꺼낸다.
+  it('이미지 주소는 data에도 실린다 — 웹이 읽는 자리다', () => {
+    expect(rich().data.image).toBe('https://cdn.example/cat.png');
+  });
+
   // **이 한 줄이 없으면 확장이 있어도 이미지가 빠진 채 뜬다.**
   it('iOS는 mutable-content와 확장용 주소를 함께 받는다', () => {
     const message = rich();
@@ -113,6 +119,7 @@ describe('buildFcmMessage', () => {
       link,
     ).message;
     expect(message.notification.image).toBeUndefined();
+    expect(message.data.image).toBeUndefined();
     expect(message.apns.payload.aps['mutable-content']).toBeUndefined();
     expect(message.apns.fcm_options).toBeUndefined();
   });

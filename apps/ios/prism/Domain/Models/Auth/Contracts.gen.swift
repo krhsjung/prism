@@ -69,6 +69,7 @@ enum PushDataKey {
     static let device = "device"
     static let link = "link"
     static let actions = "actions"
+    static let image = "image"
 }
 
 /// 알림의 갈래(`data.kind`). `call`은 소켓 없는 기기를 깨우는 통화 알림이다.

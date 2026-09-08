@@ -72,7 +72,9 @@ self.addEventListener('push', (event) => {
   event.waitUntil(
     self.registration.showNotification(notification.title || '', {
       body: notification.body || '',
-      image: notification.image,
+      // FCM이 공통 notification.image를 웹으로 어떻게 펼치는지에 기대지 않는다 —
+      // 서버가 data에도 같은 주소를 넣는다(계약의 PUSH_DATA_KEYS.IMAGE).
+      image: data.image || notification.image,
       icon: '/apple-touch-icon.png',
       // 버튼이 있으면 사용자가 고를 때까지 남는다 — 고를 것이 있는데 사라지면 안 된다.
       requireInteraction: data.actions === 'open' || data.actions === 'open-dismiss',
