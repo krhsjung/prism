@@ -96,6 +96,14 @@ class ApiClient(
     private val baseUrl: String = BuildConfig.PRISM_API_URL,
 ) {
     /**
+     * 화면이 지금 쓰고 있는 언어. **함수인 이유는 값이 바뀌기 때문이다** —
+     * 언어 스위처로 고르면 다음 요청부터 새 값이 실려야 한다.
+     *
+     * 기본값은 컨테이너가 꽂기 전(테스트·초기화 중)의 안전한 값이다.
+     */
+    var languageTag: () -> String = { "en" }
+
+    /**
      * 401의 뒷일을 맡을 것. 조립하는 곳에서 꽂는다([SessionAuthority] 참고).
      * 꽂히지 않았으면 401은 그대로 올라간다 — 로그인 이전 단계에는 세션이 없다.
      */
@@ -207,6 +215,11 @@ class ApiClient(
             .url(baseUrl + path)
             .method(method, requestBody)
             .header("User-Agent", userAgent)
+            // 서버가 **세션의 언어**를 이 헤더로 정한다 — 로그인 시점에 담아 두고,
+            // 나중에 그 기기로 보내는 알림 문구를 그 언어로 그린다(plan/push.md D4).
+            // 기기 설정이 아니라 **앱에서 고른 언어**다: 앱에 언어 스위처가 있어
+            // 둘은 자주 다르고, 사용자가 보는 것은 후자다.
+            .header("Accept-Language", languageTag())
             .apply { if (accessToken != null) header("Authorization", "Bearer $accessToken") }
             // 소켓이 시킨 재조회만 표시를 달지 않는다 — 나머지는 사용자가 시킨 것이다.
             .apply { if (!background) header(ACTIVITY_HEADER, "1") }

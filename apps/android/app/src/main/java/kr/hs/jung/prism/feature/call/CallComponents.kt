@@ -48,6 +48,7 @@ import kr.hs.jung.prism.domain.model.DeviceKind
 import kr.hs.jung.prism.domain.model.SessionListItem
 import kr.hs.jung.prism.feature.dashboard.deviceIcon
 import kr.hs.jung.prism.feature.dashboard.deviceLabel
+import kr.hs.jung.prism.ui.component.DeviceRow
 import kr.hs.jung.prism.ui.component.PrismBadge
 import kr.hs.jung.prism.ui.component.PrismBadgeVariant
 import kr.hs.jung.prism.ui.component.PrismButton
@@ -407,7 +408,7 @@ fun CallTargetList(
             if (current != null) {
                 // 현재 세션 줄만 할 수 있는 일이 있다 — 대시보드에서는 `Revoke`를 갖지
                 // 않는 그 줄이 여기서는 **루프백 시험**이다(§4).
-                TargetRow(
+                DeviceRow(
                     device = current.device,
                     title = stringResource(R.string.webrtc_this_tab),
                     subtitle = stringResource(R.string.webrtc_loopback),
@@ -423,14 +424,25 @@ fun CallTargetList(
                 }
             }
             others.forEach { session ->
-                // 소켓이 없으면 서버가 `unreachable`로 거절한다. 푸시로 깨우는 경로는
-                // push 슬라이스와 함께 붙고(§8-11), 그때까지 이 줄은 알림이 꺼진 줄이다.
-                val reachable = socketReady && session.isConnected
+                // **소켓의 유무는 "걸 수 있는가"가 아니라 "어떻게 닿는가"를 가른다**(§4).
+                // 세션이 살아 있으면 전부 통화 대상이다 — 붙어 있으면 즉시 울리고,
+                // 아니면 서버가 알림으로 깨운다. 백그라운드로 내린 앱을 죽은 줄로
+                // 그리면 이 앱에서 가장 흔한 경우가 막힌다.
+                //
+                // **닿지 않는 줄만 버튼을 잃는다**: 소켓도 없고 토큰도 없을 때다.
+                val reachable =
+                    socketReady && (session.isConnected || session.pushRegistered)
+                // 부제가 갈린다 — 기다리는 시간이 왜 다른지를 목록에서부터 말한다(§4).
+                val willNotify = reachable && !session.isConnected
                 HorizontalDivider(color = colors.border)
-                TargetRow(
+                DeviceRow(
                     device = session.device,
                     title = stringResource(deviceLabel(session.device)),
-                    subtitle = "#${session.id.take(8)}",
+                    subtitle = if (willNotify) {
+                        stringResource(R.string.webrtc_will_notify)
+                    } else {
+                        "#${session.id.take(8)}"
+                    },
                     dimmed = !reachable,
                 ) {
                     if (reachable) {
@@ -469,62 +481,6 @@ fun CallTargetList(
 }
 
 /** 기기 한 줄 — 아이콘 칩 · 이름/부제 · 행동. */
-@Composable
-private fun TargetRow(
-    device: DeviceKind,
-    title: String,
-    subtitle: String,
-    dimmed: Boolean,
-    trailing: @Composable () -> Unit,
-) {
-    val colors = PrismTheme.colors
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(PrismDimensions.callRowSpacing),
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(
-                horizontal = PrismDimensions.callRowHorizontalPadding,
-                vertical = PrismDimensions.callRowVerticalPadding,
-            ),
-    ) {
-        Box(
-            contentAlignment = Alignment.Center,
-            modifier = Modifier
-                .size(PrismDimensions.callRowIconTile)
-                .clip(RoundedCornerShape(PrismDimensions.radiusMd))
-                .background(colors.secondaryBackground),
-        ) {
-            Icon(
-                painter = painterResource(deviceIcon(device)),
-                contentDescription = null,
-                tint = if (dimmed) colors.muted else colors.heading,
-                modifier = Modifier.size(PrismDimensions.callRowIconGlyph),
-            )
-        }
-        Column(
-            verticalArrangement = Arrangement.spacedBy(PrismDimensions.callRowLabelSpacing),
-            modifier = Modifier.weight(1f),
-        ) {
-            Text(
-                text = title,
-                color = if (dimmed) colors.muted else colors.heading,
-                fontSize = PrismDimensions.fontRowTitle,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                text = subtitle,
-                color = colors.muted,
-                fontSize = PrismDimensions.fontCaption,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-        trailing()
-    }
-}
-
 /**
  * 라벨과 그 아래 컨트롤 한 벌(웹 `.setup__field`).
  *

@@ -3,6 +3,7 @@ package kr.hs.jung.prism
 import android.app.Application
 import com.kakao.sdk.common.KakaoSdk
 import kr.hs.jung.prism.core.di.ServiceContainer
+import kr.hs.jung.prism.core.push.createNotificationChannels
 import kr.hs.jung.prism.core.util.AppLog
 
 /**
@@ -16,6 +17,9 @@ class PrismApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         initKakao()
+        // 알림 채널은 **첫 알림보다 먼저** 있어야 한다(26+). 없는 채널로 알림을 내면
+        // 시스템이 조용히 버리고, 그건 "푸시가 안 온다"로만 보인다.
+        createNotificationChannels(this)
         container = ServiceContainer(this)
     }
 

@@ -14,7 +14,9 @@ import kr.hs.jung.prism.feature.auth.HttpAuthApi
 import kr.hs.jung.prism.feature.auth.social.AndroidSocialSignIn
 import kr.hs.jung.prism.feature.auth.social.GoogleSignInClient
 import kr.hs.jung.prism.feature.auth.social.KakaoSignInClient
+import kr.hs.jung.prism.core.push.PushTokens
 import kr.hs.jung.prism.feature.dashboard.HttpSessionsApi
+import kr.hs.jung.prism.feature.push.HttpPushApi
 
 /**
  * 앱의 의존성을 한 번만 만들고 이어 주는 곳.
@@ -66,6 +68,12 @@ class ServiceContainer(context: Context) {
     /** 활성 세션 조회·폐기(`/auth/sessions*`). 인증은 AuthManager가 담은 Bearer로 한다. */
     val sessionsApi = HttpSessionsApi(apiClient)
 
+    /** 푸시 전송(`POST /auth/sessions/:id/push`). 토큰은 서버가 레코드에서 꺼낸다. */
+    val pushApi = HttpPushApi(apiClient)
+
+    /** 이 기기의 FCM 등록 토큰. 로그인 화면이 로그인 **전에** 받아 로그인에 실어 보낸다. */
+    val pushTokens = PushTokens(context)
+
     /**
      * 세션 소켓을 **만드는 법**만 준다 — 인스턴스를 컨테이너가 들고 있지 않는다.
      *
@@ -84,4 +92,12 @@ class ServiceContainer(context: Context) {
     }
     val themeStore = ThemeStore(context)
     val localeStore = LocaleStore(context)
+
+    init {
+        // **localeStore가 만들어진 뒤에** 꽂는다 — 위쪽 init 블록에서 하면 아직
+        // 초기화되지 않은 프로퍼티를 읽는다(선언 순서대로 실행된다).
+        //
+        // 값이 아니라 **읽는 법**을 준다: 언어 스위처로 고르면 다음 요청부터 반영돼야 한다.
+        apiClient.languageTag = { localeStore.locale.tag }
+    }
 }

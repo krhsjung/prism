@@ -72,11 +72,17 @@ class AuthManagerTest {
         var meGateOnCall = 1
         var logoutGate: CompletableDeferred<Unit>? = null
 
-        override suspend fun googleNative(idToken: String) =
+        // 로그인에 실려 온 등록 토큰. **로그인 시점에만** 세션에 실린다(plan/push.md §5-2).
+        var lastPushToken: String? = null
+
+        override suspend fun googleNative(idToken: String, pushToken: String?) =
             throw ApiError.providerUnavailable
-        override suspend fun kakaoNative(accessToken: String) =
+        override suspend fun kakaoNative(accessToken: String, pushToken: String?) =
             throw ApiError.providerUnavailable
-        override suspend fun demoNative(): AuthSession = demoResult.getOrThrow()
+        override suspend fun demoNative(pushToken: String?): AuthSession {
+            lastPushToken = pushToken
+            return demoResult.getOrThrow()
+        }
         override suspend fun exchangeNative(code: String): AuthSession = exchangeResult.getOrThrow()
         override suspend fun meBearer(accessToken: String): SessionUser {
             meCount++

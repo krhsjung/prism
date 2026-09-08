@@ -46,6 +46,7 @@ import kr.hs.jung.prism.ui.component.PrismButtonVariant
 /** 셸이 아는 페이지. 라우트가 늘면 여기가 먼저 걸린다. */
 enum class ShellPage(@param:StringRes val title: Int) {
     DASHBOARD(R.string.dashboard_title),
+    PUSH(R.string.push_title),
     WEBRTC(R.string.webrtc_title),
 }
 

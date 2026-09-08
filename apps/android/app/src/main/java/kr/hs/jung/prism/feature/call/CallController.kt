@@ -54,7 +54,13 @@ import kotlin.coroutines.resume
  * `NOTIFIED`(푸시로 깨웠다)는 아직 도달할 수 없다 — 소켓이 없는 기기는 서버가
  * `unreachable`로 거절하고, 푸시 경로는 push 슬라이스와 함께 붙는다(§8-11).
  */
-enum class CallStatus { RINGING, CONNECTING, CONNECTED, RECONNECTING, FAILED }
+/**
+ * 통화의 상태. **배지 여섯 변형과 1:1**이다(plan/webrtc.md §4).
+ *
+ * `RINGING`과 `NOTIFIED`를 갈라 두는 이유는 기다리는 성격이 다르기 때문이다: 푸시
+ * 경로는 알림이 뜨고 사람이 기기를 집어 앱을 여는 시간까지 창 안에 들어간다.
+ */
+enum class CallStatus { RINGING, NOTIFIED, CONNECTING, CONNECTED, RECONNECTING, FAILED }
 
 /** ICE 정책. 화면에서 바꿀 수 있는 두 가지 중 하나다(§4). */
 enum class IcePolicy { ALL, RELAY }
@@ -485,6 +491,27 @@ class CallController(
         _state.update { it.copy(call = it.call?.copy(status = CallStatus.FAILED)) }
     }
 
+    /**
+     * 서버가 보낸 `call`에 답했다 — `ringing`(소켓으로 울렸다)이든 `notified`(알림으로
+     * 알렸다)든 이후 흐름은 같고, 화면에 그릴 상태만 다르다.
+     */
+    private fun answerToCall(callId: String, status: CallStatus) {
+        // 어느 쪽으로 갈리든 다음 통화를 열어 준다.
+        settleAttempt()
+        // 기다리는 사이에 취소했다 — 이제야 id를 알았으니 그때 못 보낸 것을 보낸다.
+        if (cancelPending) {
+            cancelPending = false
+            send(CallClientMessage.Cancel(callId))
+            return
+        }
+        _state.update { current ->
+            val call = current.call ?: return@update current
+            if (call.callId != null) current else current.copy(
+                call = call.copy(callId = callId, status = status),
+            )
+        }
+    }
+
     /** 보낸 `call`의 답이 왔다(또는 더 기다리지 않는다) — 다음 통화를 열어 준다. */
     private fun settleAttempt() {
         answerTimer?.cancel()
@@ -592,22 +619,12 @@ class CallController(
                 it.copy(incoming = CallUiState.Incoming(message.callId, message.from))
             }
 
-            is CallServerMessage.Ringing -> {
-                // 보낸 `call`의 답이다 — 어느 쪽으로 갈리든 다음 통화를 열어 준다.
-                settleAttempt()
-                // 기다리는 사이에 취소했다 — 이제야 id를 알았으니 그때 못 보낸 것을 보낸다.
-                if (cancelPending) {
-                    cancelPending = false
-                    send(CallClientMessage.Cancel(message.callId))
-                    return
-                }
-                _state.update { current ->
-                    val call = current.call ?: return@update current
-                    if (call.callId != null) current else current.copy(
-                        call = call.copy(callId = message.callId),
-                    )
-                }
-            }
+            // 둘은 **같은 답이고 다른 상태다**: 서버가 상대에게 닿는 방법을 골랐고
+            // (소켓이냐 알림이냐), 그 선택이 화면의 배지와 문구를 가른다(§4).
+            // 클라이언트는 경로를 요청하지 않는다 — 그러면 푸시를 강제로 쏘는 길이 열린다.
+            is CallServerMessage.Ringing -> answerToCall(message.callId, CallStatus.RINGING)
+
+            is CallServerMessage.Notified -> answerToCall(message.callId, CallStatus.NOTIFIED)
 
             is CallServerMessage.Accepted -> {
                 val call = _state.value.call ?: return
@@ -799,6 +816,21 @@ class CallController(
                 }
             }
         }
+    }
+
+    /**
+     * 알림을 열고 들어왔다 — **이 통화가 아직 살아 있나**(§6).
+     *
+     * 늦게 온 기기의 유일한 질문이다. 살아 있으면 서버가 `incoming`으로 답해 벨이 다시
+     * 울리고, 아니면 `expired`로 "이미 끝난 통화"를 그린다 — 그것이 **푸시 경로의 정상
+     * 결말**이다(§8-10).
+     *
+     * 이미 통화 중이거나 벨이 울리는 중이면 아무것도 하지 않는다 — 그 화면이 이미 답이다.
+     */
+    fun resumeCall(callId: String) {
+        val current = _state.value
+        if (current.call != null || current.incoming != null) return
+        send(CallClientMessage.Resume(callId))
     }
 
     fun acceptIncoming() {

@@ -16,14 +16,19 @@ import org.json.JSONObject
  * 쿠키 흐름은 웹 전용이라 앱에는 두지 않는다(iOS와 동일).
  */
 interface NativeAuthApi {
+    // ⚠️ 세 경로 모두 `pushToken`을 받는다. **등록 토큰은 로그인 시점에만 세션에 실린다**
+    // (plan/push.md §5-2) — 살아 있는 세션 레코드를 고치는 경로를 두지 않기로 했기
+    // 때문이다. null이면 그 세션은 재로그인 전까지 푸시 대상이 아니고, 목록에
+    // `Notifications off`로 정직하게 보인다.
+
     /** Google 네이티브 로그인 — SDK가 준 id_token을 서버가 검증하고 세션을 발급한다. */
-    suspend fun googleNative(idToken: String): AuthSession
+    suspend fun googleNative(idToken: String, pushToken: String? = null): AuthSession
 
     /** Kakao 네이티브 로그인 — SDK가 준 access token으로 서버가 세션을 발급한다. */
-    suspend fun kakaoNative(accessToken: String): AuthSession
+    suspend fun kakaoNative(accessToken: String, pushToken: String? = null): AuthSession
 
     /** 데모 로그인 — 서버가 시드 계정으로 바로 세션을 발급한다(SDK·입력 없음). */
-    suspend fun demoNative(): AuthSession
+    suspend fun demoNative(pushToken: String? = null): AuthSession
 
     /**
      * 웹 redirect(flow=native) 로그인의 일회용 코드를 세션으로 교환한다.
@@ -48,11 +53,11 @@ interface NativeAuthApi {
 
     /** 미설정(SDK/서버 경로 없음)일 때의 기본 — 네이티브 경로를 막는다. */
     object Unavailable : NativeAuthApi {
-        override suspend fun googleNative(idToken: String) =
+        override suspend fun googleNative(idToken: String, pushToken: String?) =
             throw kr.hs.jung.prism.core.network.ApiError.providerUnavailable
-        override suspend fun kakaoNative(accessToken: String) =
+        override suspend fun kakaoNative(accessToken: String, pushToken: String?) =
             throw kr.hs.jung.prism.core.network.ApiError.providerUnavailable
-        override suspend fun demoNative() =
+        override suspend fun demoNative(pushToken: String?) =
             throw kr.hs.jung.prism.core.network.ApiError.providerUnavailable
         override suspend fun exchangeNative(code: String) =
             throw kr.hs.jung.prism.core.network.ApiError.providerUnavailable
@@ -74,19 +79,29 @@ interface NativeAuthApi {
  */
 class HttpAuthApi(private val client: ApiClient) : NativeAuthApi {
 
-    override suspend fun googleNative(idToken: String): AuthSession =
+    override suspend fun googleNative(idToken: String, pushToken: String?): AuthSession =
         decodeAuthSession(
-            client.request("POST", "/auth/google/native", body(("idToken" to idToken))),
+            client.request(
+                "POST",
+                "/auth/google/native",
+                body("idToken" to idToken, pushToken = pushToken),
+            ),
         )
 
-    override suspend fun kakaoNative(accessToken: String): AuthSession =
+    override suspend fun kakaoNative(accessToken: String, pushToken: String?): AuthSession =
         decodeAuthSession(
-            client.request("POST", "/auth/kakao/native", body(("accessToken" to accessToken))),
+            client.request(
+                "POST",
+                "/auth/kakao/native",
+                body("accessToken" to accessToken, pushToken = pushToken),
+            ),
         )
 
     /** 원클릭 데모 로그인. 웹 `/auth/demo`(쿠키)와 세션은 같고, 전달만 다르다 — 토큰을 body로. */
-    override suspend fun demoNative(): AuthSession =
-        decodeAuthSession(client.request("POST", "/auth/demo/native"))
+    override suspend fun demoNative(pushToken: String?): AuthSession =
+        decodeAuthSession(
+            client.request("POST", "/auth/demo/native", body(pushToken = pushToken)),
+        )
 
     override suspend fun exchangeNative(code: String): AuthSession =
         decodeAuthSession(
@@ -127,6 +142,13 @@ class HttpAuthApi(private val client: ApiClient) : NativeAuthApi {
     }
 
     /** 단일 필드 JSON body. org.json으로 안전하게 이스케이프한다(수동 문자열 조합 금지). */
-    private fun body(field: Pair<String, String>): String =
-        JSONObject().put(field.first, field.second).toString()
+    /**
+     * 요청 body 한 줄. 등록 토큰은 **있을 때만** 싣는다 — 없는 필드와 빈 문자열은
+     * 서버에서 같은 뜻이지만(둘 다 등록 없음), 없는 쪽이 의도가 분명하다.
+     */
+    private fun body(field: Pair<String, String>? = null, pushToken: String? = null): String =
+        JSONObject()
+            .apply { field?.let { put(it.first, it.second) } }
+            .apply { pushToken?.let { put("pushToken", it) } }
+            .toString()
 }

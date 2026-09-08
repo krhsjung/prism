@@ -226,6 +226,16 @@ class AuthManager(
         provider: AuthProvider,
         method: AuthMethod = AuthMethod.NATIVE,
         activity: Activity? = null,
+        /**
+         * 이 기기의 FCM 등록 토큰. **로그인 시점에만 세션에 실린다**(plan/push.md §5-2) —
+         * 로그인 화면이 권한을 먼저 받아 여기로 넘긴다. null이면 그 세션은 재로그인
+         * 전까지 푸시 대상이 아니고, 목록에 `Notifications off`로 보인다.
+         *
+         * ⚠️ **REDIRECT 경로에는 실을 자리가 없다.** 세션이 서버 콜백에서 만들어지고
+         * 앱은 그것을 코드로 교환할 뿐이다 — 시작 시점의 쿠키도 소용없다(그 쿠키는 앱이
+         * 연 시스템 브라우저의 병에 떨어진다). Android의 Apple 로그인이 여기 해당한다.
+         */
+        pushToken: String? = null,
     ) {
         if (method == AuthMethod.REDIRECT) {
             redirectSignIn(provider, activity)
@@ -233,14 +243,14 @@ class AuthManager(
         }
         when (provider) {
             AuthProvider.DEMO -> mutex.withLock {
-                adopt(nativeApi.demoNative())
+                adopt(nativeApi.demoNative(pushToken))
                 AppLog.d("demo session issued")
             }
             AuthProvider.GOOGLE -> nativeSignIn(activity) { act ->
-                nativeApi.googleNative(social.googleIdToken(act))
+                nativeApi.googleNative(social.googleIdToken(act), pushToken)
             }
             AuthProvider.KAKAO -> nativeSignIn(activity) { act ->
-                nativeApi.kakaoNative(social.kakaoAccessToken(act))
+                nativeApi.kakaoNative(social.kakaoAccessToken(act), pushToken)
             }
             AuthProvider.APPLE -> {
                 AppLog.d("apple native sign-in is not available on Android")

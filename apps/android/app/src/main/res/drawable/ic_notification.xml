@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 상태 표시줄의 알림 아이콘. **단색 실루엣이어야 한다** — 시스템이 알파만 읽고
+     색은 스스로 칠하므로, 여러 색으로 그리면 흰 사각형으로 나온다. 그래서 다른
+     아이콘(24 그리드·stroke 2)과 달리 채운 도형으로 그린다. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24"
+    android:tint="#FFFFFFFF">
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M12,2c-3.31,0 -6,2.69 -6,6v4.59l-1.7,1.7A1,1 0 0,0 5,16h14a1,1 0 0,0 0.7,-1.71L18,12.59V8c0,-3.31 -2.69,-6 -6,-6zM10,18a2,2 0 0,0 4,0z" />
+</vector>

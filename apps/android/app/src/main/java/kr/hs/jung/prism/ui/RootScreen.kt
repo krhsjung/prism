@@ -30,6 +30,8 @@ import kr.hs.jung.prism.feature.call.IncomingCallDialog
 import kr.hs.jung.prism.feature.call.rememberCallPermission
 import kr.hs.jung.prism.feature.call.WebRtcScreen
 import kr.hs.jung.prism.feature.dashboard.DashboardScreen
+import kr.hs.jung.prism.core.push.PushLinks
+import kr.hs.jung.prism.feature.push.PushScreen
 import androidx.compose.runtime.rememberCoroutineScope
 
 /**
@@ -57,7 +59,12 @@ fun RootScreen(container: ServiceContainer) {
                 // 세션이 끝났으니 그 세션의 화면 상태도 지금 버린다 — 다음 로그인까지
                 // 들고 있으면 끝난 세션의 ViewModel이 로그인 화면 내내 살아 있다.
                 ClearSessionScope()
-                LoginScreen(auth, container.themeStore, container.localeStore)
+                LoginScreen(
+                    auth,
+                    container.themeStore,
+                    container.localeStore,
+                    container.pushTokens,
+                )
             }
             is AuthManager.State.SignedIn -> {
                 // 로그인 뒤의 화면 상태는 **이 세션의 것**이다. 세션이 끝나면 함께 버리고,
@@ -125,6 +132,21 @@ private fun SignedIn(container: ServiceContainer, current: AuthManager.State.Sig
     // 페이지가 바뀌는 순간 함께 취소되어, 거기서 시작한 닫기가 중간에 죽는다.
     LaunchedEffect(page) { drawerState.close() }
 
+    // 알림을 눌러 들어왔다 — 통화 화면으로 옮기고 **이 통화가 아직 살아 있나**를 묻는다.
+    //
+    // 소켓이 붙은 뒤에야 물을 수 있다(`socketReady`). 살아 있으면 벨이 다시 울리고,
+    // 아니면 `Call expired`를 본다 — 그것이 푸시 경로의 정상 결말이다(§8-10).
+    // 값은 **한 번만** 소비한다 — 남겨 두면 화면을 되돌아올 때마다 다시 물어본다.
+    val pendingCallId by PushLinks.pendingCallId.collectAsStateWithLifecycle()
+    val socketReady by socket.isReady.collectAsStateWithLifecycle()
+    LaunchedEffect(pendingCallId, socketReady) {
+        val callId = pendingCallId ?: return@LaunchedEffect
+        if (!socketReady) return@LaunchedEffect
+        page = ShellPage.WEBRTC
+        call.resumeCall(callId)
+        PushLinks.consume()
+    }
+
     // 수락은 대시보드에서도 일어난다 — 통화는 통화 화면에서 그린다.
     LaunchedEffect(callState.wantsCallScreen) {
         if (callState.wantsCallScreen) {
@@ -141,6 +163,17 @@ private fun SignedIn(container: ServiceContainer, current: AuthManager.State.Sig
             sessionsApi = container.sessionsApi,
             tokens = container.sessionTokens,
             socket = socket,
+            drawerState = drawerState,
+            onNavigate = { page = it },
+            onSignOut = { scope.launch { container.authManager.signOut() } },
+        )
+        ShellPage.PUSH -> PushScreen(
+            user = current.user,
+            themeStore = container.themeStore,
+            localeStore = container.localeStore,
+            sessionsApi = container.sessionsApi,
+            pushApi = container.pushApi,
+            tokens = container.sessionTokens,
             drawerState = drawerState,
             onNavigate = { page = it },
             onSignOut = { scope.launch { container.authManager.signOut() } },

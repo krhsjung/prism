@@ -260,7 +260,7 @@ private fun Head(state: CallUiState, peerLabel: String) {
     val call = state.call
     val title = when {
         call == null -> stringResource(R.string.webrtc_lobby_title)
-        call.status == CallStatus.RINGING ->
+        call.status == CallStatus.RINGING || call.status == CallStatus.NOTIFIED ->
             stringResource(R.string.webrtc_calling).withVars("device" to peerLabel)
         else -> stringResource(R.string.webrtc_in_call)
     }
@@ -268,6 +268,10 @@ private fun Head(state: CallUiState, peerLabel: String) {
     val subtitle = when {
         call == null -> stringResource(R.string.webrtc_lobby_desc)
         call.status == CallStatus.RINGING -> stringResource(R.string.webrtc_ring_timeout_note)
+        // 기다리는 시간이 **왜 긴지**를 화면이 말한다(§4). `ring_timeout_note`를 덧붙이지
+        // 않는다 — 이 문구가 이미 45초를 말하고 있어 숫자가 두 번 나온다.
+        call.status == CallStatus.NOTIFIED ->
+            stringResource(R.string.webrtc_notified_desc).withVars("device" to peerLabel)
         else -> null
     }
 
@@ -637,6 +641,7 @@ fun rememberCallPermission(controller: CallController): (() -> Unit) -> Unit {
 @StringRes
 internal fun statusLabel(status: CallStatus): Int = when (status) {
     CallStatus.RINGING -> R.string.webrtc_status_ringing
+    CallStatus.NOTIFIED -> R.string.webrtc_status_notified
     CallStatus.CONNECTING -> R.string.webrtc_status_connecting
     CallStatus.CONNECTED -> R.string.webrtc_status_connected
     CallStatus.RECONNECTING -> R.string.webrtc_status_reconnecting
@@ -644,7 +649,9 @@ internal fun statusLabel(status: CallStatus): Int = when (status) {
 }
 
 internal fun statusVariant(status: CallStatus): PrismBadgeVariant = when (status) {
+    // 소켓 경로와 **같은 무게**다 — 다른 것은 기다리는 시간이지 좋고 나쁨이 아니다.
     CallStatus.RINGING -> PrismBadgeVariant.NEUTRAL
+    CallStatus.NOTIFIED -> PrismBadgeVariant.NEUTRAL
     CallStatus.CONNECTING -> PrismBadgeVariant.INFO
     CallStatus.CONNECTED -> PrismBadgeVariant.SUCCESS
     CallStatus.RECONNECTING -> PrismBadgeVariant.WARNING
@@ -720,6 +727,8 @@ internal fun peerTileState(status: CallStatus, hasTrack: Boolean): TileState = w
 @Composable
 private fun peerTileMessage(status: CallStatus, hasTrack: Boolean): String? = when {
     status == CallStatus.RINGING -> stringResource(R.string.webrtc_tile_ringing)
+    // 소켓 경로와 다른 문구다 — 기다리는 것이 "응답"이 아니라 "기기가 열리는 것"이다.
+    status == CallStatus.NOTIFIED -> stringResource(R.string.webrtc_tile_notified)
     status == CallStatus.RECONNECTING -> stringResource(R.string.webrtc_tile_reconnecting)
     // 실패 타일은 **문구를 갖지 않는다** — 배지가 이미 그 말을 한다(§4).
     status == CallStatus.FAILED -> null
