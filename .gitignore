@@ -30,9 +30,20 @@ infra/deploy/charts/*/values.generated.yaml
 # infra/docker/*/.env는 값이 아니라 `${VAR}` 자리표시자만 담는다 — compose가 셸 환경에서
 # 채운다. 그래서 추적한다(postgres·redis가 이미 그렇게 커밋돼 있다). 실제 값 금지.
 !infra/docker/*/.env
+# apps/web/.env·.env.prism도 같은 성질이다 — `${VAR}` 자리표시자만 담고 vite가 셸
+# 환경에서 채운다(dotenv-expand). 실제 값은 여기 적지 않는다.
+#   .env       = 모드와 무관한 값(Firebase — 개발·배포가 같은 프로젝트다)
+#   .env.prism = 배포 빌드에서만 달라지는 값(API·소켓 주소)
+!apps/web/.env
+!apps/web/.env.prism
 *.p8
 GoogleService-Info.plist
 google-services.json
+# GCP 서비스 계정 키. 콘솔이 `<project>-firebase-adminsdk-<id>-<hash>.json`처럼
+# 내려주므로 이름을 못 박을 수 없다 — 접미사로 잡는다. **진짜 비밀이다**
+# (앞의 셋과 달리 클라이언트에 박히는 값이 아니라 발송 권한 그 자체다).
+*-firebase-adminsdk-*.json
+*-service-account*.json
 Secrets.xcconfig
 *.secret.xcconfig
 
