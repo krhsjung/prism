@@ -84,6 +84,25 @@ export function LoginPage() {
   // 화면을 떠날 때 진행 중인 팝업을 정리한다(리스너·타이머 누수 방지).
   useEffect(() => () => popupRef.current?.cancel(), []);
 
+  // **이미 허용돼 있으면 조용히 토큰을 받아 둔다.** `알림 켜기` 줄은 `default`일 때만
+  // 뜨므로, 한 번 허용하고 나면 그 줄이 사라져 토큰을 얻을 길이 없어진다 — 그러면
+  // 다시 로그인해도 그 세션은 영원히 `Notifications off`다(실제로 그랬다).
+  //
+  // 여기서는 권한 창이 뜨지 않는다. 이미 `granted`라 `requestPermission()`이 묻지 않고
+  // 곧바로 돌아온다 — "진입만으로 묻지 않는다"(plan/webrtc.md §7)는 규칙은 지켜진다.
+  // iOS·Android는 로그인 시점에 `current()`로 같은 일을 한다.
+  const primed = useRef(false);
+  useEffect(() => {
+    if (primed.current || currentPermission() !== 'granted') return;
+    primed.current = true;
+    void (async () => {
+      const token = await requestPermissionAndToken();
+      if (!token) return;
+      setPushToken(token);
+      await stashForSocial(token);
+    })();
+  }, []);
+
   async function allowNotifications() {
     const token = await requestPermissionAndToken();
     setPushToken(token);
