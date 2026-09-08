@@ -1,6 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { createHash, randomBytes } from 'crypto';
 import { REDIS, type RedisClient } from '@app/redis';
+import { DEFAULT_LOCALE, LOCALES, type Locale } from '../i18n';
 import {
   AUTH_PROVIDERS,
   decodeDeviceKind,
@@ -9,6 +10,7 @@ import {
   parseJsonValue,
   type AuthProvider,
   type DeviceKind,
+  MAX_PUSH_TOKEN_LENGTH,
   type SessionInfo,
   type User,
 } from '../types/contracts';
@@ -23,7 +25,37 @@ interface SessionRecord {
   // 기기 종류(enum). UA 원문이 아니다 — 로그인 시점에 네 갈래로 접어 이 값만 남긴다.
   device: DeviceKind;
   absoluteExpiresAt: number; // epoch(ms) — 리프레시로도 넘을 수 없는 상한
+  // FCM 등록 토큰. **응답으로 나가지 않는다** — 목록에는 파생 불리언
+  // (`SessionInfo.pushRegistered`)만 실린다(plan/push.md §5-3).
+  //
+  // 별도 테이블에 두지 않는 이유는 수명이다: 세션에 담으면 **로그아웃·폐기·유휴 만료가
+  // 그대로 토큰의 수명**이 되고, Postgres와 백업에는 기기 식별자가 남지 않는다(§5-1).
+  // "저장하지 않는다"가 아니라 **"세션과 함께 사라진다"**이다.
+  pushToken?: string;
+  // 이 세션을 만든 기기의 표시 언어. **서버가 그리는 알림 문구**를 고르는 데만 쓴다 —
+  // 받는 쪽의 언어는 보내는 쪽의 요청에서 알 수 없기 때문이다(plan/push.md D4).
+  locale?: Locale;
 }
+
+// 세션에 함께 기록되는 푸시 등록. **로그인 시점에만** 들어온다 — 살아 있는 세션
+// 레코드를 고치는 경로를 만들지 않으려는 것이다(plan/push.md §5-2).
+export interface PushRegistration {
+  token: string;
+  locale: Locale;
+}
+
+// 푸시를 보낼 때 필요한 것 전부. `pushTargetFor`만 이것을 돌려준다.
+export interface PushTarget {
+  token: string;
+  locale: Locale;
+}
+
+// 대상 조회의 세 갈래. `not-owned`는 **없는 세션과 남의 세션을 구별해 주지 않는다** —
+// 남의 세션 id를 넣어 존재를 떠보는 경로를 열지 않기 위해서다(unknown-session과 같은 이유).
+export type PushLookup =
+  | { kind: 'ok'; target: PushTarget }
+  | { kind: 'no-token' }
+  | { kind: 'not-owned' };
 
 // 세션 생성/갱신 결과 — 리프레시 자격증명은 **이때만** 평문으로 존재한다.
 export interface IssuedSession {
@@ -111,6 +143,9 @@ export class SessionsRepository {
     // 세션을 만든 기기의 **종류**. 호출부가 이미 UA를 접어서 넘긴다 — 여기까지 원문이
     // 내려오지 않으므로, 저장소에 UA가 새어 들어갈 경로 자체가 없다.
     device: DeviceKind = 'unknown',
+    // 푸시 등록은 **로그인 시점에만** 들어온다(plan/push.md §5-2). 없으면 그 세션은
+    // 재로그인 전까지 푸시 대상이 아니다 — 목록에서 `Notifications off`로 정직하게 보인다.
+    push?: PushRegistration,
   ): Promise<IssuedSession> {
     const record: SessionRecord = {
       userId: user.id,
@@ -120,6 +155,7 @@ export class SessionsRepository {
       startedAt: Date.now(),
       absoluteExpiresAt: Date.now() + absoluteTtlMs,
       device,
+      ...(push ? { pushToken: push.token, locale: push.locale } : {}),
     };
     const secret = randomBytes(SECRET_BYTES).toString('base64url');
     const ttlSeconds = Math.ceil(idleTtlMs / 1000);
@@ -326,9 +362,34 @@ export class SessionsRepository {
         startedAt: new Date(record.startedAt).toISOString(),
         expiresAt: new Date(score).toISOString(),
         device: record.device,
+        // ⚠️ **파생 불리언만 나간다.** 원본 토큰이 이 객체에 한 번이라도 얹히면
+        // 호출부의 스프레드(`{ ...s, isCurrent, isConnected }`)를 타고 **남의 기기
+        // 행까지 든 목록에 그대로 실려 나간다**. 토큰을 돌려주는 문은 pushTargetFor뿐이다.
+        pushRegistered: record.pushToken !== undefined,
       });
     }
     return sessions;
+  }
+
+  // 푸시를 보낼 대상. **토큰을 돌려주는 유일한 메서드다.**
+  //
+  // 소유권을 여기서 함께 확인한다 — 남의 세션 id를 넣어 남의 기기를 울릴 수 있으면
+  // 그것 자체가 공격이다(deleteOwned가 폐기 DoS를 막는 것과 같은 자리).
+  //
+  // 세 갈래를 **한 번의 읽기로** 가른다. 호출부가 "내 것이 아님"과 "토큰 없음"을 다르게
+  // 답해야 하기 때문이다 — 앞의 것은 404(없는 세션과 구별해 주지 않는다), 뒤의 것은
+  // `no-token`이다. 두 메서드로 나누면 같은 레코드를 두 번 읽는다.
+  async pushTargetFor(userId: string, sessionId: string): Promise<PushLookup> {
+    const record = await this.readRecord(sessionId);
+    if (!record || record.userId !== userId) return { kind: 'not-owned' };
+    if (!record.pushToken) return { kind: 'no-token' };
+    return {
+      kind: 'ok',
+      target: {
+        token: record.pushToken,
+        locale: record.locale ?? DEFAULT_LOCALE,
+      },
+    };
   }
 
   // 소유권 범위 폐기 — 세션 id만으로 지우지 않는다. 남의 id를 넣어도 지워지면 안 된다.
@@ -399,6 +460,14 @@ export class SessionsRepository {
         // 접는다. 배포 순간에 살아 있던 세션이 목록에서 통째로 사라지면 안 된다.
         device: decodeDeviceKind(obj.device),
         absoluteExpiresAt: obj.absoluteExpiresAt,
+        // device와 **같은 규칙**으로 접는다 — 이 필드들이 생기기 전에 만들어진 세션은
+        // 값이 없다. 거부하면 배포 순간에 살아 있던 세션이 통째로 사라진다.
+        ...(typeof obj.pushToken === 'string' &&
+        obj.pushToken.length > 0 &&
+        obj.pushToken.length <= MAX_PUSH_TOKEN_LENGTH
+          ? { pushToken: obj.pushToken }
+          : {}),
+        locale: LOCALES.find((l) => l === obj.locale) ?? DEFAULT_LOCALE,
       };
     } catch {
       return null;

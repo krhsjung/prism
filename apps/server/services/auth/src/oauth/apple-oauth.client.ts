@@ -1,8 +1,12 @@
 import { createHash } from 'crypto';
 import { SignJWT, createRemoteJWKSet, importPKCS8, jwtVerify } from 'jose';
-import { decodeObject, decodeString, jsonBodyOf } from '@app/common';
+import {
+  decodeObject,
+  decodeString,
+  fetchWithTimeout,
+  jsonBodyOf,
+} from '@app/common';
 import type { AppleOAuthOptions } from '@app/config';
-import { fetchWithTimeout } from './fetch-with-timeout';
 import type { OAuthClient } from './oauth-client';
 import type { OAuthProfile } from './oauth-profile';
 

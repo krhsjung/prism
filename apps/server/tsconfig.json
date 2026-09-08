@@ -27,6 +27,8 @@
       "@app/database/*": ["./libs/database/src/*"],
       "@app/config": ["./libs/config/src/index.ts"],
       "@app/config/*": ["./libs/config/src/*"],
+      "@app/push": ["./libs/push/src/index.ts"],
+      "@app/push/*": ["./libs/push/src/*"],
       "@app/redis": ["./libs/redis/src/index.ts"],
       "@app/redis/*": ["./libs/redis/src/*"],
       "@app/session": ["./libs/session/src/index.ts"],

@@ -45,6 +45,19 @@ export interface AuthConfig {
   refreshTokenTtlMs: number;
 }
 
+// FCM 서비스 계정. **여기 있는 것은 비밀이고 클라이언트에게 절대 나가지 않는다** —
+// 나가는 것은 이 키로 서명해 받아 온 액세스 토큰이 붙은 서버→FCM 요청뿐이다
+// (IceConfig.turn.secret과 같은 성질이다).
+//
+// 셋을 한 덩어리로 묶어 "일부만 설정된 상태"를 타입으로 없앤다.
+export interface FcmConfig {
+  projectId: string;
+  clientEmail: string;
+  // PEM. env의 `\n` 이스케이프는 여기서 복원해 둔다 — 첫 전송 때가 아니라 부팅에서
+  // 형식이 드러나야 한다.
+  privateKey: string;
+}
+
 // STUN/TURN. 목록은 `accepted`와 함께 소켓이 내려주고, **값은 전부 env에서 온다** —
 // 호스트도 자격증명도 레포에 두지 않는다(plan/webrtc.md §7).
 export interface IceConfig {
@@ -87,6 +100,9 @@ export interface AppConfig {
   postgres: PostgresConfig;
   redis: RedisConfig;
   ice: IceConfig;
+  // 푸시는 **없어도 서버가 뜬다** — 자격증명 없는 로컬·CI에서도 나머지가 동작해야 한다.
+  // 대신 그때는 `pushRegistered`가 전부 false로 접혀 화면이 거짓말하지 않는다.
+  fcm: FcmConfig | null;
   google: GoogleOAuthOptions;
   apple: AppleOAuthOptions;
   kakao: KakaoOAuthOptions;
@@ -419,6 +435,37 @@ export function loadAppleOAuthConfig(env: Env): AppleOAuthOptions {
   };
 }
 
+// 서비스 계정 셋은 **함께 있거나 함께 없다.**
+//
+// 하나만 온 설정을 조용히 "푸시 없음"으로 되돌리지 않는다 — 푸시를 켰다고 믿는 채
+// 알림만 안 오는 상태가 되고, 그건 통화가 `Call expired`로 끝나야만 드러난다.
+// `loadIceConfig`가 TURN에 하는 것과 같은 판단이다.
+export function loadFcmConfig(env: Env): FcmConfig | null {
+  const projectId = str(env, 'PRISM_FCM_PROJECT_ID').trim();
+  const clientEmail = str(env, 'PRISM_FCM_CLIENT_EMAIL').trim();
+  const rawKey = str(env, 'PRISM_FCM_PRIVATE_KEY').trim();
+
+  const parts = [projectId, clientEmail, rawKey].map(Boolean);
+  if (parts.some(Boolean) && !parts.every(Boolean)) {
+    throw new Error(
+      'PRISM_FCM_PROJECT_ID, PRISM_FCM_CLIENT_EMAIL and PRISM_FCM_PRIVATE_KEY must be set together',
+    );
+  }
+  if (!projectId) return null;
+
+  // .p8/JSON의 개행이 env에서 `\n`으로 눌려 오는 것을 되돌린다(Apple 키와 같은 규칙).
+  const restored = rawKey.includes('\n')
+    ? rawKey
+    : rawKey.replace(/\\n/g, '\n');
+  if (!restored.includes('BEGIN')) {
+    throw new Error('PRISM_FCM_PRIVATE_KEY must be a PEM private key');
+  }
+  // **끝 개행을 보장한다.** 위에서 값의 존재를 보려고 trim한 탓에 PEM의 마지막 개행이
+  // 잘려 있는데, 그것을 거부하는 파서가 있다 — 여기서 되돌려 첫 전송에서 드러나지 않게 한다.
+  const privateKey = restored.endsWith('\n') ? restored : `${restored}\n`;
+  return { projectId, clientEmail, privateKey };
+}
+
 export function loadAppConfig(env: Env): AppConfig {
   return {
     production: env.NODE_ENV === 'production',
@@ -427,6 +474,7 @@ export function loadAppConfig(env: Env): AppConfig {
     postgres: loadPostgresConfig(env),
     redis: loadRedisConfig(env),
     ice: loadIceConfig(env),
+    fcm: loadFcmConfig(env),
     google: loadGoogleOAuthConfig(env),
     apple: loadAppleOAuthConfig(env),
     kakao: loadKakaoOAuthConfig(env),

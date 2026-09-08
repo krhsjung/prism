@@ -3,7 +3,7 @@ import {
   REFRESH_REUSE_GRACE_MS,
   SessionsRepository,
 } from './sessions.repository';
-import type { User } from '../types/contracts';
+import { parseJsonValue, type JsonValue, type User } from '../types/contracts';
 
 const user: User = {
   id: 'u-1',
@@ -460,5 +460,90 @@ describe('SessionsRepository (Redis)', () => {
   it('이미 지난 idle 수명으로는 살아남지 않는다', async () => {
     await repo.create('s-1', user, -1, WEEK);
     await expect(repo.findValid('s-1')).resolves.toBeNull();
+  });
+
+  // ── 푸시 (plan/push.md) ──
+  //
+  // 토큰은 **세션 안에서만 살고 세션과 함께 사라진다** — 별도 테이블도, 정리 잡도 없다.
+  describe('푸시 등록', () => {
+    const PUSH = { token: 'fcm-tok-1', locale: 'ko' } as const;
+
+    const createWithPush = (id: string) =>
+      repo.create(id, user, HOUR, WEEK, 'iphone', PUSH);
+
+    it('로그인 시점에 함께 기록된다', async () => {
+      await createWithPush('s-1');
+
+      const lookup = await repo.pushTargetFor('u-1', 's-1');
+      expect(lookup).toEqual({ kind: 'ok', target: PUSH });
+    });
+
+    // 등록 없이 만든 세션은 재로그인 전까지 푸시 대상이 아니다 —
+    // 화면에는 `Notifications off`로 정직하게 보인다.
+    it('등록 없이 만들면 no-token이다', async () => {
+      await repo.create('s-2', user, HOUR, WEEK, 'mac');
+
+      expect(await repo.pushTargetFor('u-1', 's-2')).toEqual({
+        kind: 'no-token',
+      });
+    });
+
+    // 남의 세션 id로 남의 기기를 울릴 수 있으면 그것 자체가 공격이다.
+    // 없는 세션과 남의 세션을 **구별해 주지 않는다**.
+    it('남의 세션과 없는 세션은 같은 답을 준다', async () => {
+      await createWithPush('s-3');
+
+      expect(await repo.pushTargetFor('u-2', 's-3')).toEqual({
+        kind: 'not-owned',
+      });
+      expect(await repo.pushTargetFor('u-1', 'no-such')).toEqual({
+        kind: 'not-owned',
+      });
+    });
+
+    // ⚠️ 목록에는 **파생 불리언만** 나간다. 원본 토큰이 이 객체에 얹히면 호출부의
+    // 스프레드를 타고 남의 기기 행까지 든 목록에 그대로 실려 나간다(plan/push.md §5-3).
+    it('목록은 pushRegistered만 싣고 토큰은 싣지 않는다', async () => {
+      await createWithPush('s-4');
+      await repo.create('s-5', user, HOUR, WEEK, 'mac');
+
+      const list = await repo.listForUser('u-1');
+      const registered = list.map((s) => [s.id, s.pushRegistered]);
+      expect(registered).toEqual(
+        expect.arrayContaining([
+          ['s-4', true],
+          ['s-5', false],
+        ]),
+      );
+      expect(JSON.stringify(list)).not.toContain('fcm-tok-1');
+      for (const item of list) {
+        expect(Object.keys(item)).not.toContain('pushToken');
+      }
+    });
+
+    // 회전은 자격증명만 교체하고 본체는 건드리지 않는다 — 그래서 필드를 더해도
+    // 옮겨 담는 코드가 필요 없다(plan/push.md §5-1).
+    it('회전해도 토큰이 살아남는다', async () => {
+      const issued = await createWithPush('s-6');
+      await repo.rotate(issued.refreshCredential, HOUR);
+
+      expect(await repo.pushTargetFor('u-1', 's-6')).toEqual({
+        kind: 'ok',
+        target: PUSH,
+      });
+    });
+
+    // 이 필드가 생기기 전에 만들어진 세션은 값이 없다 — 거부하면 배포 순간에 살아
+    // 있던 세션이 목록에서 통째로 사라진다(device를 unknown으로 접는 것과 같은 규칙).
+    it('예전 형식의 레코드도 거부하지 않는다', async () => {
+      await repo.create('s-7', user, HOUR, WEEK, 'mac');
+      const raw = await redis.get('prism:session:s-7');
+      const record = parseJsonValue(raw ?? '{}') as { [k: string]: JsonValue };
+      delete record.locale;
+      await redis.setEx('prism:session:s-7', JSON.stringify(record), 3600);
+
+      const list = await repo.listForUser('u-1');
+      expect(list.find((s) => s.id === 's-7')?.pushRegistered).toBe(false);
+    });
   });
 });

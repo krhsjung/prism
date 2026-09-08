@@ -55,6 +55,15 @@
         "tsConfigPath": "libs/config/tsconfig.lib.json"
       }
     },
+    "push": {
+      "type": "library",
+      "root": "libs/push",
+      "entryFile": "index",
+      "sourceRoot": "libs/push/src",
+      "compilerOptions": {
+        "tsConfigPath": "libs/push/tsconfig.lib.json"
+      }
+    },
     "redis": {
       "type": "library",
       "root": "libs/redis",

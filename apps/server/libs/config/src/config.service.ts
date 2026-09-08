@@ -3,7 +3,12 @@ import { createHmac } from 'crypto';
 import type { IceServer, SocialProvider } from '@app/common';
 import type { PostgresConfig } from '@app/database';
 import type { RedisConfig } from '@app/redis';
-import { loadAppConfig, type AppConfig, type CookiePolicy } from './app-config';
+import {
+  loadAppConfig,
+  type AppConfig,
+  type CookiePolicy,
+  type FcmConfig,
+} from './app-config';
 import type {
   AppleOAuthOptions,
   GoogleOAuthOptions,
@@ -127,6 +132,22 @@ export class PrismConfigService {
         .digest('base64'),
     });
     return servers;
+  }
+
+  // ── 푸시 ──
+
+  // 서비스 계정이 주입됐는가. **자격증명이 없으면 아무도 깨울 수 없으므로**
+  // `pushRegistered`도 전부 false로 접힌다 — 목록이 `Will notify`라고 해 놓고 아무 일도
+  // 일어나지 않는 것보다, 처음부터 `Notifications off`라고 말하는 편이 정직하다.
+  get pushEnabled(): boolean {
+    return this.app.fcm !== null;
+  }
+
+  // 비밀은 이 게터로만 나가고 **프로세스 밖으로는 나가지 않는다** — 받는 쪽은
+  // `@app/push`의 전송기 하나뿐이다(TURN 공유 비밀이 `iceServersFor` 안에만 머무는 것과
+  // 같은 규칙).
+  get fcmConfig(): FcmConfig | null {
+    return this.app.fcm;
   }
 
   // ── 소셜 OAuth ──

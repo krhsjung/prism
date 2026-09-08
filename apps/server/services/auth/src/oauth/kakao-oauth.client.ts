@@ -1,6 +1,10 @@
-import { decodeObject, decodeString, jsonBodyOf } from '@app/common';
+import {
+  decodeObject,
+  decodeString,
+  fetchWithTimeout,
+  jsonBodyOf,
+} from '@app/common';
 import type { KakaoOAuthOptions } from '@app/config';
-import { fetchWithTimeout } from './fetch-with-timeout';
 import type { OAuthClient } from './oauth-client';
 import type { OAuthProfile } from './oauth-profile';
 
