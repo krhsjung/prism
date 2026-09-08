@@ -78,6 +78,13 @@ data class SessionListItem(
      * 이 값을 믿고 아니면 예전 두 갈래(Current/Active)로 물러난다.
      */
     val isConnected: Boolean = false,
+    /**
+     * 이 세션을 **푸시로 깨울 수 있는가.** 등록 토큰이 아니라 파생 불리언만 내려온다 —
+     * 목록에는 남의 기기 행도 있고, 토큰은 설치 단위라 세션보다 오래 산다(plan/push.md §5-3).
+     *
+     * 보안 장치가 아니라 **UI 편의**다: 없으면 눌러도 아무 일 없는 대상이 목록에 섞인다.
+     */
+    val pushRegistered: Boolean = false,
     /** 이 세션을 만든 기기의 종류. 기기명·브라우저·위치는 계약에 없다(plan/dashboard.md §5). */
     val device: DeviceKind,
 )
@@ -109,3 +116,14 @@ sealed interface SocketServerMessage {
     /** 직후 연결이 닫힌다. [code]는 HTTP와 **같은** [AuthErrorCode]다. */
     data class Error(val code: String) : SocketServerMessage
 }
+
+/**
+ * 푸시 화면에서 사람이 적는 문구의 상한(서버 계약의 `MAX_PUSH_MESSAGE_LENGTH`).
+ *
+ * 생성기는 문자열 배열·레코드만 옮기므로 숫자 상수는 여기 손으로 둔다 — 서버가 같은
+ * 값으로 400을 내므로, 입력에서 먼저 막아 왕복을 아낀다.
+ */
+const val MAX_PUSH_MESSAGE_LENGTH = 120
+
+/** 한 번에 고를 수 있는 대상 수(서버 계약의 `MAX_PUSH_TARGETS`). */
+const val MAX_PUSH_TARGETS = 20

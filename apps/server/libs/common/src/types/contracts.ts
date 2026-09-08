@@ -75,6 +75,14 @@ export interface SessionInfo {
   startedAt: string;
   expiresAt: string;
   device: DeviceKind;
+  // 이 세션을 **푸시로 깨울 수 있는가.** 등록 토큰이 아니라 파생 불리언만 내려간다 —
+  // 목록에는 남의 기기 행도 있고, 토큰은 **설치 단위**라 세션보다 오래 산다. 응답에
+  // 실으면 devtools·HAR·스크린샷에 사본이 남고 그것들은 세션 만료를 따라가지 않는다
+  // (plan/push.md §5-3).
+  //
+  // 보안 장치가 아니라 **UI 편의**다: 이 값이 없으면 눌러도 아무 일이 없는 대상이
+  // 목록에 섞이고 사용자가 이유를 알 수 없다.
+  pushRegistered: boolean;
 }
 
 // 서버가 "지금 이 요청의 세션"을 표시해 돌려준다 — 클라이언트가 자기 세션 id를
@@ -106,6 +114,9 @@ export function decodeSessionListItem(
     // 섞이는 순간(롤링 배포)에 목록 전체가 실패하면 안 된다 — device를 unknown으로
     // 접는 것과 같은 규칙이다. 배지 하나 때문에 카드가 통째로 오류가 되는 쪽이 손해가 크다.
     isConnected: obj.isConnected === true,
+    // isConnected와 **같은 규칙**으로 접는다 — 이 필드가 생기기 전 서버 응답과 섞여도
+    // 목록 전체가 실패하면 안 된다.
+    pushRegistered: obj.pushRegistered === true,
     device: decodeDeviceKind(obj.device),
   };
 }
@@ -390,6 +401,7 @@ export type CallClientMessage =
 export const CALL_SERVER_MESSAGE_TYPES = [
   'incoming',
   'ringing',
+  'notified',
   'accepted',
   'claimed',
   'declined',
@@ -427,6 +439,17 @@ export type CallServerMessage =
   | { type: 'incoming'; callId: string; from: SessionRef }
   // 거는 쪽 — 상대에게 전달됐다.
   | { type: 'ringing'; callId: string }
+  // 거는 쪽 — 상대에게 **소켓이 없어 푸시로 알렸다.**
+  //
+  // `ringing`과 갈라 두는 이유는 기다리는 성격이 다르기 때문이다: 알림이 뜨고 사람이
+  // 기기를 집어 앱을 여는 시간이 창 안에 들어간다. 같은 `Ringing`으로 뭉뚱그리면 느린
+  // 쪽이 고장으로 읽힌다(plan/webrtc.md §4). **창을 늘리지도 않는다** — 정상 결말은
+  // `Call expired` + 되걸기다(§8-10). 푸시는 "기기를 울린다"가 아니라 "걸었다는 사실을
+  // 알린다"이다.
+  //
+  // 상대가 나중에 앱을 열어도 거는 쪽은 `accepted`까지 이 상태로 남는다 — 기기가
+  // 열렸을 뿐 아무도 받지 않았고, 서버는 `call` 하나에 답을 한 번만 한다.
+  | { type: 'notified'; callId: string }
   // 양쪽에 간다. **이것을 받은 거는 쪽이 offer를 낸다** — 역할이 방향에서 나오므로
   // glare가 구조적으로 없다.
   | { type: 'accepted'; callId: string; iceServers: IceServer[] }
@@ -721,4 +744,112 @@ export function decodeAuthSession(v: JsonValue): AuthSession {
       'AuthSession.accessTokenTtlMs',
     ),
   };
+}
+
+// ──────────────────── 푸시 (plan/push.md) ────────────────────
+
+// 알림을 여는 클라이언트가 읽는 data 키. 세 플랫폼이 같은 문자열을 손으로 베끼면
+// 언젠가 하나만 어긋나므로 계약에 둔다.
+export const PUSH_DATA_KEYS = {
+  KIND: 'kind',
+  CALL_ID: 'callId',
+  DEVICE: 'device',
+  // 알림을 눌렀을 때 열 곳. 웹은 `webpush.fcm_options.link`가 따로 나르지만,
+  // 네이티브는 이 값을 읽어 앱이 연다.
+  LINK: 'link',
+  // 이 알림이 그릴 버튼 조합(`PUSH_ACTION_SETS`).
+  ACTIONS: 'actions',
+} as const;
+
+// 알림의 갈래. `call`은 소켓 없는 기기를 깨우는 통화 알림(plan/webrtc.md §8-9),
+// `demo`는 푸시 화면에서 사람이 직접 보내 보는 알림이다.
+export const PUSH_KINDS = ['call', 'demo'] as const;
+export type PushKind = (typeof PUSH_KINDS)[number];
+
+// FCM 등록 토큰의 상한. 서버는 이 값을 **해석하지 않고** 길이만 본다 — SDP 상한을
+// 두는 것과 같은 이유다(형식은 FCM이 판단한다).
+export const MAX_PUSH_TOKEN_LENGTH = 4096;
+
+// 푸시 화면에서 사람이 적는 문구의 상한. 잠금화면이 어차피 잘라 보여 주므로
+// 더 길게 받아도 화면에 없는 것을 저장하는 셈이 된다.
+export const MAX_PUSH_MESSAGE_LENGTH = 120;
+
+// 전송 결과. **FCM이 알려 주는 것은 "받아들였다"까지다** — 기기에 떴는지, 사람이
+// 봤는지는 우리가 알 수 없고, 화면이 그 이상을 말하면 없는 사실을 지어내게 된다
+// (plan/push.md §7).
+//
+//  - accepted: FCM이 접수했다. 기기가 깨어 있으면 뜬다
+//  - no-token: 내 세션이 맞지만 등록 토큰이 없다(권한 미허용·웹 푸시 미지원)
+//  - rejected: FCM이 그 토큰을 거부했다(재설치·데이터 삭제로 회전된 토큰)
+//  - accepted:  FCM이 접수했다. 기기가 깨어 있으면 뜬다
+//  - no-token:  내 세션이 맞지만 등록 토큰이 없다(권한 미허용·웹 푸시 미지원)
+//  - rejected:  FCM이 그 토큰을 거부했다(재설치·데이터 삭제로 회전된 토큰)
+//  - duplicate: **같은 설치의 다른 세션이 이미 받았다**(아래 중복 제거). 실패가 아니라
+//               "한 번만 보냈다"는 사실이라, 화면이 "셋을 골랐는데 알림이 둘"을 설명한다
+//  - unknown:   내 세션이 아니거나 없는 세션이다. **둘을 구별해 주지 않는다** —
+//               남의 세션 id를 넣어 존재를 떠보는 경로를 열지 않기 위해서다
+export const PUSH_SEND_RESULTS = [
+  'accepted',
+  'no-token',
+  'rejected',
+  'duplicate',
+  'unknown',
+] as const;
+export type PushSendResult = (typeof PUSH_SEND_RESULTS)[number];
+
+// 대상 하나의 결말. **세션 단위로 답한다** — 화면이 고른 줄 옆에 그대로 그린다.
+export interface PushSendOutcome {
+  sessionId: string;
+  result: PushSendResult;
+}
+
+export interface PushSendResponse {
+  results: PushSendOutcome[];
+}
+
+export function decodePushSendResponse(v: JsonValue): PushSendResponse {
+  const obj = decodeObject(v, 'PushSendResponse');
+  const raw = obj.results;
+  if (!Array.isArray(raw))
+    throw new Error('PushSendResponse.results: expected array');
+  return {
+    results: raw.map((item) => {
+      const entry = decodeObject(item, 'PushSendOutcome');
+      const result = PUSH_SEND_RESULTS.find((r) => r === entry.result);
+      if (!result) throw new Error('PushSendOutcome.result: unknown result');
+      return {
+        sessionId: decodeString(entry.sessionId, 'PushSendOutcome.sessionId'),
+        result,
+      };
+    }),
+  };
+}
+
+// 알림에 붙는 버튼 조합. **임의 목록이 아니라 정해진 조합이다.**
+//
+// iOS는 `UNNotificationCategory`를 **앱 시작 시 미리 등록**해야 하고, 등록된 조합만
+// 쓸 수 있다 — 서버가 그때그때 만든 버튼 목록을 보낼 방법이 없다. 그래서 조합 자체를
+// 계약이 정하고, 세 플랫폼이 같은 값을 각자의 방식으로 그린다.
+//
+// **버튼 문구는 서버가 보내지 않는다.** 클라이언트 i18n에 있다 — iOS는 등록 시점에
+// 문구가 굳고(그때는 요청이 없다), 그 하나 때문에 서버 문구 마스터에 사본을 두면
+// client.csv와 갈라진다(기기 라벨을 넣지 않은 것과 같은 이유).
+export const PUSH_ACTION_SETS = ['none', 'open', 'open-dismiss'] as const;
+export type PushActionSet = (typeof PUSH_ACTION_SETS)[number];
+
+// 한 번에 고를 수 있는 대상 수. 세션 목록 자체가 작아 실제로는 닿지 않지만,
+// 상한이 없으면 **한 요청이 알림 N개**가 되는 문을 열어 둔 셈이 된다.
+export const MAX_PUSH_TARGETS = 20;
+
+// 알림에 실을 수 있는 주소들. 서버는 이 값을 **가져오지 않는다** — 이미지는 FCM이,
+// 링크는 기기가 연다. 그래서 서버 쪽 SSRF 표면이 없고, 여기서 보는 것은 형식뿐이다.
+export const MAX_PUSH_URL_LENGTH = 2048;
+
+// 푸시 화면이 보내는 요청. **토큰은 없다** — 대상은 세션 id로 가리키고 서버가 꺼낸다.
+export interface PushSendRequest {
+  sessionIds: string[];
+  message: string;
+  imageUrl?: string;
+  link?: string;
+  actions?: PushActionSet;
 }

@@ -66,8 +66,12 @@ const contract = {
   deviceKinds: extractStringArray('DEVICE_KINDS'),
   socketServerMessageTypes: extractStringArray('SOCKET_SERVER_MESSAGE_TYPES'),
   sessionClientMessageTypes: extractStringArray('SESSION_CLIENT_MESSAGE_TYPES'),
+  pushSendResults: extractStringArray('PUSH_SEND_RESULTS'),
+  pushKinds: extractStringArray('PUSH_KINDS'),
+  pushActionSets: extractStringArray('PUSH_ACTION_SETS'),
   authErrorCodes: extractRecord('AUTH_ERROR_CODES'),
   clientErrorCodes: extractRecord('CLIENT_ERROR_CODES'),
+  pushDataKeys: extractRecord('PUSH_DATA_KEYS'),
 };
 
 // ──────────────────────── 방출 ────────────────────────
@@ -79,8 +83,10 @@ function camelCase(screamingSnake) {
 }
 
 // 반대 방향 — 와이어 값이 camelCase인 목록(소켓 메시지 type)을 Kotlin enum 상수로 옮긴다.
-function screamingSnake(camel) {
-  return camel.replace(/[A-Z]/g, (c) => `_${c}`).toUpperCase();
+function screamingSnake(wire) {
+  // 하이픈도 밑줄로 접는다 — `no-token`처럼 케밥 케이스인 계약 값이 그대로 나가면
+  // Kotlin 열거 상수 이름으로 쓸 수 없다.
+  return wire.replace(/[A-Z]/g, (c) => `_${c}`).replace(/-/g, '_').toUpperCase();
 }
 
 const HEADER = [
@@ -133,6 +139,24 @@ function emitSwift() {
     '/// 그래서 이 메시지에는 아무 권한도 실려 있지 않다(무엇을 폐기했는지도 말하지 않는다).',
     'enum SessionClientMessageType: String, Codable, Sendable {',
     ...contract.sessionClientMessageTypes.map((t) => `    case ${t}`),
+    '}',
+    '',
+    '/// 푸시 알림 페이로드의 `data` 키. 세 클라이언트가 같은 문자열을 손으로 베끼지 않게 한다.',
+    'enum PushDataKey {',
+    ...contract.pushDataKeys.map(([k, v]) => `    static let ${camelCase(k)} = "${v}"`),
+    '}',
+    '',
+    '/// 알림의 갈래(`data.kind`). `call`은 소켓 없는 기기를 깨우는 통화 알림이다.',
+    `let PUSH_KINDS: Set<String> = [${contract.pushKinds.map((k) => `"${k}"`).join(', ')}]`,
+    '',
+    '/// 알림에 붙는 버튼 조합. **iOS가 미리 등록한 것만 쓸 수 있어** 조합 자체를 계약이 정한다.',
+    'enum PushActionSet: String, CaseIterable, Codable, Sendable {',
+    ...contract.pushActionSets.map((a) => `    case ${camelCase(a.replace(/-/g, '_'))} = "${a}"`),
+    '}',
+    '',
+    '/// 푸시 전송 결과. **FCM이 알려 주는 것은 "받아들였다"까지다** — 배달도 열람도 아니다.',
+    'enum PushSendResult: String, Codable, Sendable {',
+    ...contract.pushSendResults.map((r) => `    case ${camelCase(r.replace(/-/g, '_'))} = "${r}"`),
     '}',
     '',
   ];
@@ -202,6 +226,36 @@ function emitKotlin() {
       (t) => `    ${screamingSnake(t)}("${t}"),`,
     ),
     '    ;',
+    '}',
+    '',
+    '/** 푸시 알림 페이로드의 `data` 키. 세 클라이언트가 같은 문자열을 손으로 베끼지 않게 한다. */',
+    'object PushDataKey {',
+    ...contract.pushDataKeys.map(([k, v]) => `    const val ${k} = "${v}"`),
+    '}',
+    '',
+    '/** 알림의 갈래(`data.kind`). `call`은 소켓 없는 기기를 깨우는 통화 알림이다. */',
+    `val PUSH_KINDS: Set<String> = setOf(${contract.pushKinds.map((k) => `"${k}"`).join(', ')})`,
+    '',
+    '/** 알림에 붙는 버튼 조합. **iOS가 미리 등록한 것만 쓸 수 있어** 조합 자체를 계약이 정한다. */',
+    'enum class PushActionSet(val wire: String) {',
+    ...contract.pushActionSets.map((a) => `    ${screamingSnake(a)}("${a}"),`),
+    '    ;',
+    '',
+    '    companion object {',
+    '        fun from(wire: String?): PushActionSet? =',
+    '            entries.firstOrNull { it.wire == wire }',
+    '    }',
+    '}',
+    '',
+    '/** 푸시 전송 결과. **FCM이 알려 주는 것은 "받아들였다"까지다** — 배달도 열람도 아니다. */',
+    'enum class PushSendResult(val wire: String) {',
+    ...contract.pushSendResults.map((r) => `    ${screamingSnake(r)}("${r}"),`),
+    '    ;',
+    '',
+    '    companion object {',
+    '        fun from(wire: String?): PushSendResult? =',
+    '            entries.firstOrNull { it.wire == wire }',
+    '    }',
     '}',
     '',
   ];

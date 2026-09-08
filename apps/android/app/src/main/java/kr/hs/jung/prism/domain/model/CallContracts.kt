@@ -103,6 +103,15 @@ sealed interface CallServerMessage {
     data class Ringing(val callId: String) : CallServerMessage
 
     /**
+     * 거는 쪽 — 상대에게 **소켓이 없어 푸시로 알렸다**.
+     *
+     * `Ringing`과 갈라 두는 이유는 기다리는 성격이 다르기 때문이다: 알림이 뜨고 사람이
+     * 기기를 집어 앱을 여는 시간이 창 안에 들어간다. 같은 배지로 뭉뚱그리면 느린 쪽이
+     * 고장으로 읽힌다(plan/webrtc.md §4). 정상 결말은 `Call expired` + 되걸기다(§8-10).
+     */
+    data class Notified(val callId: String) : CallServerMessage
+
+    /**
      * 양쪽에 간다. **이것을 받은 거는 쪽이 offer를 낸다** — 역할이 방향에서 나오므로
      * glare가 구조적으로 없다.
      */

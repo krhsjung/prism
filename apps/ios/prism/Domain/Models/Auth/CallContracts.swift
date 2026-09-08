@@ -84,6 +84,12 @@ enum CallServerMessage: Equatable, Sendable {
     case incoming(callId: String, from: SessionRef)
     /// 거는 쪽 — 상대에게 전달됐다.
     case ringing(callId: String)
+    /// 거는 쪽 — 상대에게 **소켓이 없어 푸시로 알렸다**.
+    ///
+    /// `ringing`과 갈라 두는 이유는 기다리는 성격이 다르기 때문이다: 알림이 뜨고 사람이
+    /// 기기를 집어 앱을 여는 시간이 창 안에 들어간다. 같은 배지로 뭉뚱그리면 느린 쪽이
+    /// 고장으로 읽힌다(plan/webrtc.md §4). 정상 결말은 `Call expired` + 되걸기다(§8-10).
+    case notified(callId: String)
     /// 양쪽에 간다. **이것을 받은 거는 쪽이 offer를 낸다** — 역할이 방향에서 나오므로
     /// glare가 구조적으로 없다.
     case accepted(callId: String, iceServers: [IceServer])
@@ -122,6 +128,8 @@ extension CallServerMessage: Decodable {
             )
         case "ringing":
             self = .ringing(callId: try callId())
+        case "notified":
+            self = .notified(callId: try callId())
         case "accepted":
             self = .accepted(
                 callId: try callId(),
@@ -251,3 +259,12 @@ extension CallClientMessage: Encodable {
         }
     }
 }
+
+/// 푸시 화면에서 사람이 적는 문구의 상한(서버 계약의 `MAX_PUSH_MESSAGE_LENGTH`).
+///
+/// 생성기는 문자열 배열·레코드만 옮기므로 숫자 상수는 손으로 둔다 — 서버가 같은 값으로
+/// 400을 내므로, 입력에서 먼저 막아 왕복을 아낀다.
+let MAX_PUSH_MESSAGE_LENGTH = 120
+
+/// 한 번에 고를 수 있는 대상 수(서버 계약의 `MAX_PUSH_TARGETS`).
+let MAX_PUSH_TARGETS = 20

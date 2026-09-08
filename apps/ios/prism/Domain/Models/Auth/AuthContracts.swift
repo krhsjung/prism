@@ -141,6 +141,11 @@ struct SessionListItem: Codable, Equatable, Sendable, Identifiable {
     /// 비어 "아무도 안 붙었다"와 구별되지 않으므로, 화면은 **자기 소켓이 붙어 있을 때만**
     /// 이 값을 믿고 아니면 예전 두 갈래(Current/Active)로 물러난다.
     let isConnected: Bool
+    /// 이 세션을 **푸시로 깨울 수 있는가.** 등록 토큰이 아니라 파생 불리언만 내려온다 —
+    /// 목록에는 남의 기기 행도 있고, 토큰은 설치 단위라 세션보다 오래 산다(plan/push.md §5-3).
+    ///
+    /// 보안 장치가 아니라 **UI 편의**다: 없으면 눌러도 아무 일 없는 대상이 목록에 섞인다.
+    let pushRegistered: Bool
     /// 이 세션을 만든 기기의 종류. 기기명·브라우저·위치는 계약에 없다(plan/dashboard.md §5).
     let device: DeviceKind
 
@@ -150,6 +155,7 @@ struct SessionListItem: Codable, Equatable, Sendable, Identifiable {
         expiresAt: String,
         isCurrent: Bool,
         isConnected: Bool = false,
+        pushRegistered: Bool = false,
         device: DeviceKind = .unknown,
     ) {
         self.id = id
@@ -157,11 +163,12 @@ struct SessionListItem: Codable, Equatable, Sendable, Identifiable {
         self.expiresAt = expiresAt
         self.isCurrent = isCurrent
         self.isConnected = isConnected
+        self.pushRegistered = pushRegistered
         self.device = device
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, startedAt, expiresAt, isCurrent, isConnected, device
+        case id, startedAt, expiresAt, isCurrent, isConnected, pushRegistered, device
     }
 
     init(from decoder: Decoder) throws {
@@ -174,6 +181,9 @@ struct SessionListItem: Codable, Equatable, Sendable, Identifiable {
         // 서버는 보내지 않는다 — 여기서 거부하면 배지 하나 때문에 목록 전체가 실패한다.
         // (device를 unknown으로 접는 것과 같은 규칙이다)
         isConnected = try c.decodeIfPresent(Bool.self, forKey: .isConnected) ?? false
+        // isConnected와 같은 규칙 — 푸시가 붙기 전 서버가 이 필드를 보내지 않아도
+        // 목록은 그려져야 한다(plan/push.md §5-3).
+        pushRegistered = try c.decodeIfPresent(Bool.self, forKey: .pushRegistered) ?? false
         device = try c.decodeIfPresent(DeviceKind.self, forKey: .device) ?? .unknown
     }
 }

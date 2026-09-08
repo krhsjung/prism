@@ -61,3 +61,31 @@ enum SocketServerMessageType: String, Codable, Sendable {
 enum SessionClientMessageType: String, Codable, Sendable {
     case sessionsRevoked
 }
+
+/// 푸시 알림 페이로드의 `data` 키. 세 클라이언트가 같은 문자열을 손으로 베끼지 않게 한다.
+enum PushDataKey {
+    static let kind = "kind"
+    static let callId = "callId"
+    static let device = "device"
+    static let link = "link"
+    static let actions = "actions"
+}
+
+/// 알림의 갈래(`data.kind`). `call`은 소켓 없는 기기를 깨우는 통화 알림이다.
+let PUSH_KINDS: Set<String> = ["call", "demo"]
+
+/// 알림에 붙는 버튼 조합. **iOS가 미리 등록한 것만 쓸 수 있어** 조합 자체를 계약이 정한다.
+enum PushActionSet: String, CaseIterable, Codable, Sendable {
+    case none = "none"
+    case open = "open"
+    case openDismiss = "open-dismiss"
+}
+
+/// 푸시 전송 결과. **FCM이 알려 주는 것은 "받아들였다"까지다** — 배달도 열람도 아니다.
+enum PushSendResult: String, Codable, Sendable {
+    case accepted = "accepted"
+    case noToken = "no-token"
+    case rejected = "rejected"
+    case duplicate = "duplicate"
+    case unknown = "unknown"
+}

@@ -152,4 +152,22 @@ class DecodeTest {
         )
         assertEquals(true, list[0].isConnected)
     }
+
+    // isConnected와 같은 규칙 — 푸시가 붙기 전 서버가 이 필드를 보내지 않아도 목록은
+    // 그려져야 한다. 그 세션은 `Notifications off`로 정직하게 보인다(plan/push.md §5-3).
+    @Test
+    fun `folds a missing pushRegistered to false`() {
+        val list = decodeSessionList(
+            """[{"id":"s1","startedAt":"a","expiresAt":"b","isCurrent":true,"device":"mac"}]""",
+        )
+        assertEquals(false, list[0].pushRegistered)
+    }
+
+    @Test
+    fun `reads pushRegistered when present`() {
+        val list = decodeSessionList(
+            """[{"id":"s1","startedAt":"a","expiresAt":"b","isCurrent":true,"pushRegistered":true,"device":"mac"}]""",
+        )
+        assertEquals(true, list[0].pushRegistered)
+    }
 }

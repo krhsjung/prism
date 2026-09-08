@@ -76,3 +76,43 @@ enum class SessionClientMessageType(val wire: String) {
     SESSIONS_REVOKED("sessionsRevoked"),
     ;
 }
+
+/** 푸시 알림 페이로드의 `data` 키. 세 클라이언트가 같은 문자열을 손으로 베끼지 않게 한다. */
+object PushDataKey {
+    const val KIND = "kind"
+    const val CALL_ID = "callId"
+    const val DEVICE = "device"
+    const val LINK = "link"
+    const val ACTIONS = "actions"
+}
+
+/** 알림의 갈래(`data.kind`). `call`은 소켓 없는 기기를 깨우는 통화 알림이다. */
+val PUSH_KINDS: Set<String> = setOf("call", "demo")
+
+/** 알림에 붙는 버튼 조합. **iOS가 미리 등록한 것만 쓸 수 있어** 조합 자체를 계약이 정한다. */
+enum class PushActionSet(val wire: String) {
+    NONE("none"),
+    OPEN("open"),
+    OPEN_DISMISS("open-dismiss"),
+    ;
+
+    companion object {
+        fun from(wire: String?): PushActionSet? =
+            entries.firstOrNull { it.wire == wire }
+    }
+}
+
+/** 푸시 전송 결과. **FCM이 알려 주는 것은 "받아들였다"까지다** — 배달도 열람도 아니다. */
+enum class PushSendResult(val wire: String) {
+    ACCEPTED("accepted"),
+    NO_TOKEN("no-token"),
+    REJECTED("rejected"),
+    DUPLICATE("duplicate"),
+    UNKNOWN("unknown"),
+    ;
+
+    companion object {
+        fun from(wire: String?): PushSendResult? =
+            entries.firstOrNull { it.wire == wire }
+    }
+}
