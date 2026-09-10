@@ -142,9 +142,7 @@ export class AuthController {
     if (!this.config.demoEnabled) {
       throw new HttpException({ error: AUTH_ERROR_CODES.DEMO_DISABLED }, 503);
     }
-    const session = await this.auth.issueDemoSession(
-      this.originOf(req),
-    );
+    const session = await this.auth.issueDemoSession(this.originOf(req));
     this.setSession(res, session);
     return {
       user: session.user,
@@ -158,9 +156,7 @@ export class AuthController {
   // 쿠키를 심지 않으므로 login-CSRF 대상이 아니라 WebOriginGuard는 두지 않는다.
   @Post('demo/native')
   @UseGuards(ThrottlerGuard)
-  async demoNative(
-    @Req() req: Request,
-  ): Promise<AuthSession> {
+  async demoNative(@Req() req: Request): Promise<AuthSession> {
     if (!this.config.demoEnabled) {
       throw new HttpException({ error: AUTH_ERROR_CODES.DEMO_DISABLED }, 503);
     }
@@ -319,10 +315,7 @@ export class AuthController {
       throw new HttpException({ error: AUTH_ERROR_CODES.INVALID_TOKEN }, 401);
     }
     try {
-      return await this.auth.loginWithGoogleNative(
-        idToken,
-        this.originOf(req),
-      );
+      return await this.auth.loginWithGoogleNative(idToken, this.originOf(req));
     } catch (e) {
       this.logFailure(`[google/native] login failed`, e);
       throw new HttpException({ error: AUTH_ERROR_CODES.INVALID_TOKEN }, 401);
@@ -378,8 +371,6 @@ export class AuthController {
   private originOf(req: Request): SessionOrigin {
     return originOf(req.headers);
   }
-
-
 
   // ──────────────────────── 세션 ────────────────────────
 

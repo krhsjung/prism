@@ -65,7 +65,10 @@ describe('AuthController', () => {
       ids.map((sessionId) => ({ sessionId, result: 'accepted' as const })),
     ),
   );
-  const registerToken = jest.fn<Promise<boolean>, [string, string, string, string]>();
+  const registerToken = jest.fn<
+    Promise<boolean>,
+    [string, string, string, string]
+  >();
   const pushStub = {
     sendToSessions,
     registerToken,
@@ -874,12 +877,12 @@ describe('AuthController', () => {
       });
     });
 
-    it.each([['빈 값', '  '], ['없음', undefined]])(
-      '%s이면 400이다',
-      async (_label, value) => {
-        await expect(controller.registerPush(req, value)).rejects.toThrow();
-      },
-    );
+    it.each([
+      ['빈 값', '  '],
+      ['없음', undefined],
+    ])('%s이면 400이다', async (_label, value) => {
+      await expect(controller.registerPush(req, value)).rejects.toThrow();
+    });
   });
 
   describe('푸시 전송', () => {

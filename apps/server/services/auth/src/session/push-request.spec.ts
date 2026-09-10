@@ -92,7 +92,10 @@ describe('decodePushRequest', () => {
 
   it('제목이 상한을 넘으면 거부한다', () => {
     expect(() =>
-      decodePushRequest({ ...ok, title: 'x'.repeat(MAX_PUSH_TITLE_LENGTH + 1) }),
+      decodePushRequest({
+        ...ok,
+        title: 'x'.repeat(MAX_PUSH_TITLE_LENGTH + 1),
+      }),
     ).toThrow();
   });
 });

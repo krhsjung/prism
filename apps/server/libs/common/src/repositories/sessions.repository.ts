@@ -441,7 +441,8 @@ export class SessionsRepository {
     if (!record || record.userId !== userId) return false;
     // 필드를 지운다 — `undefined`로 두면 JSON.stringify가 키를 빼므로 readRecord가
     // 예전 세션과 같은 모양으로 읽는다(`pushToken`이 없으면 대상이 아니다).
-    const { pushToken: _dropped, ...rest } = record;
+    const rest = { ...record };
+    delete rest.pushToken;
     return this.redis.setKeepTtl(sessionKey(sessionId), JSON.stringify(rest));
   }
 
