@@ -12,7 +12,7 @@ import kr.hs.jung.prism.core.util.AppLog
 import kotlin.coroutines.resume
 
 private const val PREFS = "prism.prefs"
-private const val KEY_SENT_TOKEN = "push.sentToken"
+private const val KEY_WANTED = "prism.push.wanted"
 
 /**
  * 이 기기의 FCM 등록 토큰.
@@ -63,12 +63,17 @@ class PushTokens(context: Context) {
         }
 
     /**
-     * 로그인 요청에 실어 보낸 토큰. **회전을 알아채려고 남긴다** — 지금 토큰이 이 값과
-     * 다르면 그 세션은 죽은 토큰을 들고 있고, 화면이 "다시 로그인하세요"라고 말한다.
+     * 이 기기가 **받기로 했는가**. 토큰이 아니라 사람의 선택을 남긴다.
+     *
+     * 등록은 세션에 붙으므로 로그아웃하면 함께 사라진다(plan/push.md §5-2). 그때마다 다시
+     * 누르게 하면 토글이 "켜 두는 것"이 아니라 "매번 켜는 것"이 된다 — 그래서 선택만
+     * 남기고, 로그인한 뒤 그 선택대로 조용히 다시 붙인다(§5-16).
+     *
+     * **토큰을 남기지 않는 것이 핵심이다.** 토큰은 회전하므로 저장하면 금세 거짓이 된다.
      */
-    fun rememberSent(token: String) {
-        prefs.edit().putString(KEY_SENT_TOKEN, token).apply()
+    fun rememberWanted(wanted: Boolean) {
+        prefs.edit().putBoolean(KEY_WANTED, wanted).apply()
     }
 
-    fun sentToken(): String? = prefs.getString(KEY_SENT_TOKEN, null)
+    fun wanted(): Boolean = prefs.getBoolean(KEY_WANTED, false)
 }

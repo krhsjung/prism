@@ -32,7 +32,7 @@ enum PushPermission {
 final class PushTokens {
     /// 로그인 요청에 실어 보낸 토큰. **회전을 알아채려고 남긴다** — 지금 토큰이 이
     /// 값과 다르면 그 세션은 죽은 토큰을 들고 있고, 화면이 그 사실을 말한다.
-    private let sentTokenKey = "prism.push.sentToken"
+    private let wantedKey = "prism.push.wanted"
 
     func permission() async -> PushPermission {
         guard PushConfiguration.isConfigured else { return .unsupported }
@@ -71,11 +71,18 @@ final class PushTokens {
         }
     }
 
-    func rememberSent(_ token: String) {
-        UserDefaults.standard.set(token, forKey: sentTokenKey)
+    /// 이 기기가 **받기로 했는가**. 토큰이 아니라 사람의 선택을 남긴다.
+    ///
+    /// 등록은 세션에 붙으므로 로그아웃하면 함께 사라진다(plan/push.md §5-2). 그때마다 다시
+    /// 누르게 하면 토글이 "켜 두는 것"이 아니라 "매번 켜는 것"이 된다 — 그래서 선택만
+    /// 남기고, 로그인한 뒤 그 선택대로 조용히 다시 붙인다(§5-16).
+    ///
+    /// **토큰을 남기지 않는 것이 핵심이다.** 토큰은 회전하므로 저장하면 금세 거짓이 된다.
+    func rememberWanted(_ wanted: Bool) {
+        UserDefaults.standard.set(wanted, forKey: wantedKey)
     }
 
-    var sentToken: String? {
-        UserDefaults.standard.string(forKey: sentTokenKey)
+    var wanted: Bool {
+        UserDefaults.standard.bool(forKey: wantedKey)
     }
 }

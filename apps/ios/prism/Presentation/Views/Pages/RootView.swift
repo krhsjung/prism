@@ -81,6 +81,22 @@ struct RootView: View {
             }
     }
 
+    /// 로그인 뒤 선택대로 등록을 되살린다. 회전된 토큰도 여기서 함께 낫는다 —
+    /// 저장해 둔 것은 선택뿐이고, 토큰은 그때그때 FCM에서 받기 때문이다(§5-16).
+    private func resumePushRegistration() async {
+        let container = ServiceContainer.shared
+        guard container.pushTokens.wanted else { return }
+        guard await container.pushTokens.permission() == .granted else { return }
+        guard let token = await container.pushTokens.current(),
+              let access = container.keychain.load().credentials?.accessToken
+        else { return }
+        // 실패해도 화면은 사실을 말한다 — 그 줄이 `Notifications off`로 남는다.
+        _ = try? await container.pushService.register(
+            token: token,
+            accessToken: access,
+        )
+    }
+
     @ViewBuilder
     private var content: some View {
         switch auth.state {
@@ -110,6 +126,12 @@ struct RootView: View {
                 // 매단다 — 다른 화면을 보는 동안 내 기기가 스스로를 "비활성"으로
                 // 보고하면 안 된다.
                 .task { ServiceContainer.shared.sessionSocket.start() }
+                // 이 기기가 **받기로 해 뒀으면** 조용히 다시 붙인다(§5-16).
+                //
+                // 등록은 세션에 붙어 로그아웃과 함께 사라진다. 그때마다 사람이 다시
+                // 누르게 하면 토글이 "켜 두는 것"이 아니라 "매번 켜는 것"이 된다.
+                // 권한 창은 뜨지 않는다 — 이미 허용된 경우에만 토큰을 받는다.
+                .task { await resumePushRegistration() }
                 // 알림을 눌러 들어왔다 — 통화 화면으로 옮기고 **이 통화가 아직 살아
                 // 있나**를 묻는다(§6). 소켓이 붙은 뒤에야 물을 수 있다.
                 //

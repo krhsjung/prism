@@ -171,7 +171,24 @@ struct PushView: View {
         // 권한은 켜졌는데 이 세션이 등록 전이면 **여기서 바로 붙일 수 있다**
         // (§5-2를 뒤집었다) — 안내가 아니라 같은 켜기 버튼을 다시 내놓는다.
         case .granted:
-            if staleRegistration { allowRow }
+            if staleRegistration {
+                allowRow
+            } else if items.first(where: \.isCurrent)?.pushRegistered == true {
+                // 켜져 있으면 **끄는 길**을 같은 자리에 둔다. 끄는 것은 등록이지 권한이
+                // 아니므로 설명이 그렇게 말한다 — 못 지킬 약속을 하지 않게(§5-15).
+                VStack(alignment: .leading, spacing: AppDimension.Call.fieldSpacing) {
+                    Text(t(.pushAllowOffDesc))
+                        .font(.system(size: AppDimension.Call.fontCaption))
+                        .foregroundStyle(AppColor.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                    PrismButton(
+                        title: t(.pushAllowOff),
+                        variant: .outline,
+                        fillsWidth: false,
+                        action: { Task { await turnOffNotifications() } },
+                    )
+                }
+            }
         }
     }
 
@@ -347,6 +364,17 @@ struct PushView: View {
         guard let token, let access = accessToken() else { return }
         // 실패해도 화면은 사실을 말한다 — 그 줄이 `Notifications off`로 남는다.
         _ = try? await push.register(token: token, accessToken: access)
+        // 선택을 기기에 남긴다 — 다음 로그인에서 이 값을 보고 조용히 다시 붙는다(§5-16).
+        pushTokens.rememberWanted(true)
+        await load(background: true)
+    }
+
+    /// **끄는 것은 등록이지 권한이 아니다** — 브라우저·OS는 앱이 권한을 되돌리는 길을
+    /// 주지 않는다. 기기의 토큰은 그대로 두므로 다시 켤 때 권한 창이 뜨지 않는다(§5-15).
+    private func turnOffNotifications() async {
+        guard let access = accessToken() else { return }
+        try? await push.unregister(accessToken: access)
+        pushTokens.rememberWanted(false)
         await load(background: true)
     }
 

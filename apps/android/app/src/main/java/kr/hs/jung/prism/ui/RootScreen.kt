@@ -85,6 +85,20 @@ fun RootScreen(container: ServiceContainer) {
  */
 @Composable
 private fun SignedIn(container: ServiceContainer, current: AuthManager.State.SignedIn) {
+    // 이 기기가 **받기로 해 뒀으면** 조용히 다시 붙인다(§5-16).
+    //
+    // 등록은 세션에 붙어 로그아웃과 함께 사라진다. 그때마다 사람이 다시 누르게 하면
+    // 토글이 "켜 두는 것"이 아니라 "매번 켜는 것"이 된다. 권한 창은 뜨지 않는다 —
+    // 이미 허용된 경우에만 토큰을 받는다. 회전된 토큰도 여기서 함께 낫는다.
+    LaunchedEffect(Unit) {
+        val push = container.pushTokens
+        if (!push.wanted() || !push.enabled || !push.permissionGranted()) return@LaunchedEffect
+        val fcm = push.current() ?: return@LaunchedEffect
+        val access = container.sessionTokens.access() ?: return@LaunchedEffect
+        // 실패해도 화면은 사실을 말한다 — 그 줄이 `Notifications off`로 남는다.
+        runCatching { container.pushApi.register(access, fcm) }
+    }
+
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val socket = remember(current.generation) { container.createSessionSocket() }

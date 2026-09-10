@@ -68,6 +68,21 @@ class PushViewModel(
             val fcm = pushTokens.current() ?: return@launch
             // 실패해도 화면은 사실을 말한다 — 그 줄이 `Notifications off`로 남는다.
             runCatching { pushApi.register(access, fcm) }
+            // 선택을 기기에 남긴다 — 다음 로그인에서 이 값을 보고 조용히 다시 붙는다(§5-16).
+            pushTokens.rememberWanted(true)
+            load(background = true)
+        }
+    }
+
+    /**
+     * **끄는 것은 등록이지 권한이 아니다** — OS는 앱이 권한을 되돌리는 길을 주지 않는다.
+     * 기기의 토큰은 그대로 두므로 다시 켤 때 권한 창이 뜨지 않는다(§5-15).
+     */
+    fun turnOff() {
+        viewModelScope.launch {
+            val access = tokens.access() ?: return@launch
+            runCatching { pushApi.unregister(access) }
+            pushTokens.rememberWanted(false)
             load(background = true)
         }
     }

@@ -37,6 +37,9 @@ protocol PushServicing: Sendable {
 
     /// 지금 세션에 등록 토큰을 붙인다 — 푸시 화면의 `알림 켜기`가 부른다(§5-2).
     func register(token: String, accessToken: String) async throws -> Bool
+
+    /// 이 세션을 대상에서 뺀다 — `알림 끄기`. **권한을 되돌리는 것이 아니다**(§5-15).
+    func unregister(accessToken: String) async throws
 }
 
 struct PushService: PushServicing {
@@ -53,6 +56,13 @@ struct PushService: PushServicing {
             accessToken: accessToken
         )
         return response.registered
+    }
+
+    func unregister(accessToken: String) async throws {
+        let _: PushRegisterResponse = try await network.send(
+            .unregisterPush,
+            accessToken: accessToken
+        )
     }
 
     func send(

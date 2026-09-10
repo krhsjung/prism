@@ -91,6 +91,8 @@ enum APIEndpoint {
     case sendPush
     /// 지금 세션에 등록 토큰을 붙인다(§5-2를 뒤집었다).
     case registerPush
+    /// 이 세션을 대상에서 뺀다(§5-15).
+    case unregisterPush
 
     var path: String {
         switch self {
@@ -107,6 +109,7 @@ enum APIEndpoint {
         case .revokeAllSessions: "/auth/sessions/revoke-all"
         case .sendPush: "/auth/push/send"
         case .registerPush: "/auth/push/register"
+        case .unregisterPush: "/auth/push/unregister"
         }
     }
 
@@ -114,7 +117,7 @@ enum APIEndpoint {
         switch self {
         case .me, .sessions: "GET"
         case .appleNative, .googleNative, .kakaoNative, .demoNative, .nativeExchange,
-            .refresh, .logout, .revokeSession, .revokeAllSessions, .sendPush, .registerPush: "POST"
+            .refresh, .logout, .revokeSession, .revokeAllSessions, .sendPush, .registerPush, .unregisterPush: "POST"
         }
     }
 
@@ -123,7 +126,7 @@ enum APIEndpoint {
     /// 토큰을 실어야 한다.
     var requiresAuth: Bool {
         switch self {
-        case .me, .logout, .sessions, .revokeSession, .revokeAllSessions, .sendPush, .registerPush: true
+        case .me, .logout, .sessions, .revokeSession, .revokeAllSessions, .sendPush, .registerPush, .unregisterPush: true
         case .appleNative, .googleNative, .kakaoNative, .demoNative, .nativeExchange,
             .refresh:
             false
@@ -137,7 +140,7 @@ enum APIEndpoint {
     /// 다시 들어가게 된다. 나머지는 토큰이 없어 되살릴 세션도 없다.
     var recoversSession: Bool {
         switch self {
-        case .sessions, .revokeSession, .revokeAllSessions, .sendPush, .registerPush: true
+        case .sessions, .revokeSession, .revokeAllSessions, .sendPush, .registerPush, .unregisterPush: true
         case .me, .logout, .appleNative, .googleNative, .kakaoNative, .demoNative,
             .nativeExchange, .refresh:
             false

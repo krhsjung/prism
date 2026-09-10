@@ -212,6 +212,19 @@ fun PushScreen(
                             }
                         },
                     )
+                } else if (state.sessions.any { it.isCurrent && it.pushRegistered }) {
+                    // 켜져 있으면 **끄는 길**을 같은 자리에 둔다. 끄는 것은 등록이지 권한이
+                    // 아니므로 설명이 그렇게 말한다 — 못 지킬 약속을 하지 않게(§5-15).
+                    Text(
+                        text = stringResource(R.string.push_allow_off_desc),
+                        color = colors.muted,
+                        fontSize = PrismDimensions.fontCaption,
+                    )
+                    PrismButton(
+                        text = stringResource(R.string.push_allow_off),
+                        variant = PrismButtonVariant.OUTLINE,
+                        onClick = { viewModel.turnOff() },
+                    )
                 }
 
                 Field(R.string.push_title_label) {
