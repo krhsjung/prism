@@ -546,4 +546,44 @@ describe('SessionsRepository (Redis)', () => {
       expect(list.find((s) => s.id === 's-7')?.pushRegistered).toBe(false);
     });
   });
+
+  // 끄기는 **권한을 되돌리는 것이 아니다** — 이 세션을 대상에서 빼는 것뿐이다(§5-15).
+  describe('clearPushToken', () => {
+    it('토큰을 빼고 목록이 그 사실을 말한다', async () => {
+      await repo.create('s-1', user, HOUR, WEEK, 'mac', {
+        token: 'fcm-1',
+        locale: 'ko',
+      });
+      expect((await repo.listForUser('u-1'))[0]?.pushRegistered).toBe(true);
+
+      await expect(repo.clearPushToken('u-1', 's-1')).resolves.toBe(true);
+
+      expect((await repo.listForUser('u-1'))[0]?.pushRegistered).toBe(false);
+    });
+
+    // 유휴 창을 밀면 "손을 뗀 지 얼마나 됐나"가 거짓이 된다(plan/auth.md §6).
+    // 목록의 `expiresAt`은 인덱스 score라, 밀렸다면 이 값이 함께 움직인다.
+    it('유휴 창을 밀지 않는다', async () => {
+      await repo.create('s-1', user, HOUR, WEEK, 'mac', {
+        token: 'fcm-1',
+        locale: 'ko',
+      });
+      const before = (await repo.listForUser('u-1'))[0]?.expiresAt;
+
+      jest.advanceTimersByTime(60_000);
+      await repo.clearPushToken('u-1', 's-1');
+
+      expect((await repo.listForUser('u-1'))[0]?.expiresAt).toBe(before);
+    });
+
+    it('남의 세션은 건드리지 않는다', async () => {
+      await repo.create('s-1', user, HOUR, WEEK, 'mac', {
+        token: 'fcm-1',
+        locale: 'ko',
+      });
+
+      await expect(repo.clearPushToken('other', 's-1')).resolves.toBe(false);
+      expect((await repo.listForUser('u-1'))[0]?.pushRegistered).toBe(true);
+    });
+  });
 });

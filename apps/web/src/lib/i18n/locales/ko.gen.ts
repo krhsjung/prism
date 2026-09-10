@@ -261,6 +261,9 @@ export const messages: Messages = {
   // 권한은 로그인 화면에서 먼저 받는다 — 토큰이 로그인 요청에 실려야 하기 때문이다(§5-2)
   'push.allow': '알림 켜기',
   'push.allow_desc': '앱이 닫혀 있어도 이 기기가 통화와 푸시를 받게 합니다.',
+  // 끌 수 있는 것은 **등록**뿐이다 — 브라우저·OS 권한은 앱이 되돌릴 수 없다(§5-15)
+  'push.allow_off': '알림 끄기',
+  'push.allow_off_desc': '이 기기가 더 이상 받지 않습니다. 브라우저 권한은 그대로입니다.',
   'push.allow_denied': '이 앱의 알림이 차단돼 있습니다. 설정에서 다시 켜 주세요.',
   'push.allow_unsupported': '이 브라우저는 알림을 받을 수 없습니다.',
 

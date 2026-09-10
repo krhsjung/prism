@@ -217,6 +217,8 @@ enum MessageKey: String, CaseIterable, Sendable {
     case pushChannelGeneral = "push.channel_general"
     case pushAllow = "push.allow"
     case pushAllowDesc = "push.allow_desc"
+    case pushAllowOff = "push.allow_off"
+    case pushAllowOffDesc = "push.allow_off_desc"
     case pushAllowDenied = "push.allow_denied"
     case pushAllowUnsupported = "push.allow_unsupported"
     // Error
@@ -436,6 +438,8 @@ enum MessageKey: String, CaseIterable, Sendable {
              .pushChannelGeneral,
              .pushAllow,
              .pushAllowDesc,
+             .pushAllowOff,
+             .pushAllowOffDesc,
              .pushAllowDenied,
              .pushAllowUnsupported:
             "Push"

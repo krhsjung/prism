@@ -359,6 +359,13 @@ export const api = {
   // 실을 요청 body가 없다. 서버가 짧은 수명의 HttpOnly 쿠키에 담아 두었다가 세션을
   // 만드는 자리에서 꺼내 쓴다(services/auth/src/session/push-cookie.ts).
   //
+  // 이 세션을 대상에서 뺀다 — 푸시 화면의 `알림 끄기`(§5-15).
+  // **권한을 되돌리는 것이 아니다**: 브라우저는 앱이 권한을 끄는 길을 주지 않는다.
+  unregisterPush: () =>
+    requestJson('/auth/push/unregister', decodePushRegisterResponse, {
+      method: 'POST',
+    }),
+
   // 내 기기**들**에 알림을 보낸다. **토큰은 보내지 않는다** — 서버가 세션 레코드에서
   // 꺼낸다(plan/push.md §5-3). 답은 **대상마다** 따로 온다(§5-10).
   // 지금 세션에 등록 토큰을 붙인다 — 푸시 화면의 `알림 켜기`가 부른다(§5-2).

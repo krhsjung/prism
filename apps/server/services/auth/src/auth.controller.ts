@@ -523,6 +523,22 @@ export class AuthController {
     return { registered };
   }
 
+  // 이 세션을 푸시 대상에서 뺀다(푸시 화면의 `알림 끄기`).
+  //
+  // **권한을 되돌리는 것이 아니다** — 브라우저·OS는 앱이 권한을 끄는 길을 주지 않는다.
+  // 끌 수 있는 것은 등록뿐이고, 그것이 목록의 `Notifications off`가 말하는 값이다.
+  // 기기의 토큰은 그대로 두므로 다시 켜는 데 권한 창이 필요 없다(§5-15).
+  @Post('push/unregister')
+  @UseGuards(ThrottlerGuard, WebOriginGuard, JwtAuthGuard)
+  async unregisterPush(
+    @Req() req: Request & { user: User; sessionId: string },
+  ): Promise<{ registered: boolean }> {
+    await this.push.unregisterToken(req.user.id, req.sessionId);
+    // 지웠든, 그 세션이 이미 사라졌든 **결과는 하나다** — 이제 대상이 아니다.
+    // 둘을 갈라 답하면 화면이 쓰지 않을 갈래를 만들게 된다(목록이 사실을 말한다).
+    return { registered: false };
+  }
+
   // 내 기기들에 알림을 보낸다(푸시 화면).
   //
   // **클라이언트는 대상 세션 id들과 내용만 준다** — 토큰은 서버가 레코드에서 꺼낸다

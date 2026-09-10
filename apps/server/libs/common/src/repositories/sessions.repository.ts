@@ -426,6 +426,25 @@ export class SessionsRepository {
     );
   }
 
+  /**
+   * 이 세션을 푸시 대상에서 뺀다. **권한을 되돌리는 것이 아니다.**
+   *
+   * 브라우저·OS의 알림 권한은 한 방향으로만 움직여 앱이 끌 수 없다 — 끌 수 있는 것은
+   * "이 세션이 푸시 대상인가"뿐이고, 그것이 목록의 `Notifications off`가 말하는 값이다.
+   * 그래서 화면의 토글도 딱 그만큼만 약속한다(plan/push.md §5-15).
+   *
+   * `attachPushToken`과 같은 규칙이다 — 소유권을 확인하고, 유휴 창은 밀지 않는다.
+   * 기기의 등록 토큰 자체는 그대로 두므로 다시 켜는 데 권한 창이 필요하지 않다.
+   */
+  async clearPushToken(userId: string, sessionId: string): Promise<boolean> {
+    const record = await this.readRecord(sessionId);
+    if (!record || record.userId !== userId) return false;
+    // 필드를 지운다 — `undefined`로 두면 JSON.stringify가 키를 빼므로 readRecord가
+    // 예전 세션과 같은 모양으로 읽는다(`pushToken`이 없으면 대상이 아니다).
+    const { pushToken: _dropped, ...rest } = record;
+    return this.redis.setKeepTtl(sessionKey(sessionId), JSON.stringify(rest));
+  }
+
   // 소유권 범위 폐기 — 세션 id만으로 지우지 않는다. 남의 id를 넣어도 지워지면 안 된다.
   //
   // 소유권은 **세션 본체**로 판단하고, 자격증명을 먼저 지운 뒤 인덱스를 정리한다.

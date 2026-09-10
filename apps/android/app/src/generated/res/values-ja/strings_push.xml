@@ -64,6 +64,10 @@
     <!-- 권한은 로그인 화면에서 먼저 받는다 — 토큰이 로그인 요청에 실려야 하기 때문이다(§5-2) -->
     <string name="push_allow">通知をオンにする</string>
     <string name="push_allow_desc">アプリを閉じていても、この端末が通話とプッシュを受け取れるようになります。</string>
+
+    <!-- 끌 수 있는 것은 **등록**뿐이다 — 브라우저·OS 권한은 앱이 되돌릴 수 없다(§5-15) -->
+    <string name="push_allow_off">通知をオフにする</string>
+    <string name="push_allow_off_desc">この端末は受信しなくなります。ブラウザーの権限はそのままです。</string>
     <string name="push_allow_denied">このアプリの通知はブロックされています。設定でオンに戻してください。</string>
     <string name="push_allow_unsupported">このブラウザーは通知を受け取れません。</string>
 </resources>

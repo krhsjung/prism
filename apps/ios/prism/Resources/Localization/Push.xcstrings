@@ -875,6 +875,52 @@
         }
       }
     },
+    "push.allow_off": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turn off notifications"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알림 끄기"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知をオフにする"
+          }
+        }
+      }
+    },
+    "push.allow_off_desc": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This device stops receiving. The browser permission stays as it is."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 기기가 더 이상 받지 않습니다. 브라우저 권한은 그대로입니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この端末は受信しなくなります。ブラウザーの権限はそのままです。"
+          }
+        }
+      }
+    },
     "push.allow_denied": {
       "extractionState": "manual",
       "localizations": {

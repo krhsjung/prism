@@ -140,6 +140,20 @@ export function PushPage() {
     }
   }
 
+  // **끄는 것은 등록이지 권한이 아니다.** 브라우저는 앱이 권한을 되돌리는 길을 주지
+  // 않으므로, 토글이 약속할 수 있는 것은 "이 기기가 받는가"뿐이다 — 그리고 그것이
+  // 목록의 `Notifications off`가 이미 말하던 값이다(§5-15).
+  //
+  // 기기의 등록 토큰은 그대로 둔다. 다시 켤 때 권한 창이 뜨지 않는다.
+  async function turnOffNotifications() {
+    try {
+      await api.unregisterPush();
+      await load(true);
+    } catch {
+      // 실패하면 줄이 그대로 대상으로 남는다 — 화면이 거짓을 말하지 않는다.
+    }
+  }
+
   async function send() {
     const text = message.trim();
     if (targets.length === 0 || !text || sending) return;
@@ -194,6 +208,21 @@ export function PushPage() {
   } else if (permission === 'unsupported') {
     notice = (
       <div className="alert alert--info">{t('push.allow_unsupported')}</div>
+    );
+  } else if (current?.pushRegistered) {
+    // 켜져 있으면 **끄는 길**을 같은 자리에 둔다. 끄는 것은 등록이지 권한이 아니므로
+    // 설명이 그렇게 말한다 — 토글이 못 지킬 약속을 하지 않게(§5-15).
+    notice = (
+      <div className="push__permission">
+        <p className="card__note">{t('push.allow_off_desc')}</p>
+        <Button
+          variant="outline"
+          className="btn--compact"
+          onClick={() => void turnOffNotifications()}
+        >
+          {t('push.allow_off')}
+        </Button>
+      </div>
     );
   }
 

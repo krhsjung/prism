@@ -48,6 +48,15 @@ export class PushNotificationService {
   }
 
   /**
+   * 이 세션을 푸시 대상에서 뺀다(푸시 화면의 `알림 끄기`).
+   *
+   * 브라우저·OS 권한은 앱이 끌 수 없다 — 끄는 것은 등록뿐이다(§5-15).
+   */
+  async unregisterToken(userId: string, sessionId: string): Promise<boolean> {
+    return this.sessions.clearPushToken(userId, sessionId);
+  }
+
+  /**
    * 고른 세션들에 보낸다. **대상마다 결말을 따로 답한다.**
    *
    * 한 대상이 실패해도 나머지는 간다 — 요청 전체를 접으면 "하나가 방금 로그아웃해서

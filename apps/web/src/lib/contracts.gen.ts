@@ -865,6 +865,8 @@ export interface PushRegisterRequest {
   pushToken: string;
 }
 
+// 끄기(`POST /auth/push/unregister`)도 같은 응답을 쓴다 — 끈 뒤에는 언제나
+// `registered: false`이고, 화면이 볼 것은 그 한 가지뿐이다.
 export interface PushRegisterResponse {
   // 그 세션이 아직 살아 있고 내 것이면 true. 아니면 false — 화면은 목록을 다시 부른다.
   registered: boolean;

@@ -212,6 +212,8 @@ export const MESSAGE_KEYS = [
   'push.channel_general',
   'push.allow',
   'push.allow_desc',
+  'push.allow_off',
+  'push.allow_off_desc',
   'push.allow_denied',
   'push.allow_unsupported',
   'error.generic',

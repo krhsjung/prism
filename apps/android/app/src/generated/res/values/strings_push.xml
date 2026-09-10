@@ -64,6 +64,10 @@
     <!-- 권한은 로그인 화면에서 먼저 받는다 — 토큰이 로그인 요청에 실려야 하기 때문이다(§5-2) -->
     <string name="push_allow">Turn on notifications</string>
     <string name="push_allow_desc">Lets this device receive calls and pushes while the app is closed.</string>
+
+    <!-- 끌 수 있는 것은 **등록**뿐이다 — 브라우저·OS 권한은 앱이 되돌릴 수 없다(§5-15) -->
+    <string name="push_allow_off">Turn off notifications</string>
+    <string name="push_allow_off_desc">This device stops receiving. The browser permission stays as it is.</string>
     <string name="push_allow_denied">Notifications are blocked for this app. Turn them back on in your settings.</string>
     <string name="push_allow_unsupported">This browser can\'t receive notifications.</string>
 </resources>

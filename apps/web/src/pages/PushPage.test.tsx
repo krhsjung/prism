@@ -25,7 +25,7 @@ vi.mock('../lib/api', async () => {
   );
   return {
     ...actual,
-    api: { sessions: vi.fn(), sendPush: vi.fn(), registerPush: vi.fn() },
+    api: { sessions: vi.fn(), sendPush: vi.fn(), registerPush: vi.fn(), unregisterPush: vi.fn() },
   };
 });
 import { api, ApiError } from '../lib/api';
@@ -345,6 +345,28 @@ describe('PushPage', () => {
   });
 
   // 토큰은 로그인 시점에만 세션에 실린다 — 늦게 준 권한과 회전된 토큰이 여기서 드러난다.
+  // 켜져 있으면 **끄는 길**이 같은 자리에 선다. 끄는 것은 등록이지 권한이 아니다(§5-15).
+  it('이 세션이 등록돼 있으면 끄기를 내놓는다', async () => {
+    renderPush();
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: 'Turn off notifications' }),
+      ).toBeTruthy(),
+    );
+  });
+
+  it('끄기를 누르면 등록을 떼고 목록을 다시 부른다', async () => {
+    renderPush();
+    await waitFor(() => expect(checkboxes()).toHaveLength(1));
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Turn off notifications' }),
+    );
+
+    await waitFor(() => expect(api.unregisterPush).toHaveBeenCalled());
+  });
+
   // 권한은 켜졌는데 이 세션이 등록 전이면, **여기서 바로 켤 수 있다**(§5-2를 뒤집었다).
   // 예전에는 재로그인 말고 길이 없어 안내만 띄웠다.
   it('권한은 켜졌는데 등록 전이면 켜기 버튼을 다시 내놓는다', async () => {

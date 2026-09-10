@@ -261,6 +261,9 @@ export const messages: Messages = {
   // 권한은 로그인 화면에서 먼저 받는다 — 토큰이 로그인 요청에 실려야 하기 때문이다(§5-2)
   'push.allow': 'Turn on notifications',
   'push.allow_desc': 'Lets this device receive calls and pushes while the app is closed.',
+  // 끌 수 있는 것은 **등록**뿐이다 — 브라우저·OS 권한은 앱이 되돌릴 수 없다(§5-15)
+  'push.allow_off': 'Turn off notifications',
+  'push.allow_off_desc': 'This device stops receiving. The browser permission stays as it is.',
   'push.allow_denied': 'Notifications are blocked for this app. Turn them back on in your settings.',
   'push.allow_unsupported': 'This browser can\'t receive notifications.',
 
