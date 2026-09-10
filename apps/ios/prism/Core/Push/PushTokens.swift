@@ -30,10 +30,6 @@ enum PushPermission {
 /// 권한을 주지 않아도 로그인은 그대로 된다 — 그 세션이 `Notifications off`가 될 뿐이다.
 @MainActor
 final class PushTokens {
-    /// 로그인 요청에 실어 보낸 토큰. **회전을 알아채려고 남긴다** — 지금 토큰이 이
-    /// 값과 다르면 그 세션은 죽은 토큰을 들고 있고, 화면이 그 사실을 말한다.
-    private let wantedKey = "prism.push.wanted"
-
     func permission() async -> PushPermission {
         guard PushConfiguration.isConfigured else { return .unsupported }
         let settings = await UNUserNotificationCenter.current().notificationSettings()
@@ -79,10 +75,10 @@ final class PushTokens {
     ///
     /// **토큰을 남기지 않는 것이 핵심이다.** 토큰은 회전하므로 저장하면 금세 거짓이 된다.
     func rememberWanted(_ wanted: Bool) {
-        UserDefaults.standard.set(wanted, forKey: wantedKey)
+        UserDefaults.standard.set(wanted, forKey: StorageKeys.pushWanted)
     }
 
     var wanted: Bool {
-        UserDefaults.standard.bool(forKey: wantedKey)
+        UserDefaults.standard.bool(forKey: StorageKeys.pushWanted)
     }
 }
