@@ -51,7 +51,7 @@ describe('SessionPresenceGateway', () => {
   let redis: FakeRedis;
   let registry: ConnectionRegistry;
   let presence: PresenceRepository;
-  let sessions: { findValid: jest.Mock };
+  let sessions: { findValid: jest.Mock; listForUser: jest.Mock };
   let gateway: SessionPresenceGateway;
 
   beforeEach(() => {
@@ -59,7 +59,11 @@ describe('SessionPresenceGateway', () => {
     redis = new FakeRedis();
     registry = new ConnectionRegistry();
     presence = new PresenceRepository(redis);
-    sessions = { findValid: jest.fn(() => Promise.resolve(user)) };
+    sessions = {
+      findValid: jest.fn(() => Promise.resolve(user)),
+      // 만료 감지가 틱마다 읽는다 — 기본은 "변화 없음"이라 알림이 나가지 않는다.
+      listForUser: jest.fn(() => Promise.resolve([{ id: 's-1' }])),
+    };
     gateway = new SessionPresenceGateway(
       registry,
       presence,
@@ -200,6 +204,48 @@ describe('SessionPresenceGateway', () => {
       }
 
       expect([...(await connected())]).toEqual(['s-1']);
+    });
+
+    // 접속·해제·폐기에는 알림이 있는데 **만료에만 없었다** — 소켓이 붙어 있는 화면이
+    // 만료된 줄을 계속 들고 있던 이유다.
+    it('다른 세션이 만료되면 붙어 있는 기기에 sessionsChanged가 간다', async () => {
+      const c = new FakeConnection('c-1', 'u-1', 's-1');
+      sessions.listForUser.mockResolvedValue([{ id: 's-1' }, { id: 's-2' }]);
+      await gateway.open(c);
+      await gateway.tick(); // 첫 틱: 기준을 잡는다
+      c.sent = [];
+
+      // s-2가 만료됐다 — 목록에서 사라진다.
+      sessions.listForUser.mockResolvedValue([{ id: 's-1' }]);
+      await gateway.tick();
+      await flush();
+
+      expect(c.types()).toContain('sessionsChanged');
+    });
+
+    // 아무것도 안 바뀌었는데 알리면 클라이언트가 20초마다 목록을 다시 가져간다.
+    it('변화가 없으면 알리지 않는다', async () => {
+      const c = new FakeConnection('c-1', 'u-1', 's-1');
+      await gateway.open(c);
+      await gateway.tick();
+      c.sent = [];
+
+      await gateway.tick();
+      await flush();
+
+      expect(c.types()).not.toContain('sessionsChanged');
+    });
+
+    // 탭이 셋이어도 목록은 한 번만 읽는다 — 연결마다 읽으면 조회가 셋이 된다.
+    it('사용자마다 한 번만 읽는다', async () => {
+      await gateway.open(new FakeConnection('c-1', 'u-1', 's-1'));
+      await gateway.open(new FakeConnection('c-2', 'u-1', 's-1'));
+      await gateway.open(new FakeConnection('c-3', 'u-1', 's-2'));
+      sessions.listForUser.mockClear();
+
+      await gateway.tick();
+
+      expect(sessions.listForUser).toHaveBeenCalledTimes(1);
     });
 
     it('하트비트를 보내고 프로토콜 ping을 찌른다', async () => {

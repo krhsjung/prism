@@ -34,6 +34,10 @@ export class SessionPresenceGateway implements OnModuleDestroy {
     { timer: NodeJS.Timeout; exclude: SocketConnection | null }
   >();
   private sweep: NodeJS.Timeout | null = null;
+  // 사용자별로 **지난 틱에 본 세션 집합**. 만료를 알아채는 유일한 방법이다 —
+  // 접속·해제·폐기에는 알림이 있지만 **만료에는 이벤트가 없기 때문이다**(아래 tick).
+  // 연결이 하나도 없는 사용자는 지운다(파드가 오래 살수록 쌓인다).
+  private lastSeen = new Map<string, string>();
 
   constructor(
     private readonly registry: ConnectionRegistry,
@@ -136,7 +140,11 @@ export class SessionPresenceGateway implements OnModuleDestroy {
   // 몇 시간을 사므로, verifySession을 다시 돌리면 멀쩡한 소켓이 첫 틱에 죽는다.
   // 세션 레코드의 TTL은 클라이언트의 평상시 /auth/refresh 트래픽이 밀어 준다.
   async tick(): Promise<void> {
+    // 이 틱에 연결을 가진 사용자들 — 아래에서 목록 변화를 한 번씩만 확인한다.
+    const users = new Set<string>();
+
     for (const connection of this.registry.all()) {
+      users.add(connection.userId);
       // 하트비트는 app-level이다 — 브라우저 JS는 프로토콜 ping/pong을 관찰할 수 없어,
       // 이것이 없으면 웹이 죽은 서버를 붙들고 몇 시간이고 앉아 있는다.
       connection.send({ type: 'heartbeat' });
@@ -158,6 +166,43 @@ export class SessionPresenceGateway implements OnModuleDestroy {
         connection.sessionId,
         connection.id,
       );
+    }
+
+    await this.noticeExpiries(users);
+  }
+
+  /**
+   * **만료를 알아채는 자리.** 접속·해제·폐기에는 브로드캐스트가 있는데 만료에만 없어서,
+   * 소켓이 붙어 있는 화면도 만료된 줄을 계속 들고 있었다.
+   *
+   * 서버가 만료를 이벤트로 받을 길은 Redis keyspace notification뿐인데, pub/sub이라
+   * 파드가 재시작 중이면 유실된다 — 어차피 안전망이 필요하다. 스윕은 **놓쳐도 다음 틱에
+   * 잡으므로** 그 안전망 자체가 되고, Redis 설정이나 ACL을 바꾸지 않는다.
+   *
+   * 목록을 **읽는 것만으로** 만료가 드러난다(`listForUser`가 지나간 인덱스 항목을 걷어내고
+   * 본체 없는 멤버를 건너뛴다). 그래서 여기서 하는 일은 지난 틱과의 대조뿐이다.
+   *
+   * ⚠️ **사용자마다 한 번만 읽는다.** 연결마다 읽으면 탭이 셋인 사람에게 조회가 셋이 된다.
+   */
+  private async noticeExpiries(users: Set<string>): Promise<void> {
+    for (const userId of users) {
+      const sessions = await this.sessions.listForUser(userId);
+      // 정렬해서 접는다 — 목록의 순서는 이 비교의 관심사가 아니다.
+      const snapshot = sessions
+        .map((session) => session.id)
+        .sort()
+        .join(',');
+      const previous = this.lastSeen.get(userId);
+      this.lastSeen.set(userId, snapshot);
+      // 첫 틱에는 비교할 것이 없다 — 알릴 변화도 없다.
+      if (previous === undefined || previous === snapshot) continue;
+      // 원인이 특정 연결이 아니다(시간이 원인이다) → 전원에게 보낸다.
+      this.scheduleBroadcast(userId);
+    }
+    // 연결이 끊긴 사용자의 기억은 버린다. 남겨 두면 파드 수명만큼 쌓이고, 다시 붙었을 때
+    // **그사이의 변화를 이미 본 것으로 착각**해 첫 알림을 삼킨다.
+    for (const userId of this.lastSeen.keys()) {
+      if (!users.has(userId)) this.lastSeen.delete(userId);
     }
   }
 
@@ -194,6 +239,7 @@ export class SessionPresenceGateway implements OnModuleDestroy {
     this.sweep = null;
     for (const { timer } of this.pending.values()) clearTimeout(timer);
     this.pending.clear();
+    this.lastSeen.clear();
 
     for (const connection of this.registry.all()) {
       this.registry.remove(connection);
