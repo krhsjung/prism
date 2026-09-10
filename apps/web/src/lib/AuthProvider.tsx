@@ -9,6 +9,11 @@ import {
 import { api, ApiError, setSessionAuthority } from './api';
 import { log } from './log';
 import {
+  currentPermission,
+  pushWanted,
+  requestPermissionAndToken,
+} from './push/registration';
+import {
   AuthContext,
   type AuthContextValue,
   type AuthState,
@@ -125,6 +130,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
     return () => setSessionAuthority(null);
   }, [endSignedInSession]);
+
+  // 로그인해 있고 이 기기가 **받기로 해 뒀으면** 조용히 다시 붙인다(§5-16).
+  //
+  // 등록은 세션에 붙으므로 로그아웃과 함께 사라진다. 그때마다 사람이 다시 누르게 하면
+  // 토글이 "켜 두는 것"이 아니라 "매번 켜는 것"이 된다.
+  //
+  // **권한 창은 뜨지 않는다** — 이미 `granted`일 때만 부르고, 그 상태에서
+  // `requestPermission()`은 묻지 않고 곧바로 돌아온다. 진입만으로 묻지 않는다는 규칙
+  // (plan/webrtc.md §7)은 지켜진다.
+  //
+  // 회전된 토큰도 **여기서 함께 낫는다** — FCM에서 지금 값을 받아 붙이기 때문이다.
+  useEffect(() => {
+    if (state.status !== 'authenticated') return;
+    if (!pushWanted() || currentPermission() !== 'granted') return;
+    let cancelled = false;
+    void (async () => {
+      const token = await requestPermissionAndToken();
+      if (cancelled || !token) return;
+      // 실패해도 화면은 사실을 말한다 — 그 줄이 `Notifications off`로 남고,
+      // 푸시 화면의 켜기가 그대로 남아 있다.
+      await api.registerPush(token).catch(() => undefined);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [state.status]);
 
   // 초기 진입: "아무 전이도 시작되지 않았을 때(세대 0)"만 세션을 확인한다.
   // mount effect는 자식→부모 순서라, 자식(콜백 페이지의 refresh 등)이 이미 전이를

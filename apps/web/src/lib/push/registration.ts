@@ -11,6 +11,33 @@ import { log } from '../log';
 //  - denied:      사용자가 막았다. **다시 물을 수 없다** — 설정으로 안내한다
 export type PushPermission = 'unsupported' | 'default' | 'granted' | 'denied';
 
+// 이 기기가 **받기로 했는가**. 토큰이 아니라 사람의 선택을 남긴다.
+//
+// 등록은 세션에 붙으므로 로그아웃하면 함께 사라진다(§5-2). 그때마다 다시 누르게 하면
+// 토글이 "켜 두는 것"이 아니라 "매번 켜는 것"이 된다 — 그래서 선택만 기기에 남기고,
+// 로그인한 뒤 그 선택대로 조용히 다시 붙인다(§5-16).
+//
+// **토큰을 남기지 않는 것이 핵심이다.** 토큰은 회전하므로 저장하면 금세 거짓이 되고,
+// 저장소에 남길 이유도 없다 — 필요할 때 FCM에서 지금 값을 받으면 된다.
+const ENABLED_KEY = 'prism.push.enabled';
+
+export function pushWanted(): boolean {
+  try {
+    return localStorage.getItem(ENABLED_KEY) === '1';
+  } catch {
+    // 사생활 보호 모드·저장 차단. 선택을 기억하지 못할 뿐이라 조용히 넘어간다.
+    return false;
+  }
+}
+
+export function rememberPushWanted(wanted: boolean): void {
+  try {
+    localStorage.setItem(ENABLED_KEY, wanted ? '1' : '0');
+  } catch {
+    /* 위와 같다 */
+  }
+}
+
 export function currentPermission(): PushPermission {
   if (!firebaseWebConfig()) return 'unsupported';
   if (typeof Notification === 'undefined') return 'unsupported';

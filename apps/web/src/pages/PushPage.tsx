@@ -15,6 +15,7 @@ import { useI18n } from '../lib/i18n/i18n-context';
 import { useSessionSocket } from '../lib/session-socket-context';
 import {
   currentPermission,
+  rememberPushWanted,
   requestPermissionAndToken,
 } from '../lib/push/registration';
 import { PUSH_SAMPLE_IMAGES } from '../lib/push/samples';
@@ -133,6 +134,8 @@ export function PushPage() {
     if (!token) return;
     try {
       await api.registerPush(token);
+      // 선택을 기기에 남긴다 — 다음 로그인에서 이 값을 보고 조용히 다시 붙는다(§5-16).
+      rememberPushWanted(true);
       // 목록을 다시 부른다 — 방금 이 세션이 대상이 됐다.
       await load(true);
     } catch {
@@ -148,6 +151,7 @@ export function PushPage() {
   async function turnOffNotifications() {
     try {
       await api.unregisterPush();
+      rememberPushWanted(false);
       await load(true);
     } catch {
       // 실패하면 줄이 그대로 대상으로 남는다 — 화면이 거짓을 말하지 않는다.

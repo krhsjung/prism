@@ -38,10 +38,22 @@ vi.mock('./api', () => ({
       ttlMs: 15 * 60 * 1000,
       rejected: false,
     })),
+    registerPush: vi.fn(async () => ({ registered: true })),
   },
   // 확정 401을 알리는 고리 — provider가 마운트될 때 꽂고 언마운트에서 뗀다.
   setSessionAuthority: vi.fn(),
 }));
+// 이 기기의 선택과 브라우저 권한 — 로그인 뒤 조용한 재등록이 이 둘을 본다(§5-16).
+vi.mock('./push/registration', () => ({
+  currentPermission: vi.fn(() => 'granted'),
+  pushWanted: vi.fn(() => false),
+  requestPermissionAndToken: vi.fn(async () => 'fcm-tok-1'),
+}));
+import {
+  currentPermission,
+  pushWanted,
+  requestPermissionAndToken,
+} from './push/registration';
 import { api, setSessionAuthority, type SessionAuthority } from './api';
 
 const user: User = {
@@ -415,5 +427,43 @@ describe('AuthProvider 세션 종료 알림', () => {
 
     expect(result.current.state.status).toBe('authenticated');
     expect(result.current.endedUnexpectedly).toBe(false);
+  });
+
+  // 등록은 세션에 붙어 로그아웃과 함께 사라진다 — 그때마다 다시 누르게 하면 토글이
+  // "켜 두는 것"이 아니라 "매번 켜는 것"이 된다(§5-16).
+  describe('로그인 뒤 알림 재등록', () => {
+    it('받기로 해 뒀으면 조용히 다시 붙인다', async () => {
+      vi.mocked(pushWanted).mockReturnValue(true);
+      vi.mocked(api.me).mockResolvedValue(sessionUser);
+
+      render(<AuthProvider>{null}</AuthProvider>);
+
+      await waitFor(() =>
+        expect(api.registerPush).toHaveBeenCalledWith('fcm-tok-1'),
+      );
+    });
+
+    it('꺼 뒀으면 아무것도 하지 않는다', async () => {
+      vi.mocked(pushWanted).mockReturnValue(false);
+      vi.mocked(api.me).mockResolvedValue(sessionUser);
+
+      render(<AuthProvider>{null}</AuthProvider>);
+
+      await waitFor(() => expect(api.me).toHaveBeenCalled());
+      expect(requestPermissionAndToken).not.toHaveBeenCalled();
+      expect(api.registerPush).not.toHaveBeenCalled();
+    });
+
+    // 권한이 없으면 부르지 않는다 — 부르면 진입만으로 권한 창이 뜬다.
+    it('권한이 없으면 묻지 않는다', async () => {
+      vi.mocked(pushWanted).mockReturnValue(true);
+      vi.mocked(currentPermission).mockReturnValue('default');
+      vi.mocked(api.me).mockResolvedValue(sessionUser);
+
+      render(<AuthProvider>{null}</AuthProvider>);
+
+      await waitFor(() => expect(api.me).toHaveBeenCalled());
+      expect(requestPermissionAndToken).not.toHaveBeenCalled();
+    });
   });
 });
