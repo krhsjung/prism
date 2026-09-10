@@ -127,5 +127,20 @@ export interface RedisClient {
   pruneExpired(key: string): Promise<number>;
 
   // 연결 확인(readiness).
+  /**
+   * 패턴 구독. 매칭되는 채널에 메시지가 오면 채널 이름으로 콜백한다.
+   *
+   * ⚠️ **전용 연결이 필요하다** — 구독 중인 연결은 다른 명령을 받지 못한다. 그래서 이
+   * 메서드는 연결을 새로 열고, 돌려주는 함수로 닫는다(같은 클라이언트를 쓰면 세션 조회가
+   * 전부 막힌다).
+   *
+   * 패턴 매칭은 **Redis 쪽에서** 한다 — 다른 키(refresh·presence·nonce)의 이벤트가
+   * 우리 연결로 쏟아지지 않는다.
+   */
+  subscribePattern(
+    pattern: string,
+    onChannel: (channel: string) => void,
+  ): Promise<() => Promise<void>>;
+
   ping(): Promise<void>;
 }

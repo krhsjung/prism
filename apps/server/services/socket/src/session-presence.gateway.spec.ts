@@ -68,6 +68,7 @@ describe('SessionPresenceGateway', () => {
       registry,
       presence,
       sessions as object as SessionsRepository,
+      redis,
     );
   });
 
@@ -219,6 +220,24 @@ describe('SessionPresenceGateway', () => {
       sessions.listForUser.mockResolvedValue([{ id: 's-1' }]);
       await gateway.tick();
       await flush();
+
+      expect(c.types()).toContain('sessionsChanged');
+    });
+
+    // 스윕을 기다리지 않는다 — Redis가 만료를 알려 주면 그 자리에서 대조한다(§9).
+    it('만료 이벤트가 오면 스윕을 기다리지 않고 알린다', async () => {
+      const c = new FakeConnection('c-1', 'u-1', 's-1');
+      sessions.listForUser.mockResolvedValue([{ id: 's-1' }, { id: 's-2' }]);
+      gateway.start();
+      await flush(); // 구독이 붙을 때까지 (start는 기다리지 않는다)
+      await gateway.open(c);
+      await gateway.tick(); // 기준을 잡는다
+      c.sent = [];
+
+      sessions.listForUser.mockResolvedValue([{ id: 's-1' }]);
+      redis.emit('__keyspace@0__:prism:session:s-2');
+      await flush(); // 대조가 끝나고
+      await flush(); // 코얼레싱 창이 닫힐 때까지
 
       expect(c.types()).toContain('sessionsChanged');
     });

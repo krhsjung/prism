@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
+import { Inject, Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import {
   AUTH_ERROR_CODES,
   PRESENCE_RENEW_MS,
@@ -6,6 +6,7 @@ import {
   SessionsRepository,
   type AuthErrorCode,
 } from '@app/common';
+import { REDIS, type RedisClient } from '@app/redis';
 import type { SocketConnection } from './connection';
 import { ConnectionRegistry } from './connection-registry';
 
@@ -18,6 +19,17 @@ const BROADCAST_COALESCE_MS = 50;
 
 // 인증을 기다려 주는 시간. 101은 됐는데 아무 말도 하지 않는 소켓이 남아 있으면 안 된다.
 const AUTH_DEADLINE_MS = 5_000;
+
+// 세션 키의 만료를 Redis가 알려 주는 채널.
+//
+// `__keyspace@<db>__:<key>` 형식이라 **키 이름으로 패턴을 걸 수 있다** — 매칭은 Redis가
+// 하므로 다른 키(refresh·presence·nonce)의 만료가 우리 연결로 오지 않는다.
+// (`__keyevent__` 쪽은 채널이 이벤트 이름이라 키로 거를 수 없다.)
+//
+// ⚠️ 이것만으로는 부족하다. pub/sub은 저장도 재전송도 없어 파드가 재시작 중이면 그
+// 이벤트는 사라진다 — 그래서 스윕이 **안전망으로 남는다**. 여기서 얻는 것은 지연이다:
+// 최대 20초가 대략 1초 안쪽이 된다.
+const SESSION_EXPIRY_PATTERN = '__keyspace@0__:prism:session:*';
 
 // presence의 주인.
 //
@@ -34,6 +46,7 @@ export class SessionPresenceGateway implements OnModuleDestroy {
     { timer: NodeJS.Timeout; exclude: SocketConnection | null }
   >();
   private sweep: NodeJS.Timeout | null = null;
+  private unsubscribe: (() => Promise<void>) | null = null;
   // 사용자별로 **지난 틱에 본 세션 집합**. 만료를 알아채는 유일한 방법이다 —
   // 접속·해제·폐기에는 알림이 있지만 **만료에는 이벤트가 없기 때문이다**(아래 tick).
   // 연결이 하나도 없는 사용자는 지운다(파드가 오래 살수록 쌓인다).
@@ -43,6 +56,7 @@ export class SessionPresenceGateway implements OnModuleDestroy {
     private readonly registry: ConnectionRegistry,
     private readonly presence: PresenceRepository,
     private readonly sessions: SessionsRepository,
+    @Inject(REDIS) private readonly redis: RedisClient,
   ) {}
 
   // 인증을 통과한 연결이 들어왔다.
@@ -128,6 +142,34 @@ export class SessionPresenceGateway implements OnModuleDestroy {
     this.sweep = setInterval(() => void this.tick(), PRESENCE_RENEW_MS);
     // 타이머 하나 때문에 프로세스가 안 죽는 일이 없게 한다.
     this.sweep.unref?.();
+    void this.watchExpiries();
+  }
+
+  /**
+   * 만료를 **기다리지 않고 듣는다**. 스윕이 20초를 기다리는 자리를 이벤트가 앞당긴다.
+   *
+   * 이벤트는 키 이름만 실어 오고 값은 이미 사라진 뒤라 **누구 세션이었는지 알 수 없다.**
+   * 알 필요도 없다 — 지금 붙어 있는 사용자들의 목록만 다시 대조하면 되고, 그 대조는
+   * 스윕이 쓰는 것과 **같은 코드**다.
+   *
+   * 구독에 실패해도 던지지 않는다. 이벤트가 없으면 스윕이 하던 대로 20초마다 잡는다 —
+   * 느려질 뿐 틀리지 않는다.
+   */
+  private async watchExpiries(): Promise<void> {
+    try {
+      this.unsubscribe = await this.redis.subscribePattern(
+        SESSION_EXPIRY_PATTERN,
+        () => {
+          void this.noticeExpiries(
+            new Set(this.registry.all().map((c) => c.userId)),
+          );
+        },
+      );
+    } catch (e) {
+      const reason = e instanceof Error ? e.message : 'unexpected error';
+      // 설정(notify-keyspace-events)이나 ACL(channels)이 없으면 여기서 걸린다.
+      this.logger.warn(`session expiry events unavailable: ${reason}`);
+    }
   }
 
   // 주기 스윕 — 한 번에 세 가지 일을 한다.
@@ -237,6 +279,8 @@ export class SessionPresenceGateway implements OnModuleDestroy {
   async onModuleDestroy(): Promise<void> {
     if (this.sweep) clearInterval(this.sweep);
     this.sweep = null;
+    await this.unsubscribe?.().catch(() => undefined);
+    this.unsubscribe = null;
     for (const { timer } of this.pending.values()) clearTimeout(timer);
     this.pending.clear();
     this.lastSeen.clear();

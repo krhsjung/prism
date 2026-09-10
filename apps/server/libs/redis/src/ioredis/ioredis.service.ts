@@ -16,6 +16,8 @@ export class IoredisService implements RedisClient, OnModuleDestroy {
   private readonly logger = new Logger(IoredisService.name);
   private client?: Redis;
 
+  private readonly subscribers = new Set<Redis>();
+
   constructor(@Inject(REDIS_CONFIG) private readonly config: RedisConfig) {}
 
   // 부팅 시 1회. required면 연결 실패를 부팅 실패로 올린다 —
@@ -47,7 +49,31 @@ export class IoredisService implements RedisClient, OnModuleDestroy {
     }
   }
 
+  async subscribePattern(
+    pattern: string,
+    onChannel: (channel: string) => void,
+  ): Promise<() => Promise<void>> {
+    // 구독 중인 연결은 다른 명령을 받지 못한다 — 본 연결을 쓰면 세션 조회가 전부 막힌다.
+    const sub = this.conn.duplicate();
+    // 재연결 중 오류가 프로세스를 죽이지 않게 한다(본 연결과 같은 규칙).
+    sub.on('error', (e: Error) =>
+      this.logger.warn(`redis subscriber error: ${e.message}`),
+    );
+    sub.on('pmessage', (_pattern: string, channel: string) => {
+      onChannel(channel);
+    });
+    await sub.psubscribe(pattern);
+    this.subscribers.add(sub);
+    return async () => {
+      this.subscribers.delete(sub);
+      await sub.quit().catch(() => undefined);
+    };
+  }
+
   async onModuleDestroy(): Promise<void> {
+    // 구독 연결부터 닫는다 — 남겨 두면 프로세스가 내려가지 않는다.
+    for (const sub of this.subscribers) await sub.quit().catch(() => undefined);
+    this.subscribers.clear();
     await this.client?.quit();
   }
 
