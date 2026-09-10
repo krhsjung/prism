@@ -22,6 +22,23 @@ Prism의 세 번째 수직 슬라이스 **후보**. 인증이 "로그인 → 세
 
 형식은 [dashboard.md §1](./dashboard.md) 규칙과 같다. 구현이 붙을 때부터 최신순으로 쌓는다.
 
+### 네이티브 두 화면이 시안으로 돌아왔다 · 권한은 네 갈래다 (iOS · Android)
+
+- 요약: iOS·Android 푸시 화면을 시안 `Mobile / Send` 순서로 다시 그렸다 — 카드 하나에
+  **머리(제목·설명) → 권한 안내 → 작성 → 기기 목록 → 보내기 → 바닥 한 줄**. 권한 안내는
+  `허용/거부` 둘이 아니라 **네 갈래**(미지원·물을 수 있음·허용됨·차단됨)가 됐다.
+- 왜: 두 네이티브만 **기기 목록이 맨 위**에 있었고 카드도 머리도 바닥도 없었다.
+  드리프트는 문구 사용 현황으로 드러났다 — `push.desc` · `push.foot` · `push.image_none` ·
+  `push.allow_unsupported`가 두 플랫폼에서 **한 번도 쓰이지 않고 있었다**(Android는
+  Lint의 `UnusedResources`가 같은 여섯 개를 짚었다).
+- 고친 것: **막다른 길 두 개.** iOS는 설정이 없는 빌드에서 안내를 통째로 그리지 않았고
+  (`EmptyView`), Android는 차단된 뒤에도 `켜기` 버튼을 세워 뒀다 — 13+에서 그 버튼은
+  눌러도 아무 일이 없다. 둘 다 화면이 고장 난 것으로 읽힌다([아래](#17-권한은-네-갈래로-말한다-2026-09-10))
+- 관련: 샘플 이미지 칩이 네이티브에도 생겼다(웹 `lib/push/samples.ts`의 짝) ·
+  `AppDimension.Push`/`PrismDimensions.push*`가 웹 `.push__*`와 1:1로 늘었다 ·
+  iOS `PrismInfoAlert` 추가 · Android `findActivity()`가 공용으로 올라갔다
+- 추가: 2026-09-10
+
 ### 등록을 로그인에서 떼어냈다 (server · web · iOS · Android)
 
 - 요약: 등록 토큰을 **살아 있는 세션에 붙인다**(`POST /auth/push/register`). 로그인 화면은
@@ -123,6 +140,11 @@ Prism의 세 번째 수직 슬라이스 **후보**. 인증이 "로그인 → 세
 | [`Desktop / Send`](https://www.figma.com/design/sTDo6HDslOcRmWL78klk1I/Prism?node-id=3164-1768) | **두 열** — 작성(문구·이미지·링크·버튼)이 왼쪽, 대상 목록이 오른쪽. 보내기는 두 열 아래 전체 폭 |
 | [`Desktop / Sent`](https://www.figma.com/design/sTDo6HDslOcRmWL78klk1I/Prism?node-id=3175-2070) | **고른 줄마다** 결말이 붙는다 — 하나는 `duplicate`(§5-10) |
 | [`Mobile / Send`](https://www.figma.com/design/sTDo6HDslOcRmWL78klk1I/Prism?node-id=3164-1814) | 375 대응. 두 열이 한 열로 쌓인다 — 작성 → 목록 → 보내기 |
+
+`Mobile / Send`는 **좁은 폭의 웹만이 아니라 iOS·Android의 기준이기도 하다.** 네이티브가
+자기 순서를 갖는 순간 같은 화면이 셋으로 갈라진다 — 실제로 한동안 두 네이티브만 기기
+목록이 맨 위였고, 카드·머리·바닥이 없었다. 드리프트는 **문구 사용 현황**으로 잡힌다:
+`push.*` 키가 어느 플랫폼에서 안 쓰이는지 보면 빠진 구획이 그대로 드러난다.
 
 ### 결정됨: 데스크톱은 두 열이고 목록은 **오른쪽**이다 (2026-09-08)
 
@@ -460,6 +482,34 @@ D4는 알림 문구를 **서버가 세션의 언어로** 그리기로 했다. �
   Android `RootScreen`의 `SignedIn`.
 - **세 플랫폼이 같은 저장 키를 쓴다**(`prism.push.wanted`) — 웹 `localStorage`,
   iOS `UserDefaults`, Android `SharedPreferences`.
+
+---
+
+### 17. 권한은 **네 갈래로 말한다** (2026-09-10)
+
+권한을 `허용됨/아님` 둘로 들고 있었더니, "아님"에 **성질이 다른 셋**이 뭉쳐 있었다 —
+아직 안 물었다 · 사용자가 막았다 · 이 빌드엔 설정이 아예 없다. 셋을 한 갈래로 다루니
+화면이 둘 중 하나로 잘못 갔다:
+
+- **iOS**: 설정 파일 없이 빌드하면 안내를 **통째로 그리지 않았다**(`EmptyView`). 목록이
+  전부 `알림 꺼짐`인데 이유를 말하는 줄이 없다.
+- **Android**: 차단된 뒤에도 `켜기` 버튼이 섰다. 13+에서 시스템은 **다시 묻지 않으므로**
+  눌러도 아무 일이 없다 — 화면이 고장 난 것으로 읽힌다.
+
+→ `unsupported · askable · granted · denied` 네 갈래로 나누고, **갈래마다 할 수 있는 일만**
+내놓는다. `denied`·`unsupported`에는 버튼이 아니라 사실을 말하는 Info 알림이 선다
+(`push.allow_denied` · `push.allow_unsupported` — 문구는 처음부터 있었는데 쓰이지 않았다).
+
+- **Android는 "안 물음"과 "영구 거부"를 구분해 주지 않는다.** 둘 다 `checkSelfPermission`이
+  DENIED이고 `shouldShowRequestPermissionRationale`이 false다. 그래서 **물어봤다는 사실을
+  우리가 남긴다**(`prism.push.asked`) — 그 값이 있어야 둘이 갈라진다.
+- **33 미만은 언제나 `granted`다**(런타임 권한이 없다, minSdk 24). 거부 판정에 닿지 않는다.
+- 웹은 `Notification.permission`이 이미 세 갈래(`default`·`granted`·`denied`)에 미지원까지
+  네 갈래라, **네이티브가 웹을 따라온 것**이다.
+
+**하지 않은 것**: 설정 앱을 여는 버튼. 여는 것 자체는 되지만 돌아왔을 때 값이 바뀌었는지를
+다시 읽어야 하고, 그 경로는 이 슬라이스가 약속한 것보다 넓다 — 지금은 어디서 켜는지를
+말해 주는 것까지다.
 
 ---
 

@@ -55,6 +55,7 @@ import kr.hs.jung.prism.core.i18n.LocaleStore
 import kr.hs.jung.prism.core.theme.AppTheme
 import kr.hs.jung.prism.core.theme.PrismDimensions
 import kr.hs.jung.prism.core.theme.PrismTheme
+import kr.hs.jung.prism.core.util.findActivity
 import kr.hs.jung.prism.core.theme.ThemeStore
 
 /**
@@ -193,16 +194,6 @@ fun LocaleSwitcher(
             )
         }
     }
-}
-
-// Compose가 넘기는 Context는 ContextThemeWrapper라 Activity까지 벗겨 낸다.
-private fun Context.findActivity(): Activity? {
-    var context: Context? = this
-    while (context is ContextWrapper) {
-        if (context is Activity) return context
-        context = context.baseContext
-    }
-    return null
 }
 
 /**

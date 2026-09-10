@@ -109,6 +109,25 @@ object PrismDimensions {
     // 통화 화면 — 시안 `WebRTC / Mobile / *`(375 폭)의 수치를 그대로 쓴다.
 
     /** 카드 좌우 여백. 대시보드(24)보다 좁다 — 시안이 무대에 폭을 더 준다. */
+    /**
+     * 푸시 화면의 카드. 값은 웹 `.push__*` 규칙과 1:1이다 — 같은 시안
+     * (`Push / Mobile / Send`)을 세 플랫폼이 나눠 그리므로 한쪽만 바뀌면 어긋난다.
+     * iOS `AppDimension.Push`와도 짝이다.
+     */
+    val pushCardInset = 24.dp
+    val pushHeadPadding = 20.dp
+    val pushBodyPadding = 24.dp
+    val pushBodySpacing = 20.dp
+    val pushFootPadding = 14.dp
+    /** 권한 안내 상자(웹 `.push__permission { padding: 12px 14px }`). */
+    val pushNoticeHorizontalPadding = 14.dp
+    val pushNoticeVerticalPadding = 12.dp
+    /** 샘플 이미지 칩(웹 `.push__sample { width: 44px; height: 28px }`). */
+    val pushSampleWidth = 44.dp
+    val pushSampleHeight = 28.dp
+    /** 고른 칩의 테두리 — 웹은 `box-shadow: 0 0 0 1px`로 1px을 겹쳐 2px처럼 보인다. */
+    val pushSampleSelectedBorder = 2.dp
+
     val callCardInset = 20.dp
     /** 통화 카드 머리의 위아래 여백(시안 14). 로비 머리만 16이다. */
     val callHeadPadding = 14.dp

@@ -60,6 +60,26 @@ struct PrismErrorAlert: View {
     }
 }
 
+/// 웹 `.alert--info`. **사실을 말하는 자리**이지 실패를 말하는 자리가 아니다 —
+/// 알림이 차단됐다·이 빌드는 푸시가 없다처럼 사용자가 만든 잘못이 아닌 것들이
+/// 여기 온다. 빨강으로 말하면 고쳐야 할 오류로 읽힌다(plan/webrtc.md §1과 같은 규칙).
+struct PrismInfoAlert: View {
+    let message: String
+
+    var body: some View {
+        Text(message)
+            .font(.system(size: AppDimension.FontSize.small))
+            .lineSpacing(AppDimension.Alert.lineSpacing)
+            .foregroundStyle(AppColor.info)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, AppDimension.Alert.horizontalPadding)
+            .padding(.vertical, AppDimension.Alert.verticalPadding)
+            .background(AppColor.infoBackground)
+            .clipShape(.rect(cornerRadius: AppDimension.Radius.md))
+    }
+}
+
 #Preview {
     PrismCard {
         Text("Welcome back")

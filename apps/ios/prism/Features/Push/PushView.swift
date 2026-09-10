@@ -9,6 +9,11 @@ import SwiftUI
 
 /// 푸시 화면 — 내 기기 목록에서 대상을 골라 **알림을 보내 본다**(plan/push.md §3).
 ///
+/// 구조는 시안 `Push / Mobile / Send` 그대로다: 카드 하나에 머리(제목·설명) → 권한
+/// 안내 → 본문(작성 → 기기 목록 → 보내기) → 바닥 한 줄. **기기 목록이 보내기 바로
+/// 위에 온다** — 무엇을 보낼지 정한 다음 누구에게 보낼지를 고르는 순서이고, 웹도 좁은
+/// 폭에서 같은 순서로 쌓인다(`.push__columns { flex-direction: column }`).
+///
 /// 목록은 대시보드·통화 로비와 같은 데이터·같은 부품이다(§4). 다른 것은 할 수 있는
 /// 일뿐이다 — 여기서는 **현재 세션도 대상**이라, 기기가 하나뿐인 리뷰어도 알림이 실제로
 /// 뜨는 것을 확인할 수 있다(통화의 루프백과 같은 자리).
@@ -38,14 +43,13 @@ struct PushView: View {
     @State private var permission: PushPermission = .unsupported
 
     private var registered: [SessionListItem] { items.filter(\.pushRegistered) }
+    private var current: SessionListItem? { items.first(where: \.isCurrent) }
 
-    /// 토큰은 **로그인 시점에만** 세션에 실린다(§5-2). 그래서 권한을 나중에 줬거나 FCM이
+    /// 토큰은 로그인 시점에만 세션에 실렸었다(§5-2). 그래서 권한을 나중에 줬거나 FCM이
     /// 토큰을 회전시키면, 권한은 켜져 있는데 세션은 알림을 못 받는 상태가 된다.
-    /// 화면이 그 사실을 말하고 할 일을 알려 준다 — 새 경로를 만들지 않는다.
+    /// 그 자리에서 바로 붙일 수 있게 **같은 켜기 버튼**을 다시 내놓는다.
     private var staleRegistration: Bool {
-        guard permission == .granted, let current = items.first(where: \.isCurrent) else {
-            return false
-        }
+        guard permission == .granted, let current else { return false }
         return !current.pushRegistered
     }
 
@@ -67,37 +71,9 @@ struct PushView: View {
     var body: some View {
         AppShellView(page: .push, user: user, onNavigate: onNavigate, onSignOut: onSignOut) {
             ScrollView {
-                VStack(alignment: .leading, spacing: AppDimension.Card.spacing) {
-                    header
-                    permissionNotice
-                    deviceList
-                    // 제목은 선택이다 — 비우면 서버가 받는 기기의 언어로 그린다(§5-14).
-                    titleField
-                    messageField
-                    // 이미지·링크·버튼은 **셋 다 선택이다** — 없으면 문구만 있는
-                    // 알림이다(plan/push.md §5-11 ~ §5-13).
-                    urlField(
-                        label: .pushImageLabel,
-                        hint: .pushImageHint,
-                        placeholder: .pushImagePlaceholder,
-                        text: $imageUrl
-                    )
-                    urlField(
-                        label: .pushLinkLabel,
-                        hint: .pushLinkHint,
-                        placeholder: .pushLinkPlaceholder,
-                        text: $link
-                    )
-                    actionsField
-                    PrismButton(
-                        title: t(.pushSend),
-                        variant: .primary,
-                        isEnabled: canSend,
-                        action: { Task { await send() } },
-                    )
-                    resultNotice
-                }
-                .padding(AppDimension.Card.padding)
+                pushCard
+                    .padding(.horizontal, AppDimension.Dashboard.horizontalPadding)
+                    .padding(.vertical, AppDimension.Dashboard.horizontalPadding)
             }
         }
         .task {
@@ -106,14 +82,340 @@ struct PushView: View {
         }
     }
 
-    private var header: some View {
+    // MARK: - 카드
+
+    /// 카드 구조는 dashboard.md §4 규칙 그대로다 — 카드 `padding: 0`, 좌우 여백은 각
+    /// 구획이 갖고, **구분선은 각 구획의 위**에 둔다.
+    private var pushCard: some View {
+        PrismCard(padding: 0, spacing: 0) {
+            head
+            permissionNotice
+            cardBody
+            foot
+        }
+    }
+
+    /// 카드 폭을 가로지르는 1px 구분선.
+    private var cardDivider: some View {
+        Rectangle().fill(AppColor.border).frame(height: 1)
+    }
+
+    /// 화면이 무엇을 하는 곳인지 말한다 — 시안 `Head`. 여기 서는 것은 **페이지 제목**이고,
+    /// 기기 목록의 제목은 목록 바로 위에 따로 선다(예전에는 이 자리를 목록이 차지했다).
+    private var head: some View {
         VStack(alignment: .leading, spacing: AppDimension.Dashboard.headSpacing) {
-            // 목록 머리는 **고른 수를 말하고 한 번에 바꾼다** — 기기가 여럿일 때
-            // 줄마다 누르는 것이 유일한 길이면 손이 많이 간다.
+            Text(t(.pushTitle))
+                .font(.system(size: AppDimension.FontSize.sectionTitle, weight: .semibold))
+                .foregroundStyle(AppColor.heading)
+            Text(t(.pushDesc))
+                .font(.system(size: AppDimension.FontSize.body))
+                .foregroundStyle(AppColor.muted)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, AppDimension.Push.cardInset)
+        .padding(.vertical, AppDimension.Push.headPadding)
+    }
+
+    /// 토큰이 어디에 사는지 말하는 한 줄(§5-3) — 목록 응답에 토큰이 실리지 않는 이유이기도
+    /// 하다. 시안 `Foot`이고, 웹 `.push__foot`과 같은 자리다.
+    private var foot: some View {
+        VStack(spacing: 0) {
+            cardDivider
+            Text(t(.pushFoot))
+                .font(.system(size: AppDimension.FontSize.body))
+                .foregroundStyle(AppColor.muted)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, AppDimension.Push.cardInset)
+                .padding(.vertical, AppDimension.Push.footPadding)
+        }
+    }
+
+    // MARK: - 권한
+
+    /// 안내는 **한 번에 하나만** 뜬다 — 권한의 세 상태가 서로 배타적이고, 등록 안내는
+    /// `granted`일 때만 나온다. 그래서 카드에서도 구획 하나를 차지한다.
+    @ViewBuilder
+    private var permissionNotice: some View {
+        switch permission {
+        // 진입만으로 묻지 않는다 — 명시적 제스처 뒤에만 연다(plan/webrtc.md §7).
+        case .askable:
+            noticeSlot { allowBox(t(.pushAllowDesc), t(.pushAllow), action: allowNotifications) }
+        // **막다른 길을 두지 않는다.** OS가 한 번 거부를 받으면 앱은 다시 물을 수 없다 —
+        // 버튼을 세워 두면 눌러도 아무 일이 없어, 화면이 고장 난 것으로 읽힌다.
+        // 할 수 있는 곳(설정)을 가리키는 것이 여기서 할 수 있는 전부다(§5-15).
+        case .denied:
+            noticeSlot { PrismInfoAlert(message: t(.pushAllowDenied)) }
+        // 설정 파일 없이 빌드한 앱이다. **말은 해 준다** — 아무것도 안 그리면 목록의
+        // `알림 꺼짐`이 왜 전부인지 알 길이 없다.
+        case .unsupported:
+            noticeSlot { PrismInfoAlert(message: t(.pushAllowUnsupported)) }
+        case .granted:
+            if staleRegistration {
+                noticeSlot {
+                    allowBox(t(.pushAllowDesc), t(.pushAllow), action: allowNotifications)
+                }
+            } else if current?.pushRegistered == true {
+                // 켜져 있으면 **끄는 길**을 같은 자리에 둔다. 끄는 것은 등록이지 권한이
+                // 아니므로 설명이 그렇게 말한다 — 못 지킬 약속을 하지 않게(§5-15).
+                noticeSlot {
+                    allowBox(
+                        t(.pushAllowOffDesc),
+                        t(.pushAllowOff),
+                        action: turnOffNotifications,
+                    )
+                }
+            }
+        }
+    }
+
+    /// 안내가 앉는 자리 — 머리 아래, 본문 구분선 위(웹 `.push__notice`).
+    private func noticeSlot(@ViewBuilder _ content: () -> some View) -> some View {
+        content()
+            .padding(.horizontal, AppDimension.Push.cardInset)
+            .padding(.bottom, AppDimension.Push.bodySpacing)
+    }
+
+    /// 설명 한 줄과 버튼 하나가 든 테두리 상자(시안). 켜기와 끄기가 **같은 모양**을
+    /// 쓴다 — 사용자가 할 일은 어느 쪽이든 버튼 하나라 컨트롤을 둘로 두지 않는다.
+    private func allowBox(
+        _ description: String,
+        _ label: String,
+        action: @escaping () async -> Void,
+    ) -> some View {
+        VStack(alignment: .leading, spacing: AppDimension.Call.fieldSpacing) {
+            Text(description)
+                .font(.system(size: AppDimension.Call.fontCaption))
+                .foregroundStyle(AppColor.muted)
+                .fixedSize(horizontal: false, vertical: true)
+            PrismButton(
+                title: label,
+                variant: .outline,
+                fillsWidth: false,
+                action: { Task { await action() } },
+            )
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, AppDimension.Push.noticeHorizontalPadding)
+        .padding(.vertical, AppDimension.Push.noticeVerticalPadding)
+        .overlay {
+            RoundedRectangle(cornerRadius: AppDimension.Radius.md)
+                .stroke(AppColor.border, lineWidth: 1)
+        }
+    }
+
+    // MARK: - 본문
+
+    /// 작성 → 기기 목록 → 보내기. **순서가 시안이다**(§4) — 무엇을 보낼지 정한 뒤에
+    /// 누구에게 보낼지를 고른다.
+    private var cardBody: some View {
+        VStack(spacing: 0) {
+            cardDivider
+            VStack(alignment: .leading, spacing: AppDimension.Push.bodySpacing) {
+                // 제목은 선택이다 — 비우면 서버가 받는 기기의 언어로 그린다(§5-14).
+                // 알림에서 읽히는 순서가 제목 → 문구라 화면도 그 순서다.
+                titleField
+                messageField
+                // 이미지·링크·버튼은 **셋 다 선택이다** — 없으면 문구만 있는
+                // 알림이다(plan/push.md §5-11 ~ §5-13).
+                imageField
+                urlField(
+                    label: .pushLinkLabel,
+                    hint: .pushLinkHint,
+                    placeholder: .pushLinkPlaceholder,
+                    text: $link,
+                )
+                actionsField
+                devicesField
+                PrismButton(
+                    title: t(.pushSend),
+                    variant: .primary,
+                    isEnabled: canSend,
+                    action: { Task { await send() } },
+                )
+                resultNotice
+            }
+            .padding(AppDimension.Push.bodyPadding)
+        }
+    }
+
+    /// 라벨 + (설명) + 내용. 본문의 모든 구획이 같은 뼈대를 쓴다.
+    private func field(
+        _ label: MessageKey,
+        hint: MessageKey? = nil,
+        @ViewBuilder content: () -> some View,
+    ) -> some View {
+        VStack(alignment: .leading, spacing: AppDimension.Call.fieldSpacing) {
+            Text(t(label))
+                .font(.system(size: AppDimension.FontSize.body))
+                .foregroundStyle(AppColor.text)
+            if let hint {
+                Text(t(hint))
+                    .font(.system(size: AppDimension.Call.fontCaption))
+                    .foregroundStyle(AppColor.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            content()
+        }
+    }
+
+    /// 입력 칸의 테두리 — 시안 `Atom/Input`.
+    private func inputBox(_ content: some View) -> some View {
+        content
+            .textFieldStyle(.plain)
+            .font(.system(size: AppDimension.FontSize.body))
+            .padding(AppDimension.Call.rowHorizontalPadding)
+            .background(AppColor.card)
+            .clipShape(.rect(cornerRadius: AppDimension.Radius.md))
+            .overlay {
+                RoundedRectangle(cornerRadius: AppDimension.Radius.md)
+                    .stroke(AppColor.border, lineWidth: 1)
+            }
+    }
+
+    private var titleField: some View {
+        field(.pushTitleLabel) {
+            inputBox(TextField(t(.pushTitlePlaceholder), text: $title))
+                .onChange(of: title) { _, next in
+                    // 상한은 계약이 정한다 — 서버도 같은 값으로 거부한다.
+                    if next.count > MAX_PUSH_TITLE_LENGTH {
+                        title = String(next.prefix(MAX_PUSH_TITLE_LENGTH))
+                    }
+                }
+        }
+    }
+
+    private var messageField: some View {
+        field(.pushMessageLabel) {
+            inputBox(
+                TextField(t(.pushMessagePlaceholder), text: $message, axis: .vertical)
+                    .lineLimit(3...5),
+            )
+            .onChange(of: message) { _, next in
+                // 서버도 같은 값으로 400을 낸다 — 입력에서 먼저 막아 왕복을 아낀다.
+                if next.count > MAX_PUSH_MESSAGE_LENGTH {
+                    message = String(next.prefix(MAX_PUSH_MESSAGE_LENGTH))
+                }
+            }
+        }
+    }
+
+    /// 이미지는 주소 한 줄에 **샘플 칩**이 붙는다 — 리뷰어가 공개 이미지 주소를 따로
+    /// 구해 오지 않아도 시연할 수 있어야 한다(§5-11).
+    private var imageField: some View {
+        field(.pushImageLabel, hint: .pushImageHint) {
+            // **그리는 것은 결국 OS다.** 주소도 페이로드도 맞는데 데스크톱 브라우저로
+            // 보내면 그림이 빠진다(§5-11). 보내는 쪽이 iPhone이어도 받는 쪽이 그럴 수
+            // 있으므로 여기서도 말한다 — 화면이 먼저 말하지 않으면 배관이 깨진 것으로
+            // 읽힌다(실제로 그렇게 읽혔다).
+            Text(t(.pushImageDesktopNote))
+                .font(.system(size: AppDimension.Call.fontCaption))
+                .foregroundStyle(AppColor.muted)
+                .fixedSize(horizontal: false, vertical: true)
+            samples
+            inputBox(
+                TextField(t(.pushImagePlaceholder), text: $imageUrl)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .keyboardType(.URL),
+            )
+        }
+    }
+
+    private var samples: some View {
+        HStack(spacing: AppDimension.Spacing.sm) {
+            sampleChip(isOn: imageUrl.isEmpty) { imageUrl = "" } label: {
+                Text(t(.pushImageNone))
+                    .font(.system(size: AppDimension.Call.fontCaption))
+                    .foregroundStyle(imageUrl.isEmpty ? AppColor.text : AppColor.muted)
+                    .padding(.horizontal, AppDimension.Spacing.sm)
+                    .frame(height: AppDimension.Push.sampleHeight)
+            }
+            ForEach(PushSampleImages.all) { sample in
+                let url = PushSampleImages.url(sample)
+                sampleChip(isOn: imageUrl == url) { imageUrl = url } label: {
+                    LinearGradient(
+                        colors: [sample.from, sample.to],
+                        startPoint: .top,
+                        endPoint: .bottom,
+                    )
+                    .frame(
+                        width: AppDimension.Push.sampleWidth,
+                        height: AppDimension.Push.sampleHeight,
+                    )
+                }
+                .accessibilityLabel(sample.path)
+            }
+        }
+    }
+
+    /// 고른 칩만 테두리가 진해진다(웹 `.push__sample--on`).
+    private func sampleChip(
+        isOn: Bool,
+        action: @escaping () -> Void,
+        @ViewBuilder label: () -> some View,
+    ) -> some View {
+        Button(action: action) { label() }
+            .buttonStyle(.plain)
+            .clipShape(.rect(cornerRadius: AppDimension.Radius.sm))
+            .overlay {
+                RoundedRectangle(cornerRadius: AppDimension.Radius.sm)
+                    .stroke(
+                        isOn ? AppColor.primary : AppColor.border,
+                        lineWidth: isOn
+                            ? AppDimension.Push.sampleSelectedBorder
+                            : 1,
+                    )
+            }
+            .accessibilityAddTraits(isOn ? [.isSelected] : [])
+    }
+
+    /// 주소 한 줄. 링크가 쓴다 — 이미지는 샘플 칩이 붙어 제 모양이 따로 있다.
+    private func urlField(
+        label: MessageKey,
+        hint: MessageKey,
+        placeholder: MessageKey,
+        text: Binding<String>,
+    ) -> some View {
+        field(label, hint: hint) {
+            inputBox(
+                TextField(t(placeholder), text: text)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .keyboardType(.URL),
+            )
+        }
+    }
+
+    /// 버튼 조합. **계약이 정한 셋뿐이다** — iOS가 미리 등록한 카테고리만 쓸 수 있어
+    /// 임의 목록을 보낼 방법이 없다(plan/push.md §5-13).
+    private var actionsField: some View {
+        field(.pushActionsLabel) {
+            HStack(spacing: AppDimension.Spacing.sm) {
+                ForEach(PushActionSet.allCases, id: \.self) { set in
+                    PrismButton(
+                        title: t(actionsKey(set)),
+                        variant: actions == set ? .secondary : .outline,
+                        fillsWidth: false,
+                        action: { actions = set },
+                    )
+                    .accessibilityAddTraits(actions == set ? [.isSelected] : [])
+                }
+            }
+        }
+    }
+
+    // MARK: - 기기 목록
+
+    /// 목록 머리는 **고른 수를 말하고 한 번에 바꾼다** — 기기가 여럿일 때 줄마다
+    /// 누르는 것이 유일한 길이면 손이 많이 간다.
+    private var devicesField: some View {
+        VStack(alignment: .leading, spacing: AppDimension.Call.fieldSpacing) {
             HStack {
                 Text(t(.pushDevices))
-                    .font(.system(size: AppDimension.Call.fontRowTitle))
-                    .foregroundStyle(AppColor.heading)
+                    .font(.system(size: AppDimension.FontSize.body))
+                    .foregroundStyle(AppColor.text)
                 Spacer(minLength: AppDimension.Spacing.sm)
                 if registered.count > 1 {
                     Text(t(.pushSelectedCount, ["count": String(targetIds.count)]))
@@ -123,7 +425,7 @@ struct PushView: View {
                         title: t(
                             targetIds.count == registered.count
                                 ? .pushClearAll
-                                : .pushSelectAll
+                                : .pushSelectAll,
                         ),
                         variant: .ghost,
                         fillsWidth: false,
@@ -131,64 +433,17 @@ struct PushView: View {
                             targetIds = targetIds.count == registered.count
                                 ? []
                                 : registered.prefix(MAX_PUSH_TARGETS).map(\.id)
-                        }
+                        },
                     )
                 }
             }
+            // 어느 줄이 왜 흐린지는 **목록 옆에서** 말한다 — 카드 머리에 두면 목록까지
+            // 눈이 한 번 더 왕복한다(시안 Devices).
             Text(t(.pushDevicesDesc))
                 .font(.system(size: AppDimension.Call.fontCaption))
                 .foregroundStyle(AppColor.muted)
                 .fixedSize(horizontal: false, vertical: true)
-        }
-    }
-
-    /// 권한을 묻고 등록까지 하는 줄. 두 갈래(안 물음·물었지만 등록 전)가 같은 것을 쓴다 —
-    /// 사용자가 할 일은 어느 쪽이든 "켜기" 하나뿐이라 컨트롤을 둘로 두지 않는다.
-    private var allowRow: some View {
-        VStack(alignment: .leading, spacing: AppDimension.Call.fieldSpacing) {
-            Text(t(.pushAllowDesc))
-                .font(.system(size: AppDimension.Call.fontCaption))
-                .foregroundStyle(AppColor.muted)
-            PrismButton(
-                title: t(.pushAllow),
-                variant: .outline,
-                fillsWidth: false,
-                action: { Task { await allowNotifications() } },
-            )
-        }
-    }
-
-    @ViewBuilder
-    private var permissionNotice: some View {
-        switch permission {
-        case .askable:
-            // 진입만으로 묻지 않는다 — 명시적 제스처 뒤에만 연다(plan/webrtc.md §7).
-            allowRow
-        case .denied:
-            note(t(.pushAllowDenied))
-        case .unsupported:
-            EmptyView()
-        // 권한은 켜졌는데 이 세션이 등록 전이면 **여기서 바로 붙일 수 있다**
-        // (§5-2를 뒤집었다) — 안내가 아니라 같은 켜기 버튼을 다시 내놓는다.
-        case .granted:
-            if staleRegistration {
-                allowRow
-            } else if items.first(where: \.isCurrent)?.pushRegistered == true {
-                // 켜져 있으면 **끄는 길**을 같은 자리에 둔다. 끄는 것은 등록이지 권한이
-                // 아니므로 설명이 그렇게 말한다 — 못 지킬 약속을 하지 않게(§5-15).
-                VStack(alignment: .leading, spacing: AppDimension.Call.fieldSpacing) {
-                    Text(t(.pushAllowOffDesc))
-                        .font(.system(size: AppDimension.Call.fontCaption))
-                        .foregroundStyle(AppColor.muted)
-                        .fixedSize(horizontal: false, vertical: true)
-                    PrismButton(
-                        title: t(.pushAllowOff),
-                        variant: .outline,
-                        fillsWidth: false,
-                        action: { Task { await turnOffNotifications() } },
-                    )
-                }
-            }
+            deviceList
         }
     }
 
@@ -237,122 +492,14 @@ struct PushView: View {
         }
     }
 
-    private var titleField: some View {
-        VStack(alignment: .leading, spacing: AppDimension.Call.fieldSpacing) {
-            Text(t(.pushTitleLabel))
-                .font(.system(size: AppDimension.FontSize.body))
-                .foregroundStyle(AppColor.text)
-            TextField(t(.pushTitlePlaceholder), text: $title)
-                .textFieldStyle(.plain)
-                .font(.system(size: AppDimension.FontSize.body))
-                .padding(AppDimension.Call.rowHorizontalPadding)
-                .background(AppColor.card)
-                .clipShape(.rect(cornerRadius: AppDimension.Radius.md))
-                .overlay {
-                    RoundedRectangle(cornerRadius: AppDimension.Radius.md)
-                        .stroke(AppColor.border, lineWidth: 1)
-                }
-                .onChange(of: title) { _, next in
-                    // 상한은 계약이 정한다 — 서버도 같은 값으로 거부한다.
-                    if next.count > MAX_PUSH_TITLE_LENGTH {
-                        title = String(next.prefix(MAX_PUSH_TITLE_LENGTH))
-                    }
-                }
-        }
-    }
-
-    private var messageField: some View {
-        VStack(alignment: .leading, spacing: AppDimension.Call.fieldSpacing) {
-            Text(t(.pushMessageLabel))
-                .font(.system(size: AppDimension.FontSize.body))
-                .foregroundStyle(AppColor.text)
-            TextField(t(.pushMessagePlaceholder), text: $message, axis: .vertical)
-                .lineLimit(3...5)
-                .textFieldStyle(.plain)
-                .font(.system(size: AppDimension.FontSize.body))
-                .padding(AppDimension.Call.rowHorizontalPadding)
-                .background(AppColor.card)
-                .clipShape(.rect(cornerRadius: AppDimension.Radius.md))
-                .overlay {
-                    RoundedRectangle(cornerRadius: AppDimension.Radius.md)
-                        .stroke(AppColor.border, lineWidth: 1)
-                }
-                .onChange(of: message) { _, next in
-                    // 서버도 같은 값으로 400을 낸다 — 입력에서 먼저 막아 왕복을 아낀다.
-                    if next.count > MAX_PUSH_MESSAGE_LENGTH {
-                        message = String(next.prefix(MAX_PUSH_MESSAGE_LENGTH))
-                    }
-                }
-        }
-    }
-
-    /// 주소 한 줄. 이미지와 링크가 **같은 모양**을 쓴다 — 하는 일이 같기 때문이다.
-    private func urlField(
-        label: MessageKey,
-        hint: MessageKey,
-        placeholder: MessageKey,
-        text: Binding<String>
-    ) -> some View {
-        VStack(alignment: .leading, spacing: AppDimension.Call.fieldSpacing) {
-            Text(t(label))
-                .font(.system(size: AppDimension.FontSize.body))
-                .foregroundStyle(AppColor.text)
-            Text(t(hint))
-                .font(.system(size: AppDimension.Call.fontCaption))
-                .foregroundStyle(AppColor.muted)
-                .fixedSize(horizontal: false, vertical: true)
-            TextField(t(placeholder), text: text)
-                .textFieldStyle(.plain)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .keyboardType(.URL)
-                .font(.system(size: AppDimension.FontSize.body))
-                .padding(AppDimension.Call.rowHorizontalPadding)
-                .background(AppColor.card)
-                .clipShape(.rect(cornerRadius: AppDimension.Radius.md))
-                .overlay {
-                    RoundedRectangle(cornerRadius: AppDimension.Radius.md)
-                        .stroke(AppColor.border, lineWidth: 1)
-                }
-        }
-    }
-
-    /// 버튼 조합. **계약이 정한 셋뿐이다** — iOS가 미리 등록한 카테고리만 쓸 수 있어
-    /// 임의 목록을 보낼 방법이 없다(plan/push.md §5-13).
-    private var actionsField: some View {
-        VStack(alignment: .leading, spacing: AppDimension.Call.fieldSpacing) {
-            Text(t(.pushActionsLabel))
-                .font(.system(size: AppDimension.FontSize.body))
-                .foregroundStyle(AppColor.text)
-            HStack(spacing: AppDimension.Spacing.sm) {
-                ForEach(PushActionSet.allCases, id: \.self) { set in
-                    PrismButton(
-                        title: t(actionsKey(set)),
-                        variant: actions == set ? .secondary : .outline,
-                        fillsWidth: false,
-                        action: { actions = set }
-                    )
-                    .accessibilityAddTraits(actions == set ? [.isSelected] : [])
-                }
-            }
-        }
-    }
-
     @ViewBuilder
     private var resultNotice: some View {
         if failed {
-            Text(t(.errorGeneric))
-                .font(.system(size: AppDimension.Call.fontCaption))
-                .foregroundStyle(AppColor.error)
+            PrismErrorAlert(message: t(.errorGeneric))
         }
     }
 
-    private func note(_ text: String) -> some View {
-        Text(text)
-            .font(.system(size: AppDimension.Call.fontCaption))
-            .foregroundStyle(AppColor.muted)
-            .fixedSize(horizontal: false, vertical: true)
-    }
+    // MARK: - 동작
 
     /// **권한과 등록을 함께 끝낸다.** 예전에는 토큰이 로그인 요청에만 실려서, 여기서
     /// 권한을 켜도 그 세션은 재로그인 전까지 대상이 아니었다(§5-2를 뒤집었다).
@@ -384,7 +531,6 @@ struct PushView: View {
         else { return }
         items = list
         // 대상이 사라졌으면(폐기·만료) 고른 것을 놓는다 — 없는 세션에 보내면 404다.
-        // 사라진 대상은 골라 둔 목록에서도 놓는다.
         targetIds = targetIds.filter { id in list.contains { $0.id == id } }
     }
 
@@ -400,13 +546,13 @@ struct PushView: View {
                     title: title,
                     imageUrl: imageUrl,
                     link: link,
-                    actions: actions
+                    actions: actions,
                 ),
                 to: targetIds,
-                accessToken: token
+                accessToken: token,
             )
             results = Dictionary(
-                uniqueKeysWithValues: outcomes.map { ($0.sessionId, $0.result) }
+                uniqueKeysWithValues: outcomes.map { ($0.sessionId, $0.result) },
             )
             // 목록의 `pushRegistered`가 낡았을 수 있다(그 기기가 방금 로그아웃했다).
             if outcomes.contains(where: { $0.result != .accepted }) {

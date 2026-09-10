@@ -126,6 +126,29 @@ enum AppDimension {
     }
 
     /// 통화 화면 — 시안 `WebRTC / Mobile / *`(375 폭)의 수치를 그대로 쓴다.
+    /// 푸시 화면의 카드. 값은 웹 `.push__*` 규칙과 1:1이다 — 같은 시안
+    /// (`Push / Mobile / Send`)을 두 플랫폼이 나눠 그리므로 한쪽만 바뀌면 어긋난다.
+    enum Push {
+        /// 카드 좌우 여백(웹 `.push__head { padding: 20px 24px }`). **카드가 아니라 각
+        /// 구획이 갖는다** — 그래야 구분선이 카드 폭을 가로지른다.
+        static let cardInset: CGFloat = 24
+        /// 카드 머리의 위아래 여백.
+        static let headPadding: CGFloat = 20
+        /// 본문 여백과 구획 사이 간격(웹 `.push__body { gap: 20px; padding: 24px }`).
+        static let bodyPadding: CGFloat = 24
+        static let bodySpacing: CGFloat = 20
+        /// 카드 바닥 한 줄(웹 `.push__foot { padding: 14px 24px }`).
+        static let footPadding: CGFloat = 14
+        /// 권한 안내 상자(웹 `.push__permission { padding: 12px 14px }`).
+        static let noticeHorizontalPadding: CGFloat = 14
+        static let noticeVerticalPadding: CGFloat = 12
+        /// 샘플 이미지 칩(웹 `.push__sample { width: 44px; height: 28px }`).
+        static let sampleWidth: CGFloat = 44
+        static let sampleHeight: CGFloat = 28
+        /// 고른 칩의 테두리 굵기 — 웹은 `box-shadow: 0 0 0 1px`로 1px을 겹쳐 2px처럼 보인다.
+        static let sampleSelectedBorder: CGFloat = 2
+    }
+
     enum Call {
         /// 카드 좌우 여백. 대시보드(24)보다 좁다 — 시안이 무대에 폭을 더 준다.
         static let cardInset: CGFloat = 20

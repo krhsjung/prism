@@ -13,6 +13,24 @@ import kotlin.coroutines.resume
 
 private const val PREFS = "prism.prefs"
 private const val KEY_WANTED = "prism.push.wanted"
+private const val KEY_ASKED = "prism.push.asked"
+
+/**
+ * 이 기기의 알림 상태. 화면이 그릴 수 있는 갈래가 그대로다 — iOS `PushPermission`의 짝.
+ *
+ * **네 갈래여야 하는 이유는 [DENIED]다.** 허용/거부 둘로만 나누면 거부한 사람에게도
+ * `켜기` 버튼이 서는데, 13+에서 그 버튼은 눌러도 아무 일이 없다(시스템이 다시 묻지
+ * 않는다). 화면이 고장 난 것으로 읽히는 자리라 갈래를 나눈다(plan/push.md §5-15).
+ */
+enum class PushPermission {
+    /** `google-services.json` 없이 빌드했다 — 물어도 소용이 없다. */
+    UNSUPPORTED,
+    /** 아직 안 물었거나 한 번 거부라 다시 물을 수 있다. */
+    ASKABLE,
+    GRANTED,
+    /** 시스템이 더는 묻지 않는다 — 설정으로 안내하는 것이 전부다. */
+    DENIED,
+}
 
 /**
  * 이 기기의 FCM 등록 토큰.
@@ -76,4 +94,32 @@ class PushTokens(context: Context) {
     }
 
     fun wanted(): Boolean = prefs.getBoolean(KEY_WANTED, false)
+
+    /**
+     * 권한을 물어본 적이 있는가.
+     *
+     * **Android는 "아직 안 물었다"와 "영구 거부"를 구분해 주지 않는다.** 둘 다
+     * `checkSelfPermission`이 DENIED이고 `shouldShowRequestPermissionRationale`이
+     * false다. 물어본 사실을 우리가 남겨야 그 둘이 갈라진다.
+     */
+    fun rememberAsked() {
+        prefs.edit().putBoolean(KEY_ASKED, true).apply()
+    }
+
+    private fun hasAsked(): Boolean = prefs.getBoolean(KEY_ASKED, false)
+
+    /**
+     * 화면이 그릴 갈래.
+     *
+     * @param canShowRationale `Activity.shouldShowRequestPermissionRationale`의 값.
+     *   Activity가 필요해 화면이 읽어 넘긴다 — 이 클래스는 Activity를 쥐지 않는다.
+     */
+    fun permission(canShowRationale: Boolean): PushPermission = when {
+        !enabled -> PushPermission.UNSUPPORTED
+        // 33 미만에는 런타임 권한이 없어 permissionGranted()가 늘 true다 — 그쪽은
+        // 언제나 GRANTED이고, 아래의 거부 판정에 닿지 않는다.
+        permissionGranted() -> PushPermission.GRANTED
+        !hasAsked() || canShowRationale -> PushPermission.ASKABLE
+        else -> PushPermission.DENIED
+    }
 }
