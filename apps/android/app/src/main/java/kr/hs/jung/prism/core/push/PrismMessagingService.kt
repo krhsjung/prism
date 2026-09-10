@@ -1,5 +1,6 @@
 package kr.hs.jung.prism.core.push
 
+import android.annotation.SuppressLint
 import android.app.PendingIntent
 import android.content.Intent
 import android.net.Uri
@@ -100,6 +101,11 @@ class PrismMessagingService : FirebaseMessagingService() {
         AppLog.d("fcm token rotated")
     }
 
+    // Lint는 `permissionGranted()` 안을 보지 못한다 — 검사가 `PushTokens`에 있어서
+    // 호출부에서는 가드가 없는 것처럼 읽힌다. 검사를 여기로 복제하면 33 미만의 예외
+    // (런타임 권한이 없다)까지 두 곳이 되고, 둘이 갈라지는 날 알림이 조용히 사라진다.
+    // 가드는 `notify` **바로 위 한 줄**에 있다.
+    @SuppressLint("MissingPermission")
     private fun show(
         title: String,
         body: String,
