@@ -27,7 +27,7 @@ struct PrismBadge: View {
         var background: Color {
             switch self {
             case .success: AppColor.successBackground
-            case .info: AppColor.secondaryBackground
+            case .info: AppColor.infoBackground
             // surface는 카드보다 한 톤 눌린 배경이라 라이트/다크 모두에서 카드 위에 얹힌다.
             // 새 토큰을 만들지 않고 있는 것으로 세 번째 갈래를 만든다(웹 `.badge--neutral`과 같다).
             case .neutral: AppColor.surface
@@ -39,9 +39,8 @@ struct PrismBadge: View {
         var foreground: Color {
             switch self {
             case .success: AppColor.success
-            // 웹 `.badge--info`와 같은 토큰이다 — secondaryForeground(네이비)를 쓰면
-            // 같은 배지가 플랫폼마다 다른 파랑으로 나온다.
-            case .info: AppColor.accent
+            // 시안 `Atom/Badge Info`와 웹 `.badge--info`가 같은 Info 쌍을 쓴다.
+            case .info: AppColor.info
             case .neutral: AppColor.muted
             case .warning: AppColor.warning
             case .error: AppColor.error

@@ -20,8 +20,11 @@ struct DashboardView: View {
 
     let user: User
     let onSignOut: () async -> Void
-    /// 세션 소켓. 목록을 나르지 않고 "바뀌었다"는 신호와 "붙어 있다"만 알려 준다.
+    /// 세션 소켓. 여기서 쓰는 것은 **"붙어 있다"뿐이다** — 목록을 다시 가져오는 일은
+    /// `RootView`가 세션 전체를 대신해 한 자리에서 한다.
     let socket: SessionSocket
+    /// 목록 하나. 통화·푸시 화면이 보는 것과 **같은 것**이다.
+    let store: SessionStore
     /// 셸의 내비게이션 — 페이지 상태는 `RootView`가 쥔다(웹의 라우터 자리).
     let onNavigate: (ShellPage) -> Void
 
@@ -31,6 +34,7 @@ struct DashboardView: View {
     init(
         user: User,
         sessions: SessionsServicing,
+        store: SessionStore,
         accessToken: @escaping () -> String?,
         socket: SessionSocket,
         onNavigate: @escaping (ShellPage) -> Void,
@@ -39,15 +43,16 @@ struct DashboardView: View {
         self.user = user
         self.onSignOut = onSignOut
         self.socket = socket
+        self.store = store
         self.onNavigate = onNavigate
         _viewModel = State(
             initialValue: DashboardViewModel(
                 service: sessions,
                 accessToken: accessToken,
+                store: store,
                 // 전체 폐기·현재 세션 해제로 이 앱의 세션이 끝나면 로그아웃과 같은 자리로
                 // 돌아간다 — 세션 상태의 진실은 AuthManager 하나뿐이다.
                 onSessionEnded: onSignOut,
-                notifyRevoked: { socket.send(.sessionsRevoked) },
             ),
         )
     }
@@ -92,22 +97,13 @@ struct DashboardView: View {
             // 화면과 서버가 어긋난다. 당겨서 새로고침이 그것을 맞추는 손잡이다.
             // `load()`가 아니라 `refresh()`인 것이 중요하다: 인디케이터가 이미 "받았다"를
             // 말하고 있어, 목록까지 비우면 화면만 흔들린다.
-            .refreshable { await viewModel.refresh() }
+            .refreshable { await store.refresh() }
             // 카드 하나뿐이라 내용이 화면보다 짧다 — 그대로 두면 당길 여지가 없어
             // 제스처 자체가 일어나지 않는다.
             .scrollBounceBehavior(.always)
         }
-        .task { await viewModel.load() }
-        // 소켓이 "바뀌었다"고 하면 다시 가져온다.
-        //
-        // **비우지 않는다**(load가 아니라 refresh) — 다른 기기가 하나 붙었다고 카드가
-        // "불러오는 중"으로 접혔다 펴지면 목록 전체가 깜빡인다(plan/dashboard.md §4).
-        // changed는 0에서 시작하고 소켓의 첫 ready가 1로 올리므로, 위 `.task`의 첫
-        // 조회와 겹치지 않는다.
-        .onChange(of: socket.changed) { _, _ in
-            // 소켓이 시킨 재조회다 — 사용자가 한 일이 아니므로 유휴 창을 밀지 않는다.
-            Task { await viewModel.refresh(background: true) }
-        }
+        // 첫 조회도, 소켓 신호를 듣는 것도 **이 화면의 일이 아니다** — 목록은 세션에
+        // 매달려 있고 `RootView`가 한 자리에서 챙긴다(Core/Sessions/SessionStore.swift).
         .overlay {
             if isConfirmingSignOutAll {
                 PrismConfirmDialog(
@@ -156,7 +152,7 @@ struct DashboardView: View {
             // 그대로 경계가 된다. 폭을 채우는 것이 중요하다: 행마다 오른쪽에 있는 "해제"
             // 기둥에 이어 붙으면 "행 하나 더"로 읽히고 오탭 표적도 겹친다.
             // (나 말고 다른 세션이 있을 때만 의미가 있다)
-            if viewModel.hasOthers {
+            if store.hasOthers {
                 cardDivider
                 PrismButton(
                     title: t(viewModel.isSigningOutAll
@@ -175,16 +171,16 @@ struct DashboardView: View {
 
     @ViewBuilder
     private var sessionsBody: some View {
-        if let key = viewModel.loadErrorKey {
+        if let key = store.loadErrorKey {
             VStack(alignment: .leading, spacing: AppDimension.Spacing.md) {
                 PrismErrorAlert(message: t(key))
                 PrismButton(title: t(.commonRetry), variant: .secondary, fillsWidth: false) {
-                    Task { await viewModel.load() }
+                    Task { await store.load() }
                 }
             }
             .padding(.horizontal, AppDimension.Dashboard.sessionCardInset)
             .padding(.bottom, AppDimension.Dashboard.sessionHeadPadding)
-        } else if let sessions = viewModel.sessions {
+        } else if let sessions = store.sessions {
             // 현재 세션은 항상 하나 있으므로 "0건"은 없다 — 1건이 "나 혼자"다.
             if sessions.count == 1 {
                 Text(t(.dashboardOnlyThisSession))

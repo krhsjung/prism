@@ -5,6 +5,9 @@
 //  세션 카드의 상태 전이를 네트워크 없이 검증한다. 폐기는 되돌릴 수 없으므로,
 //  실패했을 때 목록이 지워지거나 버튼이 잠긴 채로 남으면 사용자가 할 수 있는 일이 없다.
 //
+//  목록 자체(불러오기·갱신·실패)는 `SessionStoreTests`가 본다 — 세 화면이 나눠 쓰는
+//  것이라 화면의 테스트에 섞어 두면 화면마다 같은 것을 다시 확인하게 된다.
+//
 
 import Foundation
 import Testing
@@ -57,24 +60,37 @@ private func item(
     )
 }
 
-/// 소켓으로 나간 재검증 요청을 센다. 클래스인 이유: 뷰모델이 클로저를 붙들고 있어,
+/// 소켓으로 나간 재검증 요청을 센다. 클래스인 이유: store가 클로저를 붙들고 있어,
 /// 값 타입이면 호출이 사본에 쌓여 테스트가 볼 수 없다.
-private final class RevokeSignals {
+private final class ChangeSignals {
     var count = 0
+}
+
+@MainActor
+private func makeStore(
+    _ service: FakeSessions,
+    token: String? = "tok",
+    signals: ChangeSignals? = nil,
+) -> SessionStore {
+    SessionStore(
+        service: service,
+        accessToken: { token },
+        notify: { signals?.count += 1 },
+    )
 }
 
 @MainActor
 private func makeViewModel(
     _ service: FakeSessions,
+    store: SessionStore,
     token: String? = "tok",
     onEnded: @escaping () async -> Void = {},
-    signals: RevokeSignals? = nil,
 ) -> DashboardViewModel {
     DashboardViewModel(
         service: service,
         accessToken: { token },
+        store: store,
         onSessionEnded: onEnded,
-        notifyRevoked: { signals?.count += 1 },
     )
 }
 
@@ -83,78 +99,18 @@ private func makeViewModel(
 @MainActor
 struct DashboardViewModelTests {
 
-    @Test("목록을 불러오면 세션이 채워진다")
-    func loadsSessions() async {
-        let service = FakeSessions([item("a", current: true), item("b")])
-        let viewModel = makeViewModel(service)
-
-        await viewModel.load()
-
-        #expect(viewModel.sessions?.map(\.id) == ["a", "b"])
-        #expect(viewModel.hasOthers)
-        #expect(viewModel.loadErrorKey == nil)
-    }
-
-    @Test("현재 세션 하나뿐이면 모두 로그아웃을 내보내지 않는다")
-    func aloneHasNoSignOutAll() async {
-        let viewModel = makeViewModel(FakeSessions([item("only", current: true)]))
-
-        await viewModel.load()
-
-        // "나 혼자"는 빈 목록이 아니다 — 전체 폐기가 곧 로그아웃이라 버튼을 둘 이유가 없다.
-        #expect(viewModel.sessions?.count == 1)
-        #expect(!viewModel.hasOthers)
-    }
-
-
-    @Test("갱신은 실패해도 화면의 목록을 지우지 않는다")
-    func refreshKeepsListOnFailure() async {
-        let service = FakeSessions([item("a", current: true), item("b")])
-        let viewModel = makeViewModel(service)
-        await viewModel.load()
-        service.failList = true
-
-        await viewModel.refresh()
-
-        // 비운 뒤 실패하면 볼 것도 재시도할 대상도 사라진다. 처음 불러오기(load)는 반대로
-        // 비우는 것이 맞다 — 화면에 아직 아무것도 없는 자리이기 때문이다.
-        #expect(viewModel.sessions?.map(\.id) == ["a", "b"])
-        #expect(viewModel.loadErrorKey == .errorSessionsLoadFailed)
-    }
-
-    @Test("불러오기에 실패하면 오류만 남기고 목록은 비운다")
-    func loadFailureShowsError() async {
-        let service = FakeSessions([])
-        service.failList = true
-        let viewModel = makeViewModel(service)
-
-        await viewModel.load()
-
-        #expect(viewModel.sessions == nil)
-        #expect(viewModel.loadErrorKey == .errorSessionsLoadFailed)
-    }
-
-    @Test("토큰이 없으면 요청하지 않고 오류로 떨어진다")
-    func missingTokenFails() async {
-        let viewModel = makeViewModel(FakeSessions([item("a")]), token: nil)
-
-        await viewModel.load()
-
-        #expect(viewModel.sessions == nil)
-        #expect(viewModel.loadErrorKey == .errorSessionsLoadFailed)
-    }
-
     @Test("다른 세션을 해제하면 목록을 다시 불러온다")
     func revokeReloads() async {
         let service = FakeSessions([item("me", current: true), item("other")])
-        let viewModel = makeViewModel(service)
-        await viewModel.load()
+        let store = makeStore(service)
+        let viewModel = makeViewModel(service, store: store)
+        await store.load()
 
         await viewModel.revoke(item("other"))
 
         #expect(service.revoked == ["other"])
         // 로컬에서 행만 지우지 않고 서버에 다시 묻는다 — 그사이 목록이 달라질 수 있다.
-        #expect(viewModel.sessions?.map(\.id) == ["me"])
+        #expect(store.sessions?.map(\.id) == ["me"])
         #expect(viewModel.revokingID == nil)
     }
 
@@ -163,9 +119,10 @@ struct DashboardViewModelTests {
     @Test("해제에 성공하면 소켓으로 재검증을 청한다")
     func revokeSignalsSocket() async {
         let service = FakeSessions([item("me", current: true), item("other")])
-        let signals = RevokeSignals()
-        let viewModel = makeViewModel(service, signals: signals)
-        await viewModel.load()
+        let signals = ChangeSignals()
+        let store = makeStore(service, signals: signals)
+        let viewModel = makeViewModel(service, store: store)
+        await store.load()
 
         await viewModel.revoke(item("other"))
 
@@ -177,9 +134,10 @@ struct DashboardViewModelTests {
     func revokeFailureDoesNotSignal() async {
         let service = FakeSessions([item("me", current: true), item("other")])
         service.failAction = true
-        let signals = RevokeSignals()
-        let viewModel = makeViewModel(service, signals: signals)
-        await viewModel.load()
+        let signals = ChangeSignals()
+        let store = makeStore(service, signals: signals)
+        let viewModel = makeViewModel(service, store: store)
+        await store.load()
 
         await viewModel.revoke(item("other"))
 
@@ -189,9 +147,10 @@ struct DashboardViewModelTests {
     @Test("전체 로그아웃도 재검증을 청한다")
     func signOutAllSignalsSocket() async {
         let service = FakeSessions([item("me", current: true), item("other")])
-        let signals = RevokeSignals()
-        let viewModel = makeViewModel(service, signals: signals)
-        await viewModel.load()
+        let signals = ChangeSignals()
+        let store = makeStore(service, signals: signals)
+        let viewModel = makeViewModel(service, store: store)
+        await store.load()
 
         await viewModel.signOutAll()
 
@@ -201,24 +160,26 @@ struct DashboardViewModelTests {
     @Test("해제에 실패하면 목록을 유지한 채 오류만 알린다")
     func revokeFailureKeepsList() async {
         let service = FakeSessions([item("me", current: true), item("other")])
-        let viewModel = makeViewModel(service)
-        await viewModel.load()
+        let store = makeStore(service)
+        let viewModel = makeViewModel(service, store: store)
+        await store.load()
         service.failAction = true
 
         await viewModel.revoke(item("other"))
 
         #expect(viewModel.actionErrorKey == .errorRevokeFailed)
         // 실패했는데 목록이 사라지면 다시 시도할 대상이 화면에서 없어진다.
-        #expect(viewModel.sessions?.map(\.id) == ["me", "other"])
+        #expect(store.sessions?.map(\.id) == ["me", "other"])
         #expect(viewModel.revokingID == nil)
     }
 
     @Test("현재 세션을 해제하면 세션이 끝났음을 알린다")
     func revokingCurrentEndsSession() async {
         let service = FakeSessions([item("me", current: true), item("other")])
+        let store = makeStore(service)
         let ended = Counter()
-        let viewModel = makeViewModel(service, onEnded: { await ended.bump() })
-        await viewModel.load()
+        let viewModel = makeViewModel(service, store: store, onEnded: { await ended.bump() })
+        await store.load()
 
         await viewModel.revoke(item("me", current: true))
 
@@ -230,7 +191,11 @@ struct DashboardViewModelTests {
     func signOutAllEndsSession() async {
         let service = FakeSessions([item("me", current: true), item("other")])
         let ended = Counter()
-        let viewModel = makeViewModel(service, onEnded: { await ended.bump() })
+        let viewModel = makeViewModel(
+            service,
+            store: makeStore(service),
+            onEnded: { await ended.bump() },
+        )
 
         await viewModel.signOutAll()
 
@@ -242,7 +207,7 @@ struct DashboardViewModelTests {
     func signOutAllFailureUnlocks() async {
         let service = FakeSessions([item("me", current: true), item("other")])
         service.failAction = true
-        let viewModel = makeViewModel(service)
+        let viewModel = makeViewModel(service, store: makeStore(service))
 
         await viewModel.signOutAll()
 

@@ -32,8 +32,10 @@ final class LoginViewModel {
 
     var isBusy: Bool { pending != nil }
 
+
     @ObservationIgnored
     private let authManager: AuthManager
+
 
     @ObservationIgnored
     private var task: Task<Void, Never>?
@@ -49,6 +51,7 @@ final class LoginViewModel {
     init(authManager: AuthManager) {
         self.authManager = authManager
     }
+
 
     func signIn(_ option: AuthOption) {
         // 재진입 가드는 **동기 상태**(task)로 한다 — pending은 유예 뒤에야 켜지므로

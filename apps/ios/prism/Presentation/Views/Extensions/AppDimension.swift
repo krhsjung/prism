@@ -38,8 +38,6 @@ enum AppDimension {
         /// 워드마크·카드 제목.
         static let title: CGFloat = 28
         static let body: CGFloat = 14
-        /// 알림(alert) 본문 — 카드 안에서 한 단계 작다.
-        static let small: CGFloat = 13
     }
 
     /// 로그인 화면 바깥 껍데기.
@@ -67,6 +65,25 @@ enum AppDimension {
         static let borderWidth: CGFloat = 1
         /// 비활성 상태의 투명도(웹 `.btn:disabled`).
         static let disabledOpacity: Double = 0.55
+    }
+
+    /// 시안 `Atom/Input` — 여백 16/10, 초점이면 테두리가 Accent 2가 된다.
+    enum Input {
+        static let horizontalPadding: CGFloat = 16
+        static let verticalPadding: CGFloat = 10
+        static let borderWidth: CGFloat = 1
+        static let focusedBorderWidth: CGFloat = 2
+        /// Disabled 변형의 투명도.
+        static let disabledOpacity: Double = 0.6
+    }
+
+    /// 시안 `Atom/Checkbox` — 18 정사각, 모서리 sm, 체크 선 굵기 2.
+    enum Checkbox {
+        static let size: CGFloat = 18
+        static let checkLineWidth: CGFloat = 2
+        /// 그리는 것은 18이지만 누르는 표적은 44(HIG) — 버튼과 같은 예외다.
+        static let touchTarget: CGFloat = 44
+        static let disabledOpacity: Double = 0.5
     }
 
     /// 선택 메뉴(웹 `.select__*`) — 테마·언어 스위처가 공유한다.
@@ -126,6 +143,29 @@ enum AppDimension {
     }
 
     /// 통화 화면 — 시안 `WebRTC / Mobile / *`(375 폭)의 수치를 그대로 쓴다.
+    /// 푸시 화면의 카드. 값은 웹 `.push__*` 규칙과 1:1이다 — 같은 시안
+    /// (`Push / Mobile / Send`)을 두 플랫폼이 나눠 그리므로 한쪽만 바뀌면 어긋난다.
+    enum Push {
+        /// 카드 좌우 여백(웹 `.push__head { padding: 20px 24px }`). **카드가 아니라 각
+        /// 구획이 갖는다** — 그래야 구분선이 카드 폭을 가로지른다.
+        static let cardInset: CGFloat = 24
+        /// 카드 머리의 위아래 여백.
+        static let headPadding: CGFloat = 20
+        /// 본문 여백과 구획 사이 간격(웹 `.push__body { gap: 20px; padding: 24px }`).
+        static let bodyPadding: CGFloat = 24
+        static let bodySpacing: CGFloat = 20
+        /// 카드 바닥 한 줄(웹 `.push__foot { padding: 14px 24px }`).
+        static let footPadding: CGFloat = 14
+        /// 권한 안내 상자(웹 `.push__permission { padding: 12px 14px }`).
+        static let noticeHorizontalPadding: CGFloat = 14
+        static let noticeVerticalPadding: CGFloat = 12
+        /// 샘플 이미지 칩(웹 `.push__sample { width: 44px; height: 28px }`).
+        static let sampleWidth: CGFloat = 44
+        static let sampleHeight: CGFloat = 28
+        /// 고른 칩의 테두리 굵기 — 웹은 `box-shadow: 0 0 0 1px`로 1px을 겹쳐 2px처럼 보인다.
+        static let sampleSelectedBorder: CGFloat = 2
+    }
+
     enum Call {
         /// 카드 좌우 여백. 대시보드(24)보다 좁다 — 시안이 무대에 폭을 더 준다.
         static let cardInset: CGFloat = 20
@@ -227,9 +267,10 @@ enum AppDimension {
         static let fontRowTitle: CGFloat = 16
     }
 
+    /// 시안 `Molecule/Alert` — 사방 16, 본문은 카드 본문과 같은 14.
     enum Alert {
-        static let horizontalPadding: CGFloat = 14
-        static let verticalPadding: CGFloat = 12
+        static let horizontalPadding: CGFloat = 16
+        static let verticalPadding: CGFloat = 16
         static let lineSpacing: CGFloat = 4
     }
 }

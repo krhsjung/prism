@@ -18,16 +18,11 @@ struct WebRtcView: View {
     let user: User
     let call: CallController
     let socket: SessionSocket
-    let sessions: SessionsServicing
-    let accessToken: () -> String?
+    /// 목록 하나. 대시보드·푸시 화면이 보는 것과 **같은 것**이다 — 조회와 소켓 신호는
+    /// `RootView`가 세션 전체를 대신해 한 자리에서 챙긴다.
+    let store: SessionStore
     let onNavigate: (ShellPage) -> Void
     let onSignOut: () async -> Void
-
-    @State private var list: [SessionListItem]?
-    @State private var loadFailed = false
-    /// 요청은 화면당 한 번만. 효과가 두 번 도는 경우에도 두 번 나가지 않게 한다.
-    @State private var started = false
-    @State private var handledChange: Int?
 
     private var inCall: Bool { call.call != nil }
 
@@ -57,20 +52,10 @@ struct WebRtcView: View {
             // 로비에 들어온 것만으로 **카메라를 열지 않는다.** 이미 허용한 적이 있으면
             // 장치 목록만 읽어 선택 메뉴를 채운다(카메라는 켜지지 않는다).
             call.enterLobby()
-            guard !started else { return }
-            started = true
-            handledChange = socket.changed
-            await load()
         }
         // 화면을 벗어나면 **통화도 끝내고 장치도 놓는다** — 축소된 통화 UI가 없어서,
         // 안 그러면 보이지도 끊기지도 않는 유령 통화가 된다(§4).
         .onDisappear { call.leaveLobby() }
-        // 소켓이 "바뀌었다"고 하면 목록을 다시 가져온다(비우지 않는다 — 깜빡임 방지).
-        .onChange(of: socket.changed) { _, next in
-            guard handledChange != next else { return }
-            handledChange = next
-            Task { await load(background: true) }
-        }
     }
 
     // MARK: - 카드
@@ -153,14 +138,22 @@ struct WebRtcView: View {
 
     private var headTitle: String {
         guard let active = call.call else { return t(.webrtcLobbyTitle) }
-        guard active.status == .ringing else { return t(.webrtcInCall) }
+        guard active.status == .ringing || active.status == .notified else {
+            return t(.webrtcInCall)
+        }
         return t(.webrtcCalling, ["device": peerLabel])
     }
 
     private var headSubtitle: String? {
         guard let active = call.call else { return t(.webrtcLobbyDesc) }
         // 상한(45초)은 **이 한 줄에만** 둔다 — 만료 화면에서 되풀이하지 않는다(§4).
-        return active.status == .ringing ? t(.webrtcRingTimeoutNote) : nil
+        if active.status == .ringing { return t(.webrtcRingTimeoutNote) }
+        // 기다리는 시간이 **왜 긴지**를 화면이 말한다(§4). 상한을 덧붙이지 않는다 —
+        // 이 문구가 이미 45초를 말하고 있어 숫자가 두 번 나온다.
+        if active.status == .notified {
+            return t(.webrtcNotifiedDesc, ["device": peerLabel])
+        }
+        return nil
     }
 
     /// 상대 이름은 **기기 종류**다. 루프백에서는 두 타일이 같은 카메라를 나눠 쓰므로
@@ -183,12 +176,11 @@ struct WebRtcView: View {
             let described = describe(pending)
             notice(described.text, isError: described.isError)
         }
-        if loadFailed {
+        if let key = store.loadErrorKey {
             VStack(alignment: .leading, spacing: AppDimension.Spacing.sm) {
-                PrismErrorAlert(message: t(.errorSessionsLoadFailed))
+                PrismErrorAlert(message: t(key))
                 PrismButton(title: t(.commonRetry), variant: .secondary, fillsWidth: false) {
-                    loadFailed = false
-                    Task { await load() }
+                    Task { await store.load() }
                 }
             }
             .padding(.horizontal, AppDimension.Call.cardInset)
@@ -202,16 +194,7 @@ struct WebRtcView: View {
                 PrismErrorAlert(message: message)
             } else {
                 // 정보 알림 — 거절·상대 종료처럼 **오류가 아닌 사실 통지**다(§4).
-                Text(message)
-                    .font(.system(size: AppDimension.FontSize.small))
-                    .lineSpacing(AppDimension.Alert.lineSpacing)
-                    .foregroundStyle(AppColor.info)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, AppDimension.Alert.horizontalPadding)
-                    .padding(.vertical, AppDimension.Alert.verticalPadding)
-                    .background(AppColor.infoBackground)
-                    .clipShape(.rect(cornerRadius: AppDimension.Radius.md))
-                    .accessibilityAddTraits(.isStaticText)
+                PrismInfoAlert(message: message)
             }
         }
         .padding(.horizontal, AppDimension.Call.cardInset)
@@ -238,7 +221,7 @@ struct WebRtcView: View {
                     // 타일의 행동은 **하나뿐이다.** 호출 중에는 나가는 길이 `Cancel`
                     // 하나여야 해서 컨트롤 바에 종료를 그리지 않고 타일이 이 버튼을
                     // 갖고(§4), 실패에는 문구가 없으므로 `Try again`만 남는다.
-                    if active.status == .ringing {
+                    if active.status == .ringing || active.status == .notified {
                         PrismButton(
                             title: t(.commonCancel),
                             variant: .secondary,
@@ -340,7 +323,7 @@ struct WebRtcView: View {
                 }
             }
 
-            if let list {
+            if let list = store.sessions {
                 CallTargetList(
                     sessions: list,
                     socketReady: socket.isReady,
@@ -350,7 +333,7 @@ struct WebRtcView: View {
                     },
                     onLoopback: call.startLoopback,
                 )
-            } else if !loadFailed {
+            } else if store.loadErrorKey == nil {
                 Text(t(.commonLoading))
                     .font(.system(size: AppDimension.FontSize.body))
                     .foregroundStyle(AppColor.muted)
@@ -370,7 +353,9 @@ struct WebRtcView: View {
             cameraOn: call.cameraOn,
             // 로비에도, 호출 중에도 종료는 **없다** — 아직 통화가 아니고, 나가는 길은
             // 호출 중이라면 `Cancel` 하나여야 한다(§4).
-            end: inCall && call.call?.status != .ringing,
+            end: inCall
+                && call.call?.status != .ringing
+                && call.call?.status != .notified,
             onToggleMic: call.toggleMic,
             onToggleCamera: call.toggleCamera,
             onHangUp: call.hangUp,
@@ -390,25 +375,13 @@ struct WebRtcView: View {
             }
     }
 
-    // MARK: - 목록
-
-    private func load(background: Bool = false) async {
-        guard let token = accessToken() else { return }
-        do {
-            // 목록은 대시보드와 **같은 HTTP 경로**에서 온다 — 소켓은 신호만 준다.
-            list = try await sessions.sessions(accessToken: token, background: background)
-            loadFailed = false
-        } catch {
-            loadFailed = true
-        }
-    }
-
     // MARK: - 상태 → 화면
 
     /// 배지는 `Atom/Badge`의 **기존 변형을 그대로** 쓴다 — 새 변형 없음(§4).
     static func statusKey(_ status: CallStatus) -> MessageKey {
         switch status {
         case .ringing: .webrtcStatusRinging
+        case .notified: .webrtcStatusNotified
         case .connecting: .webrtcStatusConnecting
         case .connected: .webrtcStatusConnected
         case .reconnecting: .webrtcStatusReconnecting
@@ -418,7 +391,8 @@ struct WebRtcView: View {
 
     static func statusVariant(_ status: CallStatus) -> PrismBadge.Variant {
         switch status {
-        case .ringing: .neutral
+        // 소켓 경로와 **같은 무게**다 — 다른 것은 기다리는 시간이지 좋고 나쁨이 아니다.
+        case .ringing, .notified: .neutral
         case .connecting: .info
         case .connected: .success
         case .reconnecting: .warning
@@ -474,7 +448,7 @@ struct WebRtcView: View {
     }
 
     static func peerTileState(_ status: CallStatus, _ hasTrack: Bool) -> TileState {
-        if status == .ringing { return .ringing }
+        if status == .ringing || status == .notified { return .ringing }
         if status == .reconnecting { return .reconnecting }
         if !hasTrack { return .connecting }
         return status == .connected ? .live : .connecting
@@ -482,6 +456,8 @@ struct WebRtcView: View {
 
     private func peerTileMessage(_ status: CallStatus, _ hasTrack: Bool) -> String? {
         if status == .ringing { return t(.webrtcTileRinging) }
+        // 소켓 경로와 다른 문구다 — 기다리는 것이 "응답"이 아니라 "기기가 열리는 것"이다.
+        if status == .notified { return t(.webrtcTileNotified) }
         if status == .reconnecting { return t(.webrtcTileReconnecting) }
         // 실패 타일은 **문구를 갖지 않는다** — 배지가 이미 그 말을 한다(§4).
         if status == .failed { return nil }

@@ -32,9 +32,11 @@ struct PrismButton: View {
         var foreground: Color {
             switch self {
             case .primary: AppColor.primaryForeground
-            case .outline: AppColor.heading
+            // 시안 `Atom/Button`의 Outline·Ghost 글자는 Text 토큰이다 — 판이 옅은 두
+            // 갈래가 Primary 판과 같은 색을 말하면 어느 쪽이 주 동작인지 흐려진다.
+            case .outline: AppColor.text
             case .secondary: AppColor.secondaryForeground
-            case .ghost: AppColor.primary
+            case .ghost: AppColor.text
             case .kakao: AppColor.kakaoForeground
             }
         }

@@ -44,6 +44,8 @@ final class AuthManager: SessionAuthority {
     @ObservationIgnored
     private let service: AuthServicing
     @ObservationIgnored
+    private let onSessionEnded: @MainActor () -> Void
+    @ObservationIgnored
     private let keychain: CredentialStoring
     @ObservationIgnored
     private let appleSignIn: AppleSignInController
@@ -125,12 +127,17 @@ final class AuthManager: SessionAuthority {
         // `@MainActor`라 메인 액터 위이므로 여기서 만드는 건 안전하다.
         social: SocialSignInProviding? = nil,
         webAuth: WebAuthController? = nil,
+        /// 세션이 **끝났을 때** 한 번 부른다 — 로그아웃·서버의 확정 거절 모두. 이 설치의
+        /// FCM 토큰을 버리는 자리다(`PushTokens.deleteToken`): 서버 로그아웃이 실패해
+        /// 세션이 남았더라도, 그 세션이 이 기기를 계속 가리키지 못하게 한다.
+        onSessionEnded: @escaping @MainActor () -> Void = {},
     ) {
         self.service = service
         self.keychain = keychain
         self.appleSignIn = appleSignIn
         self.social = social ?? UnavailableSocialSignIn()
         self.webAuth = webAuth ?? WebAuthController()
+        self.onSessionEnded = onSessionEnded
     }
 
     // MARK: - 세션
@@ -169,6 +176,9 @@ final class AuthManager: SessionAuthority {
         // 덮어쓴다. 이 시점 이후 앱이 죽거나(logout await 도중) 재설치돼도, 남은 값으로
         // 세션이 부활하지 않는다(Keychain의 마커가 그 의도를 지킨다).
         let revoked = keychain.revoke()
+        // 토큰 폐기의 의무도 **네트워크 전에** 남긴다(PushTokens.deleteToken이 보류 표식을
+        // 먼저 쓴다) — 서버 응답을 기다리다 앱이 죽어도 다음 등록이 먼저 버린다.
+        onSessionEnded()
         do {
             try await service.logout(accessToken: accessToken)
         } catch {
@@ -199,7 +209,13 @@ final class AuthManager: SessionAuthority {
     ///    가로채이는 문제를 피하는 경로다(plan/auth.md §4.1).
     ///  - demo: `/auth/demo/native`가 `AuthSession`(토큰)을 body로 주고, 다른 네이티브
     ///    경로와 똑같이 Keychain(Bearer)에 담는다. 데모는 방식(native)만 있다.
-    func signIn(with provider: AuthProvider, method: AuthMethod = .native) async throws {
+    ///
+    /// 로그인은 로그인만 한다 — 푸시 등록은 살아 있는 세션에 `PushRegistration`이 붙인다
+    /// (plan/push.md §5-2를 뒤집었다). 한때 여기 실리던 토큰 인자는 그래서 없다.
+    func signIn(
+        with provider: AuthProvider,
+        method: AuthMethod = .native,
+    ) async throws {
         let token = beginAuthAction()
         let gen = generation
         defer { endAuthAction(token) }
@@ -235,6 +251,9 @@ final class AuthManager: SessionAuthority {
             // 지난 로그아웃이 durable하게 남았다 — 남은 값으로 되살리지 않고 signedOut.
             // 마커는 지우지 않는다: 옛 두-키가 남아 있을 수 있고, 마커가 그것을 가려
             // 부활을 막는 지키개이기 때문이다(다음 로그인의 save가 덮을 때까지 유지).
+            // 그 로그아웃이 토큰 폐기까지 못 갔을 수 있다(응답을 기다리다 죽었다) — 여기서
+            // 한 번 더 부른다. 이미 버렸으면 표식이 없어 아무 일도 없다.
+            onSessionEnded()
             applyFromRestore(gen) { self.state = .signedOut }
             return
         case .none:
@@ -558,6 +577,11 @@ final class AuthManager: SessionAuthority {
     /// 만들지 않는다).
     private func adopt(_ session: AuthSession, generation gen: Int) throws {
         guard gen == generation else { return }
+        // 앞 세션의 자격증명이 남아 있다 — 확인이 안 된 채(오프라인·일시적 실패) 로그인
+        // 화면이 떴고 거기서 다시 로그인한 경우다. 앞 세션은 서버에 살아 있을 수 있고 그
+        // 토큰은 이 기기를 가리키는데, 로그아웃이 없었으니 토큰도 버려지지 않았다. 다른
+        // 계정일 수 있으므로 **이 설치의 토큰을 버린다**(plan/push.md §5-21).
+        if case .credentials = keychain.load() { onSessionEnded() }
         guard keychain.save(
             .init(accessToken: session.accessToken, refreshToken: session.refreshToken),
         ) else {
@@ -586,6 +610,8 @@ final class AuthManager: SessionAuthority {
     private func publishSignedOut() {
         if case .signedIn = state { endedUnexpectedly = true }
         state = .signedOut
+        // 서버가 세션을 끝냈다 — 이 설치의 FCM 토큰도 버린다(onSessionEnded).
+        onSessionEnded()
     }
 
     /// 복원/갱신이 **화면 상태**를 바꾸는 유일한 관문. 사용자 액션이 진행 중이거나(그 결과가

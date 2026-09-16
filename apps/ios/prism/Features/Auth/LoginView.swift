@@ -28,7 +28,9 @@ struct LoginView: View {
 
     init(authManager: AuthManager) {
         self.authManager = authManager
-        _viewModel = State(initialValue: LoginViewModel(authManager: authManager))
+        _viewModel = State(
+            initialValue: LoginViewModel(authManager: authManager)
+        )
     }
 
     var body: some View {
@@ -98,11 +100,15 @@ struct LoginView: View {
                 signInButton(.demo, .native, variant: .secondary)
             }
 
+            // 알림 권한은 여기서 묻지 않는다 — 로그인은 로그인만 하고, 권한과 등록은 푸시
+            // 화면의 `알림 켜기`가 함께 끝낸다(plan/push.md §5-2).
             Text(t(.authNoPersonalData))
                 .font(.system(size: AppDimension.FontSize.body))
                 .foregroundStyle(AppColor.muted)
         }
     }
+
+
 
     private func signInButton(
         _ provider: AuthProvider,
@@ -132,7 +138,9 @@ struct LoginView: View {
 }
 
 #Preview {
-    LoginView(authManager: ServiceContainer.shared.authManager)
+    LoginView(
+        authManager: ServiceContainer.shared.authManager,
+    )
         .environment(ServiceContainer.shared.localization)
         .environment(ServiceContainer.shared.theme)
 }

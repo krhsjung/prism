@@ -86,6 +86,13 @@ enum APIEndpoint {
     case revokeSession(id: String)
     /// 내 모든 세션을 폐기 — 현재 세션까지 포함한다.
     case revokeAllSessions
+    /// 내 기기**들**에 알림을 보낸다. **등록 토큰은 싣지 않는다** — 서버가 세션
+    /// 레코드에서 꺼낸다(plan/push.md §5-3). 대상이 여럿이라 세션 하위 경로가 아니다.
+    case sendPush
+    /// 지금 세션에 등록 토큰을 붙인다(§5-2를 뒤집었다).
+    case registerPush
+    /// 이 세션을 대상에서 뺀다(§5-15).
+    case unregisterPush
 
     var path: String {
         switch self {
@@ -100,6 +107,9 @@ enum APIEndpoint {
         case .sessions: "/auth/sessions"
         case .revokeSession(let id): "/auth/sessions/\(id)/revoke"
         case .revokeAllSessions: "/auth/sessions/revoke-all"
+        case .sendPush: "/auth/push/send"
+        case .registerPush: "/auth/push/register"
+        case .unregisterPush: "/auth/push/unregister"
         }
     }
 
@@ -107,7 +117,7 @@ enum APIEndpoint {
         switch self {
         case .me, .sessions: "GET"
         case .appleNative, .googleNative, .kakaoNative, .demoNative, .nativeExchange,
-            .refresh, .logout, .revokeSession, .revokeAllSessions: "POST"
+            .refresh, .logout, .revokeSession, .revokeAllSessions, .sendPush, .registerPush, .unregisterPush: "POST"
         }
     }
 
@@ -116,7 +126,7 @@ enum APIEndpoint {
     /// 토큰을 실어야 한다.
     var requiresAuth: Bool {
         switch self {
-        case .me, .logout, .sessions, .revokeSession, .revokeAllSessions: true
+        case .me, .logout, .sessions, .revokeSession, .revokeAllSessions, .sendPush, .registerPush, .unregisterPush: true
         case .appleNative, .googleNative, .kakaoNative, .demoNative, .nativeExchange,
             .refresh:
             false
@@ -130,7 +140,7 @@ enum APIEndpoint {
     /// 다시 들어가게 된다. 나머지는 토큰이 없어 되살릴 세션도 없다.
     var recoversSession: Bool {
         switch self {
-        case .sessions, .revokeSession, .revokeAllSessions: true
+        case .sessions, .revokeSession, .revokeAllSessions, .sendPush, .registerPush, .unregisterPush: true
         case .me, .logout, .appleNative, .googleNative, .kakaoNative, .demoNative,
             .nativeExchange, .refresh:
             false

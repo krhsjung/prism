@@ -168,6 +168,22 @@ final class SessionSocket {
         return true
     }
 
+    /// 보내기가 **끝날 때까지** 기다려 답한다 — 위 `send`는 넘긴 순간 true라, 그 뒤의 실패를
+    /// 모른다. 알림의 `resume`처럼 "묻지 못했으면 나중에 다시 묻는" 자리만 쓴다.
+    func sendAwaiting(_ message: CallClientMessage) async -> Bool {
+        guard isReady, let task,
+              let data = try? JSONEncoder().encode(message),
+              let frame = String(data: data, encoding: .utf8)
+        else { return false }
+        do {
+            try await task.send(.string(frame))
+            return true
+        } catch {
+            Log.network("socket send failed")
+            return false
+        }
+    }
+
     // MARK: - 연결
 
     private func connect() {

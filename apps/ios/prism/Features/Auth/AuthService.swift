@@ -10,6 +10,8 @@ import Foundation
 /// 인증 API의 계약. `AuthManager`는 구체 타입이 아니라 이 프로토콜에 의존해, 테스트에서
 /// 네트워크 없이 가짜 응답을 주입할 수 있다(동시성·자격증명 로직을 결정적으로 검증).
 protocol AuthServicing: Sendable {
+    // 로그인은 로그인만 한다 — 푸시 등록 토큰은 여기 실리지 않고, 살아 있는 세션에
+    // `POST /auth/push/register`로 붙는다(plan/push.md §5-2를 뒤집었다).
     func loginWithApple(
         identityToken: String,
         nonce: String,
@@ -89,13 +91,16 @@ final class AuthService: AuthServicing, Sendable {
     /// Kakao 네이티브(Kakao SDK)가 준 access token으로 서버가 세션을 발급한다.
     /// access token은 불투명 문자열이라 서버가 access_token_info로 발급 앱(app_id)을 대조한다.
     func loginWithKakao(accessToken: String) async throws -> AuthSession {
-        try await network.send(.kakaoNative, body: KakaoNativeRequest(accessToken: accessToken))
+        try await network.send(
+            .kakaoNative,
+            body: KakaoNativeRequest(accessToken: accessToken)
+        )
     }
 
     /// 네이티브 데모 로그인. 웹 `/auth/demo`(쿠키)와 세션은 같고, 전달만 다르다 —
-    /// 토큰을 body(`AuthSession`)로 받아 Keychain에 담는다(쿠키를 쓰지 않는다). body가 없다.
+    /// 토큰을 body(`AuthSession`)로 받아 Keychain에 담는다(쿠키를 쓰지 않는다).
     func loginDemo() async throws -> AuthSession {
-        try await network.send(.demoNative)
+        try await network.send(.demoNative, body: DemoNativeRequest())
     }
 
     /// 네이티브 웹-redirect(ASWebAuthenticationSession) 콜백의 일회용 코드를 토큰으로 교환.
@@ -151,6 +156,9 @@ private struct GoogleNativeRequest: Encodable {
 private struct KakaoNativeRequest: Encodable {
     let accessToken: String
 }
+
+/// 데모 로그인의 빈 body(`{}`). 한때 등록 토큰이 실렸던 자리다 — 지금은 실을 것이 없다.
+private struct DemoNativeRequest: Encodable {}
 
 private struct NativeExchangeRequest: Encodable {
     let code: String

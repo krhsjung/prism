@@ -2,7 +2,7 @@
 //  SessionsService.swift
 //  prism
 //
-//  Path: Features/Dashboard/SessionsService.swift
+//  Path: Core/Sessions/SessionsService.swift
 //
 
 import Foundation
@@ -11,6 +11,9 @@ import Foundation
 ///
 /// `AuthServicing`과 같은 이유로 프로토콜을 둔다: 화면 로직을 네트워크 없이 검증할 수
 /// 있어야 하고, 폐기는 되돌릴 수 없어 가짜 구현으로 확인하는 편이 안전하다.
+///
+/// **대시보드의 것이 아니라서 Core에 있다** — 대시보드가 관리하고, 통화가 상대를 고르고,
+/// 푸시가 대상을 고른다. 셋이 보는 목록은 `SessionStore` 하나다.
 protocol SessionsServicing: Sendable {
     /// 내 활성 세션 목록. 현재 세션은 서버가 `isCurrent`로 표시해 준다.
     func sessions(accessToken: String) async throws -> [SessionListItem]

@@ -43,7 +43,7 @@ struct CallTargetList: View {
                 if let current {
                     // 현재 세션 줄만 할 수 있는 일이 있다 — 대시보드에서는 `Revoke`를 갖지
                     // 않는 그 줄이 여기서는 **루프백 시험**이다(§4).
-                    row(
+                    DeviceRowView(
                         device: current.device,
                         title: t(.webrtcThisTab),
                         subtitle: t(.webrtcLoopback),
@@ -63,12 +63,23 @@ struct CallTargetList: View {
                 ForEach(others) { session in
                     // 소켓이 없으면 서버가 `unreachable`로 거절한다. 푸시로 깨우는 경로는
                     // push 슬라이스와 함께 붙고(§8-11), 그때까지 이 줄은 알림이 꺼진 줄이다.
-                    let reachable = socketReady && session.isConnected
+                    // **소켓의 유무는 "걸 수 있는가"가 아니라 "어떻게 닿는가"를
+                    // 가른다**(§4). 세션이 살아 있으면 전부 통화 대상이다 — 붙어 있으면
+                    // 즉시 울리고, 아니면 서버가 알림으로 깨운다. 백그라운드로 내린 앱을
+                    // 죽은 줄로 그리면 이 앱에서 가장 흔한 경우가 막힌다.
+                    //
+                    // **닿지 않는 줄만 버튼을 잃는다**: 소켓도 없고 토큰도 없을 때다.
+                    let reachable =
+                        socketReady && (session.isConnected || session.pushRegistered)
+                    // 부제가 갈린다 — 기다리는 시간이 왜 다른지를 목록에서부터 말한다(§4).
+                    let willNotify = reachable && !session.isConnected
                     divider
-                    row(
+                    DeviceRowView(
                         device: session.device,
                         title: t(DashboardView.deviceLabel(session.device)),
-                        subtitle: "#\(session.id.prefix(8))",
+                        subtitle: willNotify
+                            ? t(.webrtcWillNotify)
+                            : "#\(session.id.prefix(8))",
                         isMuted: !reachable,
                     ) {
                         if reachable {
@@ -121,46 +132,6 @@ struct CallTargetList: View {
         Rectangle().fill(AppColor.border).frame(height: 1)
     }
 
-    /// 기기 한 줄 — 아이콘 칩 · 이름/부제 · 행동.
-    private func row<Trailing: View>(
-        device: DeviceKind,
-        title: String,
-        subtitle: String,
-        isMuted: Bool,
-        @ViewBuilder trailing: () -> Trailing,
-    ) -> some View {
-        HStack(spacing: AppDimension.Call.rowSpacing) {
-            PrismGlyph.device(device)
-                .prismStroke(size: AppDimension.Call.rowIconGlyph)
-                .foregroundStyle(isMuted ? AppColor.muted : AppColor.heading)
-                .frame(
-                    width: AppDimension.Call.rowIconGlyph,
-                    height: AppDimension.Call.rowIconGlyph,
-                )
-                .frame(
-                    width: AppDimension.Call.rowIconTile,
-                    height: AppDimension.Call.rowIconTile,
-                )
-                .background(
-                    AppColor.secondaryBackground,
-                    in: .rect(cornerRadius: AppDimension.Radius.md),
-                )
-                .accessibilityHidden(true)
-
-            VStack(alignment: .leading, spacing: AppDimension.Call.rowLabelSpacing) {
-                Text(title)
-                    .font(.system(size: AppDimension.Call.fontRowTitle))
-                    .foregroundStyle(isMuted ? AppColor.muted : AppColor.heading)
-                Text(subtitle)
-                    .font(.system(size: AppDimension.Call.fontCaption))
-                    .foregroundStyle(AppColor.muted)
-            }
-            Spacer(minLength: AppDimension.Spacing.sm)
-            trailing()
-        }
-        .padding(.horizontal, AppDimension.Call.rowHorizontalPadding)
-        .padding(.vertical, AppDimension.Call.rowVerticalPadding)
-    }
 }
 
 /// 라벨과 그 아래 컨트롤 한 벌(웹 `.setup__field`).

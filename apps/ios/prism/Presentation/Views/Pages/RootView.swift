@@ -20,6 +20,12 @@ struct RootView: View {
 
     /// 지금 보고 있는 페이지. **웹의 라우터가 앉는 자리**다 — 셸이 두 화면을 나눠 쓰므로
     /// 어느 쪽인지는 셸 바깥(여기)에서 쥔다.
+    /// 알림이 가리킨 통화를 묻는 일의 주인 — 비동기 보내기와 사람의 이동이 겹치는 자리다.
+    @State private var resumer = PushCallResumer(links: PushLinks.shared) { callId in
+        await ServiceContainer.shared.call.resumeCall(callId)
+    }
+    /// 소켓이 준비될 때마다 오른다 — 다시 붙은 뒤의 계기가 옛 소켓의 보내기에 합류하지 않게.
+    @State private var socketConnection = 0
     @State private var page: ShellPage = .dashboard
 
     /// 백그라운드를 다녀왔는가.
@@ -31,6 +37,13 @@ struct RootView: View {
     /// 남았다**(다시 열어도 돌아오지 않았다).
     @State private var wasBackgrounded = false
 
+    /// 셸의 이동. 통화 화면을 **떠나면** 아직 묻지 못한 통화 요청을 버린다 — 남겨 두면 다시
+    /// 붙는 순간 통화 화면으로 끌려가고, 그때까지 화면 요청은 통화에 밀려 버려진다.
+    private func navigate(_ next: ShellPage) {
+        page = next
+        if next != .webrtc { resumer.leaveCallScreen() }
+    }
+
     var body: some View {
         content
             // 걸려 온 통화는 **앱 위에** 뜬다 — 대시보드를 보고 있어도 마찬가지다
@@ -38,6 +51,11 @@ struct RootView: View {
             .overlay { incomingCall }
             .preferredColorScheme(theme.theme.colorScheme)
             .task { await auth.restoreSession() }
+            // 알림 버튼 문구는 시스템에 등록해 둔 값이라 뷰처럼 다시 그려지지 않는다 — 언어를
+            // 바꾸면 지금 언어로 다시 등록한다.
+            .onChange(of: t.locale) { _, _ in
+                PushCategories.register(localization: t)
+            }
             .onChange(of: scenePhase) { _, current in
                 // `.inactive`(알림 센터·전화 등)는 양쪽 모두 무시한다 — 잠깐 가려졌다
                 // 돌아올 때마다 세션을 확인하고 소켓을 여닫으면 요동만 친다.
@@ -76,6 +94,9 @@ struct RootView: View {
                     // 붙어 봐야 거절당하고, 그 거절이 다시 목록 재조회를 부른다.
                     if case .signedIn = auth.state {
                         ServiceContainer.shared.sessionSocket.start()
+                        // 뒤에 있는 동안 사람은 설정에서 알림을 끌 수 있고 FCM은 토큰을
+                        // 돌린다 — 돌아온 김에 등록을 맞춘다(PushRegistration).
+                        ServiceContainer.shared.pushRegistration.reconcile()
                     }
                 }
             }
@@ -100,6 +121,11 @@ struct RootView: View {
                     // 통화도 세션의 것이다 — 끝난 세션의 벨이 다음 로그인 화면에
                     // 남아 있으면 안 된다.
                     ServiceContainer.shared.call.reset()
+                    // 세션 목록도 마찬가지다 — 다음 사용자의 대시보드에 앞 사람의
+                    // 기기 목록이 한 프레임이라도 그려지면 안 된다.
+                    ServiceContainer.shared.sessions.reset()
+                    // 등록도 세션의 것이다 — 진행 중이던 되살리기가 다음 세션에 붙지 못하게.
+                    ServiceContainer.shared.pushRegistration.reset()
                     page = .dashboard
                 }
         case .signedIn(let user):
@@ -110,6 +136,63 @@ struct RootView: View {
                 // 매단다 — 다른 화면을 보는 동안 내 기기가 스스로를 "비활성"으로
                 // 보고하면 안 된다.
                 .task { ServiceContainer.shared.sessionSocket.start() }
+                // 목록도 **세션이 시작될 때 한 번** 받는다 — 화면마다 받으면 화면을
+                // 오갈 때마다 같은 것을 다시 묻고, 화면마다 규칙이 갈린다.
+                .task { await ServiceContainer.shared.sessions.load() }
+                // 소켓이 "바뀌었다"고 하면 다시 가져온다 — **이 자리 하나뿐이다.**
+                //
+                // 화면이 아니라 세션에 매단 것이 핵심이다: 보고 있는 화면만 듣게 하면
+                // 듣지 않는 화면이 생기고(푸시 화면이 그랬다), 화면을 하나 더 만들 때마다
+                // 같은 규칙을 옮겨 적어야 한다. **비우지 않는다** — 다른 기기가 하나
+                // 붙었다고 목록이 "불러오는 중"으로 접혔다 펴지면 통째로 깜빡인다.
+                // 재연결의 첫 ready도 이 신호를 올리므로, 백그라운드를 다녀오는 동안
+                // 놓친 변화가 복귀와 함께 따라온다(SessionSocket.handle).
+                .onChange(of: ServiceContainer.shared.sessionSocket.changed) { _, _ in
+                    Task {
+                        await ServiceContainer.shared.sessions.refresh(background: true)
+                    }
+                }
+                // 이 기기가 **받기로 해 뒀으면** 조용히 다시 붙인다(§5-16) — 등록의 수명을
+                // 쥔 코디네이터가 로그인 직후 한 번 맞춘다. 권한 창은 뜨지 않는다.
+                .task { ServiceContainer.shared.pushRegistration.reconcile() }
+                // 내 줄의 등록 여부가 바뀌었다(목록 도착·다른 화면의 해제·서버가 죽은
+                // 토큰을 뗌) — 그때도 한 번 맞춘다.
+                .onChange(of: ServiceContainer.shared.sessions.sessions?
+                    .first(where: \.isCurrent)?.pushRegistered
+                ) { _, _ in
+                    ServiceContainer.shared.pushRegistration.reconcile()
+                }
+                // 알림을 눌러 들어왔다 — 통화 화면으로 옮기고 **이 통화가 아직 살아
+                // 있나**를 묻는다(§6). 소켓이 붙은 뒤에야 물을 수 있다.
+                //
+                // 살아 있으면 벨이 다시 울리고, 아니면 `Call expired`를 본다 — 그것이
+                // 푸시 경로의 정상 결말이다(§8-10). 값은 **한 번만** 소비한다 —
+                // 남겨 두면 화면을 되돌아올 때마다 다시 물어본다.
+                .onChange(of: ServiceContainer.shared.sessionSocket.isReady, initial: true) { _, ready in
+                    if ready { socketConnection += 1 }
+                }
+                .onChange(of: PushLinkTrigger(
+                    callId: PushLinks.shared.pendingCallId,
+                    seq: PushLinks.shared.callSeq,
+                    connection: socketConnection,
+                    socketReady: ServiceContainer.shared.sessionSocket.isReady,
+                ), initial: true) { _, trigger in
+                    guard let callId = trigger.callId, trigger.socketReady else { return }
+                    page = .webrtc
+                    // 묻는 일(겹침·실패 뒤 남기기·떠남)은 한 주인이 한다(`PushCallResumer`).
+                    resumer.attempt(callId: callId, seq: trigger.seq, connection: trigger.connection)
+                }
+                // 알림의 링크가 우리 주소였다 — 그 화면으로 옮긴다(딥링크). 앱이 꺼진 채 눌렀으면
+                // 이 뷰가 서기 전에 값이 들어와 있으므로 처음에도 본다(`initial`).
+                .onChange(of: PushLinks.shared.pendingPage, initial: true) { _, destination in
+                    guard let destination else { return }
+                    page = switch destination {
+                    case .dashboard: .dashboard
+                    case .push: .push
+                    case .webrtc: .webrtc
+                    }
+                    PushLinks.shared.consumePage()
+                }
                 // 수락은 대시보드에서도 일어난다 — 통화는 통화 화면에서 그린다.
                 .onChange(of: ServiceContainer.shared.call.wantsCallScreen) { _, wants in
                     guard wants else { return }
@@ -130,9 +213,22 @@ struct RootView: View {
             DashboardView(
                 user: user,
                 sessions: container.sessionsService,
+                store: container.sessions,
                 accessToken: token,
                 socket: container.sessionSocket,
-                onNavigate: { page = $0 },
+                onNavigate: navigate,
+            ) {
+                await auth.signOut()
+            }
+        case .push:
+            PushView(
+                user: user,
+                store: container.sessions,
+                push: container.pushService,
+                pushTokens: container.pushTokens,
+                registration: container.pushRegistration,
+                accessToken: token,
+                onNavigate: navigate,
             ) {
                 await auth.signOut()
             }
@@ -141,9 +237,8 @@ struct RootView: View {
                 user: user,
                 call: container.call,
                 socket: container.sessionSocket,
-                sessions: container.sessionsService,
-                accessToken: token,
-                onNavigate: { page = $0 },
+                store: container.sessions,
+                onNavigate: navigate,
             ) {
                 await auth.signOut()
             }
@@ -163,4 +258,17 @@ struct RootView: View {
             )
         }
     }
+}
+
+/// `onChange`가 볼 수 있는 한 값 — 알림이 가리키는 통화와 소켓의 준비 상태.
+///
+/// 둘 다 바뀔 수 있고 **둘이 함께 참일 때만** 물을 수 있어서, 하나로 묶어야 어느 쪽이
+/// 나중에 오든 같은 자리에서 반응한다.
+private struct PushLinkTrigger: Equatable {
+    let callId: String?
+    /// 같은 통화를 다시 열어 달라고 해도 새 값이 되게 — `PushLinks.callSeq`.
+    let seq: Int
+    /// 소켓이 준비된 횟수 — 다시 붙으면 새 값이 되게.
+    let connection: Int
+    let socketReady: Bool
 }

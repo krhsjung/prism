@@ -237,11 +237,13 @@ private func creds(_ access: String, _ refresh: String) -> KeychainManager.Crede
 private func makeManager(
     _ service: AuthServicing,
     _ store: FakeStore,
+    onSessionEnded: @escaping @MainActor () -> Void = {},
 ) -> AuthManager {
     AuthManager(
         service: service,
         keychain: store,
         appleSignIn: AppleSignInController(),
+        onSessionEnded: onSessionEnded,
     )
 }
 
@@ -921,6 +923,69 @@ struct AuthManagerTests {
         await service.gate.open()
         await out.value
         #expect(store.load() == StoredSession.revoked) // 마커는 지키개로 남는다
+    }
+
+    // 토큰 폐기의 의무도 **네트워크 전에** 남는다 — logout 응답을 기다리다 앱이 죽어도
+    // 다음 등록이 먼저 버린다(plan/push.md §5-21).
+    @Test("로그아웃은 네트워크 전에 세션 종료 훅을 부른다")
+    func endsSessionBeforeNetwork() async {
+        let service = GatedLogoutService()
+        let store = FakeStore(creds("a", "r"))
+        var ended = 0
+        let manager = makeManager(service, store) { ended += 1 }
+
+        let out = Task { await manager.signOut() }
+        await service.gate.waitUntilEntered()
+        #expect(ended == 1)
+
+        await service.gate.open()
+        await out.value
+        #expect(ended == 1)
+    }
+
+    // 그 로그아웃이 폐기까지 못 갔을 수 있다 — revoked 마커를 복원하는 자리가 한 번 더 부른다.
+    @Test("revoked 마커 복원도 세션 종료 훅을 부른다")
+    func revokedRestoreEndsSession() async {
+        let store = FakeStore(creds("a", "r"))
+        _ = store.revoke()
+        var ended = 0
+        let manager = makeManager(FakeService(), store) { ended += 1 }
+
+        await manager.restoreSession()
+
+        #expect(ended == 1)
+        #expect(store.load() == StoredSession.revoked)
+    }
+
+    // 앞 세션의 자격증명이 남은 채 다시 로그인하면 — 다른 계정일 수 있다 — 토큰을 버린다.
+    @Test("자격증명이 남은 채 다시 로그인하면 세션 종료 훅을 부른다")
+    func replacementLoginEndsSession() async throws {
+        let service = FakeService()
+        service.loginDemoResult = .success(
+            AuthSession(accessToken: "a2", refreshToken: "r2", user: user(), accessTokenTtlMs: 900_000)
+        )
+        let store = FakeStore(creds("a", "r"))
+        var ended = 0
+        let manager = makeManager(service, store) { ended += 1 }
+
+        try await manager.signIn(with: .demo)
+
+        #expect(ended == 1)
+        #expect(store.load().credentials?.accessToken == "a2")
+    }
+
+    @Test("처음 로그인에는 세션 종료 훅을 부르지 않는다")
+    func firstLoginDoesNotEndSession() async throws {
+        let service = FakeService()
+        service.loginDemoResult = .success(
+            AuthSession(accessToken: "a", refreshToken: "r", user: user(), accessTokenTtlMs: 900_000)
+        )
+        var ended = 0
+        let manager = makeManager(service, FakeStore()) { ended += 1 }
+
+        try await manager.signIn(with: .demo)
+
+        #expect(ended == 0)
     }
 
     // 라운드6 버그3: revoked 마커는 Keychain에 살아 재설치(새 매니저·다른 UserDefaults)

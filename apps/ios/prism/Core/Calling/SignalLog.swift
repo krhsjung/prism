@@ -129,6 +129,7 @@ extension CallServerMessage {
         switch self {
         case .incoming: "incoming"
         case .ringing: "ringing"
+        case .notified: "notified"
         case .accepted: "accepted"
         case .claimed: "claimed"
         case .declined: "declined"
