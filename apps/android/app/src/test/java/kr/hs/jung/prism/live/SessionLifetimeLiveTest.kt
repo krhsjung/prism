@@ -16,7 +16,7 @@ import kr.hs.jung.prism.core.security.SessionTokens
 import kr.hs.jung.prism.domain.model.AuthProvider
 import kr.hs.jung.prism.feature.auth.AuthManager
 import kr.hs.jung.prism.feature.auth.HttpAuthApi
-import kr.hs.jung.prism.feature.dashboard.HttpSessionsApi
+import kr.hs.jung.prism.core.session.HttpSessionsApi
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -40,7 +40,7 @@ import java.util.concurrent.TimeUnit
  * 세션을 영원히 살려내던 문제가 그대로 되살아난다 — 그건 실제 서버 앞에서만 드러난다.
  *
  * `PRISM_LIVE_API_URL`이 있을 때만 돈다(없으면 건너뛴다). UI는 보지 않으므로 에뮬레이터가
- * 없어도 되고, 그 대신 화면 대신 [SessionsApi][kr.hs.jung.prism.feature.dashboard.SessionsApi]를
+ * 없어도 되고, 그 대신 화면 대신 [SessionsApi][kr.hs.jung.prism.core.session.SessionsApi]를
  * 직접 부른다 — 대시보드가 소켓 신호에 반응하는 그 호출과 같은 것이다.
  *
  * ```

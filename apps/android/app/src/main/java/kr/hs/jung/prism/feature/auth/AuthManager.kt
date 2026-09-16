@@ -38,6 +38,12 @@ class AuthManager(
     private val social: SocialSignIn = SocialSignIn.Unavailable,
     // 웹 redirect 로그인(Custom Tabs). 기본값은 "미설정"이라 native·데모만 동작한다.
     private val webAuth: WebAuth = WebAuth.Unavailable,
+    /**
+     * 세션이 **끝났을 때** 한 번 부른다 — 로그아웃·서버의 확정 거절 모두. 이 설치의 FCM
+     * 토큰을 버리는 자리다(`PushTokens.deleteToken`): 서버 로그아웃이 실패해 세션이
+     * 남았더라도, 그 세션이 이 기기를 계속 가리키지 못하게 한다.
+     */
+    private val onSessionEnded: () -> Unit = {},
 ) : SessionAuthority {
     sealed interface State {
         /** 저장된 토큰으로 세션을 확인하는 중(앱 시작 직후). */
@@ -194,6 +200,9 @@ class AuthManager(
     suspend fun signOut() = withContext(NonCancellable) {
         // 락을 **기다리기 전에** 의도를 세운다(위 [signOutRequested] 설명).
         signOutRequested = true
+        // 토큰 폐기의 의무도 **네트워크 전에** 남긴다(PushTokens.deleteToken이 보류 표식을
+        // 먼저 쓴다) — 서버 응답을 기다리다 프로세스가 죽어도 다음 등록이 먼저 버린다.
+        onSessionEnded()
         try {
             mutex.withLock {
                 val access = tokens.access()
@@ -227,6 +236,8 @@ class AuthManager(
         method: AuthMethod = AuthMethod.NATIVE,
         activity: Activity? = null,
     ) {
+        // 로그인은 로그인만 한다 — 푸시 등록은 살아 있는 세션에 `PushRegistration`이 붙인다
+        // (plan/push.md §5-2를 뒤집었다). 한때 여기 실리던 토큰 인자는 그래서 없다.
         if (method == AuthMethod.REDIRECT) {
             redirectSignIn(provider, activity)
             return
@@ -285,6 +296,12 @@ class AuthManager(
 
     /** 세션 채택 — Bearer 토큰을 저장하고 상태를 전환한다. 여기가 **새 세션의 시작**이다. */
     private fun adopt(session: AuthSession) {
+        // 앞 세션의 자격증명이 남아 있다 — 확인이 안 된 채(오프라인·일시적 실패) 로그인
+        // 화면이 떴고 거기서 다시 로그인한 경우다. 앞 세션은 서버에 살아 있을 수 있고 그
+        // 토큰은 이 기기를 가리키는데, 로그아웃이 없었으니 토큰도 버려지지 않았다. 다른
+        // 계정일 수 있으므로 **이 설치의 토큰을 버린다** — 앞 세션의 토큰은 죽은 값이 되고
+        // 새 세션은 새 토큰을 받는다(plan/push.md §5-21).
+        if (tokens.hasAny()) onSessionEnded()
         tokens.save(session.accessToken, session.refreshToken)
         beginSession(session.accessToken)
         noteAccessToken(session.accessTokenTtlMs)
@@ -450,6 +467,8 @@ class AuthManager(
             wasSignedIn -> _endedUnexpectedly.value = true
         }
         _state.value = State.SignedOut
+        // 세션이 끝났다 — 이 설치의 FCM 토큰도 버린다(위 onSessionEnded).
+        onSessionEnded()
     }
 
 

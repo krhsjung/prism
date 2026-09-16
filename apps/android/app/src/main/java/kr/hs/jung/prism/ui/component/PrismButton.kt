@@ -57,9 +57,11 @@ fun PrismButton(
             background = colors.primary
             foreground = colors.primaryForeground
         }
+        // 시안 `Atom/Button`의 Outline·Ghost 글자는 Text 토큰이다 — 판이 옅은 두 갈래가
+        // Primary 판과 같은 색을 말하면 어느 쪽이 주 동작인지 흐려진다.
         PrismButtonVariant.OUTLINE -> {
             background = colors.card
-            foreground = colors.heading
+            foreground = colors.text
             border = BorderStroke(1.dp, colors.border)
         }
         PrismButtonVariant.SECONDARY -> {
@@ -68,7 +70,7 @@ fun PrismButton(
         }
         PrismButtonVariant.GHOST -> {
             background = Color.Transparent
-            foreground = colors.primary
+            foreground = colors.text
         }
         PrismButtonVariant.KAKAO -> {
             background = colors.kakao

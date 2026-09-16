@@ -126,6 +126,7 @@ val CallServerMessage.logType: String
     get() = when (this) {
         is CallServerMessage.Incoming -> "incoming"
         is CallServerMessage.Ringing -> "ringing"
+        is CallServerMessage.Notified -> "notified"
         is CallServerMessage.Accepted -> "accepted"
         is CallServerMessage.Claimed -> "claimed"
         is CallServerMessage.Declined -> "declined"

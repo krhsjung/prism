@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import android.app.Activity
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -52,7 +53,9 @@ fun LoginScreen(
     localeStore: LocaleStore,
 ) {
     val viewModel: LoginViewModel = viewModel(
-        factory = viewModelFactory { initializer { LoginViewModel(authManager) } },
+        factory = viewModelFactory {
+            initializer { LoginViewModel(authManager) }
+        },
     )
     val state by viewModel.state.collectAsStateWithLifecycle()
     // 사용자가 스스로 로그아웃한 것이 아니라 서버가 세션을 끊어 여기로 온 경우 —
@@ -117,6 +120,8 @@ fun LoginScreen(
                 SignInButton(AuthProvider.DEMO, AuthMethod.NATIVE, PrismButtonVariant.SECONDARY, state, viewModel)
             }
 
+            // 알림 권한은 여기서 묻지 않는다 — 로그인은 로그인만 하고, 권한과 등록은 푸시
+            // 화면의 `알림 켜기`가 함께 끝낸다(plan/push.md §5-2).
             Text(
                 text = stringResource(R.string.auth_no_personal_data),
                 color = colors.muted,

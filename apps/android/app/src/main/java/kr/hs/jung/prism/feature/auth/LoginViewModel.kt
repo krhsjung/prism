@@ -31,11 +31,15 @@ data class LoginUiState(
     val isBusy: Boolean get() = pending != null
 }
 
-class LoginViewModel(private val authManager: AuthManager) : ViewModel() {
+class LoginViewModel(
+    private val authManager: AuthManager,
+) : ViewModel() {
     private val _state = MutableStateFlow(LoginUiState())
     val state: StateFlow<LoginUiState> = _state.asStateFlow()
 
     private var job: Job? = null
+
+
 
     // SDK UI(native)·브라우저 탭(redirect)은 Activity가 있어야 뜬다(데모 native만 null 허용).
     fun signIn(option: AuthOption, activity: Activity? = null) {

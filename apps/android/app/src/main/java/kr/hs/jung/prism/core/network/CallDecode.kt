@@ -93,6 +93,7 @@ fun decodeCallServerMessage(json: JSONObject): CallServerMessage {
             decodeSessionRef(json.optJSONObject("from") ?: throw ApiError.invalidResponse),
         )
         "ringing" -> CallServerMessage.Ringing(callId())
+        "notified" -> CallServerMessage.Notified(callId())
         "accepted" -> CallServerMessage.Accepted(
             callId(),
             decodeIceServers(json.optJSONArray("iceServers")),
@@ -123,7 +124,7 @@ fun decodeCallServerMessage(json: JSONObject): CallServerMessage {
 fun isCallMessageType(type: String?): Boolean = type in CALL_SERVER_MESSAGE_TYPES
 
 private val CALL_SERVER_MESSAGE_TYPES = setOf(
-    "incoming", "ringing", "accepted", "claimed", "declined", "offer",
+    "incoming", "ringing", "notified", "accepted", "claimed", "declined", "offer",
     "answer", "ice", "ended", "expired", "callError",
 )
 

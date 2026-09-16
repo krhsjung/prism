@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 상태 표시줄의 알림 아이콘 — **앱 마크(워드마크의 P)의 실루엣이다.**
+
+     **단색 실루엣이어야 한다.** 시스템이 알파만 읽고 색은 스스로 칠하므로, 여러 색으로
+     그리면 흰 사각형으로 나온다. 그래서 컬러 런처 아이콘을 그대로 쓸 수는 없다.
+
+     경로는 **런처 전경(`ic_launcher_foreground`)과 같은 것을 그대로 쓴다** — 새로 따면
+     미세하게 달라져, 알림을 누르고 앱이 뜨는 순간 두 마크가 어긋나 보인다. 108 뷰포트의
+     글자를 그대로 두고 `group` 변환으로 24 격자에 옮겼다:
+       · 글자 높이 43.945 → 20 (위아래 2dp 여백), 배율 0.45511
+       · 가운데를 (12, 12)에 맞춘다 → 가로 3.98~20.02, 세로 2~22
+     구멍(카운터)은 원본처럼 evenOdd로 뚫는다.
+
+     예전에는 범용 종 모양이었다. 앞/뒤에서 받은 알림의 아이콘이 갈렸을 때(뒤에서는 런처
+     아이콘으로 떨어졌다) 종이 "시스템 기본 아이콘"처럼 읽혔다 — 앱의 알림이라는 것이
+     아이콘에서 드러나지 않았다(plan/push.md §5-20). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24"
+    android:tint="#FFFFFFFF">
+    <group
+        android:scaleX="0.45511"
+        android:scaleY="0.45511"
+        android:translateX="-13.080"
+        android:translateY="-13.264">
+        <path
+            android:fillColor="#FF000000"
+            android:fillType="evenOdd"
+            android:pathData="M37.477,33.539H57.305A15.434,15.434 0 0 1 57.305,64.406H49.359V77.484H37.477ZM49.359,43.031H54.211A6.082,6.082 0 0 1 54.211,55.195H49.359Z" />
+    </group>
+</vector>

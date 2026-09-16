@@ -6,6 +6,18 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
+// FCM 설정 파일이 있을 때만 google-services를 건다.
+//
+// 이 플러그인은 파일이 없으면 **빌드를 실패시킨다.** 그런데 `google-services.json`은
+// 배포마다 다른 값이라 레포에 두지 않으므로(.gitignore), 무조건 걸면 새로 클론한 사람이
+// 아무것도 빌드하지 못한다 — `secrets.properties`가 없어도 빌드되는 성질과 같은 자리다.
+//
+// 파일이 없으면 푸시만 꺼진 앱이 된다. 그 사실은 화면이 말한다(`Notifications off`).
+val pushConfigured: Boolean = file("google-services.json").exists()
+if (pushConfigured) {
+    apply(plugin = libs.plugins.google.services.get().pluginId)
+}
+
 // 커밋되지 않는 로컬 설정 파일(iOS의 Config/Secrets.xcconfig와 같은 자리). 없으면 없는
 // 대로 빌드된다 — 새로 클론한 사람은 그대로 빌드되고 소셜 로그인만 비활성이 된다.
 // 채울 값은 옆의 secrets.example.properties에 적혀 있다.
@@ -110,6 +122,9 @@ android {
         // 네이티브 소셜 로그인 크리덴셜을 런타임/매니페스트로 흘려보낸다(빌드 타입 공통).
         buildConfigField("String", "GOOGLE_SERVER_CLIENT_ID", "\"$googleServerClientId\"")
         buildConfigField("String", "KAKAO_NATIVE_APP_KEY", "\"$kakaoNativeAppKey\"")
+        // 앱이 **푸시를 시도할지**를 여기서 가른다. 설정 파일이 없으면 Firebase
+        // 초기화가 실패하는데, 예외를 잡는 것보다 애초에 부르지 않는 편이 읽기 쉽다.
+        buildConfigField("boolean", "PUSH_ENABLED", pushConfigured.toString())
         // Kakao 로그인 redirect 스킴(kakao{앱키}://oauth)을 AndroidManifest에 채운다.
         manifestPlaceholders["kakaoNativeAppKey"] = kakaoNativeAppKey
     }
@@ -173,6 +188,10 @@ dependencies {
     // WebRTC 엔진. 브라우저에는 내장돼 있지만 네이티브에는 없다 — 통화 화면이 쓰는
     // PeerConnection·카메라 캡처·렌더러가 전부 여기서 온다(plan/webrtc.md §5).
     implementation(libs.webrtc)
+    // FCM. 설정 파일이 없으면 플러그인이 걸리지 않아 초기화가 실패하지만, 앱은
+    // `PushTokens`가 그 예외를 접어 푸시 없이 그대로 뜬다.
+    implementation(platform(libs.firebase.bom))
+    implementation(libs.firebase.messaging)
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)

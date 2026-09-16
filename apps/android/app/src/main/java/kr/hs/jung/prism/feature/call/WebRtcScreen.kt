@@ -52,11 +52,10 @@ import kr.hs.jung.prism.core.theme.PrismTheme
 import kr.hs.jung.prism.core.theme.ThemeStore
 import kr.hs.jung.prism.domain.model.CallEndReason
 import kr.hs.jung.prism.domain.model.CallErrorCode
-import kr.hs.jung.prism.core.security.SessionTokens
+import kr.hs.jung.prism.core.session.SessionStore
 import kr.hs.jung.prism.domain.model.SessionListItem
 import kr.hs.jung.prism.domain.model.SessionRef
 import kr.hs.jung.prism.domain.model.User
-import kr.hs.jung.prism.feature.dashboard.SessionsApi
 import kr.hs.jung.prism.feature.dashboard.deviceLabel
 import kr.hs.jung.prism.ui.AppShell
 import kr.hs.jung.prism.ui.ShellPage
@@ -83,8 +82,8 @@ fun WebRtcScreen(
     themeStore: ThemeStore,
     localeStore: LocaleStore,
     drawerState: DrawerState,
-    sessionsApi: SessionsApi,
-    tokens: SessionTokens,
+    /** 목록 하나. 대시보드·푸시 화면이 보는 것과 **같은 것**이다. */
+    store: SessionStore,
     onNavigate: (ShellPage) -> Unit,
     onSignOut: () -> Unit,
 ) {
@@ -92,32 +91,12 @@ fun WebRtcScreen(
     val localTrack by controller.localTrack.collectAsStateWithLifecycle()
     val remoteTrack by controller.remoteTrack.collectAsStateWithLifecycle()
     val socketReady by socket.isReady.collectAsStateWithLifecycle()
-    val changed by socket.changed.collectAsStateWithLifecycle()
     val withMedia = rememberCallPermission(controller)
 
-    // 목록은 대시보드와 **같은 HTTP 경로**에서 온다(GET /auth/sessions) — 소켓은 신호만
-    // 준다. 이 화면이 목록을 주입받으면 스탬핑·회전 처리를 통째로 우회한다.
-    var sessions by remember { mutableStateOf<List<SessionListItem>?>(null) }
-    var loadFailed by remember { mutableStateOf(false) }
-    val load: suspend (Boolean) -> Unit = { background ->
-        val token = tokens.access()
-        if (token != null) {
-            runCatching { sessionsApi.list(token, background) }
-                .onSuccess { sessions = it; loadFailed = false }
-                .onFailure { loadFailed = true }
-        }
-    }
-    var retry by remember { mutableStateOf(false) }
-    LaunchedEffect(retry) { load(false) }
-    // 소켓이 "바뀌었다"고 하면 다시 가져온다. **비우지 않는다** — 다른 기기가 하나
-    // 붙었다고 목록이 "불러오는 중"으로 접혔다 펴지면 통째로 깜빡인다.
-    var handled by remember { mutableStateOf(changed) }
-    LaunchedEffect(changed) {
-        if (changed != handled) {
-            handled = changed
-            load(true)
-        }
-    }
+    // 목록은 **이 화면의 것이 아니다** — 조회도 소켓 신호도 store가 세션 전체를 대신해
+    // 한 자리에서 한다(core/session/SessionStore.kt).
+    val list by store.state.collectAsStateWithLifecycle()
+    val sessions = list.sessions
 
     // 로비에 들어온 것만으로 **카메라를 열지 않는다.** 이미 허용한 적이 있으면 장치
     // 목록만 읽어 선택 메뉴를 채운다(카메라는 켜지지 않는다).
@@ -159,8 +138,8 @@ fun WebRtcScreen(
                 eglBaseContext = controller.eglBaseContext,
                 sessions = sessions,
                 socketReady = socketReady,
-                loadFailed = loadFailed,
-                onRetryLoad = { loadFailed = false; retry = !retry },
+                loadFailed = list.loadErrorRes != null,
+                onRetryLoad = store::load,
                 controller = controller,
                 withMedia = withMedia,
             )
@@ -260,7 +239,7 @@ private fun Head(state: CallUiState, peerLabel: String) {
     val call = state.call
     val title = when {
         call == null -> stringResource(R.string.webrtc_lobby_title)
-        call.status == CallStatus.RINGING ->
+        call.status == CallStatus.RINGING || call.status == CallStatus.NOTIFIED ->
             stringResource(R.string.webrtc_calling).withVars("device" to peerLabel)
         else -> stringResource(R.string.webrtc_in_call)
     }
@@ -268,6 +247,10 @@ private fun Head(state: CallUiState, peerLabel: String) {
     val subtitle = when {
         call == null -> stringResource(R.string.webrtc_lobby_desc)
         call.status == CallStatus.RINGING -> stringResource(R.string.webrtc_ring_timeout_note)
+        // 기다리는 시간이 **왜 긴지**를 화면이 말한다(§4). `ring_timeout_note`를 덧붙이지
+        // 않는다 — 이 문구가 이미 45초를 말하고 있어 숫자가 두 번 나온다.
+        call.status == CallStatus.NOTIFIED ->
+            stringResource(R.string.webrtc_notified_desc).withVars("device" to peerLabel)
         else -> null
     }
 
@@ -417,7 +400,8 @@ private fun Stage(
             // 해서 컨트롤 바에 종료를 그리지 않고 타일이 이 버튼을 갖고(§4), 실패에는
             // 문구가 없으므로 `Try again`만 남는다.
             action = when (call.status) {
-                CallStatus.RINGING -> {
+                // 알림으로 깨우는 중(`NOTIFIED`)도 기다리는 중이다 — 나가는 길은 같은 `Cancel`이다.
+                CallStatus.RINGING, CallStatus.NOTIFIED -> {
                     {
                         PrismButton(
                             text = stringResource(R.string.common_cancel),
@@ -591,7 +575,8 @@ private fun BottomBar(state: CallUiState, controller: CallController) {
             cameraOn = state.cameraOn,
             // 호출 중에는 종료를 **아예 그리지 않는다** — 나가는 길은 타일의 `Cancel`
             // 하나여야 한다(§4).
-            end = state.call?.status != CallStatus.RINGING,
+            end = state.call?.status != CallStatus.RINGING &&
+                state.call?.status != CallStatus.NOTIFIED,
             onToggleMic = controller::toggleMic,
             onToggleCamera = controller::toggleCamera,
             onHangUp = controller::hangUp,
@@ -637,6 +622,7 @@ fun rememberCallPermission(controller: CallController): (() -> Unit) -> Unit {
 @StringRes
 internal fun statusLabel(status: CallStatus): Int = when (status) {
     CallStatus.RINGING -> R.string.webrtc_status_ringing
+    CallStatus.NOTIFIED -> R.string.webrtc_status_notified
     CallStatus.CONNECTING -> R.string.webrtc_status_connecting
     CallStatus.CONNECTED -> R.string.webrtc_status_connected
     CallStatus.RECONNECTING -> R.string.webrtc_status_reconnecting
@@ -644,7 +630,9 @@ internal fun statusLabel(status: CallStatus): Int = when (status) {
 }
 
 internal fun statusVariant(status: CallStatus): PrismBadgeVariant = when (status) {
+    // 소켓 경로와 **같은 무게**다 — 다른 것은 기다리는 시간이지 좋고 나쁨이 아니다.
     CallStatus.RINGING -> PrismBadgeVariant.NEUTRAL
+    CallStatus.NOTIFIED -> PrismBadgeVariant.NEUTRAL
     CallStatus.CONNECTING -> PrismBadgeVariant.INFO
     CallStatus.CONNECTED -> PrismBadgeVariant.SUCCESS
     CallStatus.RECONNECTING -> PrismBadgeVariant.WARNING
@@ -710,7 +698,8 @@ private fun selfTileMessage(state: CallUiState): String? = when {
 }
 
 internal fun peerTileState(status: CallStatus, hasTrack: Boolean): TileState = when {
-    status == CallStatus.RINGING -> TileState.RINGING
+    // 알림으로 깨우는 중도 벨이 울리는 중과 같은 자리다 — 설명 문구만 다르다(§4).
+    status == CallStatus.RINGING || status == CallStatus.NOTIFIED -> TileState.RINGING
     status == CallStatus.RECONNECTING -> TileState.RECONNECTING
     !hasTrack -> TileState.CONNECTING
     status == CallStatus.CONNECTED -> TileState.LIVE
@@ -720,6 +709,8 @@ internal fun peerTileState(status: CallStatus, hasTrack: Boolean): TileState = w
 @Composable
 private fun peerTileMessage(status: CallStatus, hasTrack: Boolean): String? = when {
     status == CallStatus.RINGING -> stringResource(R.string.webrtc_tile_ringing)
+    // 소켓 경로와 다른 문구다 — 기다리는 것이 "응답"이 아니라 "기기가 열리는 것"이다.
+    status == CallStatus.NOTIFIED -> stringResource(R.string.webrtc_tile_notified)
     status == CallStatus.RECONNECTING -> stringResource(R.string.webrtc_tile_reconnecting)
     // 실패 타일은 **문구를 갖지 않는다** — 배지가 이미 그 말을 한다(§4).
     status == CallStatus.FAILED -> null

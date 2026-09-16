@@ -41,8 +41,10 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import kr.hs.jung.prism.R
 import kr.hs.jung.prism.core.i18n.LocaleStore
-import kr.hs.jung.prism.core.network.SessionSocket
 import kr.hs.jung.prism.core.security.SessionTokens
+import kr.hs.jung.prism.core.session.SessionStore
+import kr.hs.jung.prism.core.session.SessionsApi
+import kr.hs.jung.prism.core.session.SessionsUiState
 import kr.hs.jung.prism.core.theme.PrismDimensions
 import kr.hs.jung.prism.core.theme.PrismTheme
 import kr.hs.jung.prism.core.theme.ThemeStore
@@ -76,7 +78,11 @@ fun DashboardScreen(
     localeStore: LocaleStore,
     sessionsApi: SessionsApi,
     tokens: SessionTokens,
-    socket: SessionSocket,
+    /**
+     * 목록 하나. 통화·푸시 화면이 보는 것과 **같은 것**이고, 소켓도 그것이 쥔다 —
+     * 이 화면은 연결 여부도 재검증 요청도 여기서 읽고 보낸다.
+     */
+    store: SessionStore,
     /** 셸의 드로어 — 통화 화면과 **같은 것**을 쓴다(페이지가 바뀌어도 열림이 이어진다). */
     drawerState: DrawerState,
     /** 셸의 내비게이션 — 페이지 상태는 `RootScreen`이 쥔다(웹의 라우터 자리). */
@@ -92,16 +98,17 @@ fun DashboardScreen(
                 DashboardViewModel(
                     api = sessionsApi,
                     tokens = tokens,
+                    store = store,
                     // 전체 폐기·현재 세션 해제로 이 앱의 세션이 끝나면 로그아웃과 같은
                     // 자리로 돌아간다 — 세션 상태의 진실은 AuthManager 하나뿐이다.
                     onSessionEnded = { onSignOut() },
-                    // 소켓의 수명도 이 ViewModel과 같다 — 세션이 끝나면 함께 버려진다.
-                    socket = socket,
                 )
             }
         },
     )
     val state by viewModel.state.collectAsStateWithLifecycle()
+    // 목록은 **이 화면의 것이 아니다** — 조회도 소켓 신호도 store가 한 자리에서 한다.
+    val list by store.state.collectAsStateWithLifecycle()
     val colors = PrismTheme.colors
     // 전체 로그아웃은 되돌릴 수 없다 — 누르면 바로 실행하지 않고 한 번 되묻는다.
     var confirmingSignOutAll by remember { mutableStateOf(false) }
@@ -119,15 +126,15 @@ fun DashboardScreen(
         // 화면과 서버가 어긋난다. 당겨서 새로고침이 그것을 맞추는 사용자의 손잡이다.
         val pullState = rememberPullToRefreshState()
         PullToRefreshBox(
-            isRefreshing = state.refreshing,
-            onRefresh = viewModel::pullRefresh,
+            isRefreshing = list.refreshing,
+            onRefresh = store::pullRefresh,
             state = pullState,
             indicator = {
                 // 기본 인디케이터는 material 기본 팔레트를 쓴다 — 우리는 몇 개 역할만
                 // 덮어썼기 때문에 그대로 두면 이 동그라미만 남의 색이 된다.
                 PullToRefreshDefaults.Indicator(
                     state = pullState,
-                    isRefreshing = state.refreshing,
+                    isRefreshing = list.refreshing,
                     containerColor = colors.card,
                     color = colors.primary,
                     modifier = Modifier.align(Alignment.TopCenter),
@@ -143,9 +150,10 @@ fun DashboardScreen(
             ) {
                 SessionsCard(
                     state = state,
+                    list = list,
                     onRevoke = viewModel::revoke,
                     onSignOutAll = { confirmingSignOutAll = true },
-                    onRetry = viewModel::load,
+                    onRetry = store::load,
                 )
             }
         }
@@ -193,6 +201,8 @@ internal fun statusVariant(session: SessionListItem, socketReady: Boolean): Pris
 @Composable
 private fun SessionsCard(
     state: DashboardUiState,
+    /** 화면 셋이 나눠 쓰는 목록 — 이 카드가 그것을 그린다. */
+    list: SessionsUiState,
     onRevoke: (String) -> Unit,
     onSignOutAll: () -> Unit,
     onRetry: () -> Unit,
@@ -231,14 +241,14 @@ private fun SessionsCard(
         }
 
         when {
-            state.loadErrorRes != null -> {
+            list.loadErrorRes != null -> {
                 Column(
                     verticalArrangement = Arrangement.spacedBy(PrismDimensions.spacingMd),
                     modifier = Modifier
                         .padding(horizontal = PrismDimensions.sessionCardInset)
                         .padding(bottom = PrismDimensions.sessionHeadPadding),
                 ) {
-                    PrismErrorAlert(message = stringResource(state.loadErrorRes))
+                    PrismErrorAlert(message = stringResource(list.loadErrorRes))
                     PrismButton(
                         text = stringResource(R.string.common_retry),
                         variant = PrismButtonVariant.SECONDARY,
@@ -247,7 +257,7 @@ private fun SessionsCard(
                     )
                 }
             }
-            state.sessions == null -> Text(
+            list.sessions == null -> Text(
                 text = stringResource(R.string.common_loading),
                 color = colors.muted,
                 fontSize = PrismDimensions.fontBody,
@@ -256,7 +266,7 @@ private fun SessionsCard(
                     .padding(bottom = PrismDimensions.sessionHeadPadding),
             )
             // 현재 세션은 항상 하나 있으므로 "0건"은 없다 — 1건이 "나 혼자"다.
-            state.sessions.size == 1 -> Text(
+            list.sessions.size == 1 -> Text(
                 text = stringResource(R.string.dashboard_only_this_session),
                 color = colors.muted,
                 fontSize = PrismDimensions.fontBody,
@@ -264,10 +274,10 @@ private fun SessionsCard(
                     .padding(horizontal = PrismDimensions.sessionCardInset)
                     .padding(bottom = PrismDimensions.sessionHeadPadding),
             )
-            else -> state.sessions.forEach { session ->
+            else -> list.sessions.forEach { session ->
                 SessionRow(
                     session = session,
-                    socketReady = state.socketReady,
+                    socketReady = list.socketReady,
                     revoking = state.revokingId == session.id,
                     enabled = state.revokingId == null && !state.signingOutAll,
                     onRevoke = { onRevoke(session.id) },
@@ -280,7 +290,7 @@ private fun SessionsCard(
         // 그대로 경계가 된다. 폭을 채우는 것이 중요하다: 행마다 오른쪽에 있는 "해제" 기둥에
         // 이어 붙으면 "행 하나 더"로 읽히고 오탭 표적도 겹친다.
         // (나 말고 다른 세션이 있을 때만 의미가 있다)
-        if (state.hasOthers) {
+        if (list.hasOthers) {
             HorizontalDivider(color = colors.border)
             PrismButton(
                 text = stringResource(

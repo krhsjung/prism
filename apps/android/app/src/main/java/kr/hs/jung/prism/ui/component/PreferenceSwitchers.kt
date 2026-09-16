@@ -55,6 +55,7 @@ import kr.hs.jung.prism.core.i18n.LocaleStore
 import kr.hs.jung.prism.core.theme.AppTheme
 import kr.hs.jung.prism.core.theme.PrismDimensions
 import kr.hs.jung.prism.core.theme.PrismTheme
+import kr.hs.jung.prism.core.util.findActivity
 import kr.hs.jung.prism.core.theme.ThemeStore
 
 /**
@@ -143,7 +144,7 @@ fun ThemeSwitcher(
         placement = placement,
     ) {
         AppTheme.entries.forEach { theme ->
-            PreferenceOption(
+            SelectOption(
                 label = stringResource(theme.labelRes),
                 selected = theme == store.theme,
                 icon = theme.iconRes,
@@ -179,7 +180,7 @@ fun LocaleSwitcher(
         placement = placement,
     ) {
         AppLocale.entries.forEach { locale ->
-            PreferenceOption(
+            SelectOption(
                 label = locale.label,
                 selected = locale == store.locale,
                 onClick = {
@@ -193,16 +194,6 @@ fun LocaleSwitcher(
             )
         }
     }
-}
-
-// Compose가 넘기는 Context는 ContextThemeWrapper라 Activity까지 벗겨 낸다.
-private fun Context.findActivity(): Activity? {
-    var context: Context? = this
-    while (context is ContextWrapper) {
-        if (context is Activity) return context
-        context = context.baseContext
-    }
-    return null
 }
 
 /**
@@ -225,7 +216,6 @@ private fun PreferenceMenu(
 ) {
     val colors = PrismTheme.colors
     val shape = RoundedCornerShape(PrismDimensions.radiusMd)
-    val density = LocalDensity.current
     // 트리거는 평소 배경 없이 앉아 있다가 열릴 때만 판이 생긴다(웹 .select__trigger).
     // 테두리 자리는 닫혀 있을 때도 투명으로 잡아 둔다 — 열릴 때 생기면 그만큼 폭이 늘어
     // 트리거가 흔들린다.
@@ -262,41 +252,59 @@ private fun PreferenceMenu(
         }
 
         if (expanded) {
-            // `DropdownMenu`가 아니라 `Popup`을 직접 쓴다. 그쪽 배치 규칙은 "트리거 아래
-            // 아니면 트리거 위"뿐이라, 세로 여백이 조금만 모자라도 메뉴가 트리거에서
-            // **떨어져** 위로 날아간다(실기기에서 9px이 모자라 그렇게 떴다). 옆으로 여는
-            // 메뉴는 트리거에 붙어 있는 것이 뜻이므로, 뒤집는 대신 화면 안으로 당긴다.
-            Popup(
-                popupPositionProvider = remember(placement, density) {
-                    PreferenceMenuPosition(
-                        placement = placement,
-                        gap = with(density) { PrismDimensions.spacingSm.roundToPx() },
-                        margin = with(density) { PrismDimensions.spacingSm.roundToPx() },
-                    )
-                },
-                onDismissRequest = onDismiss,
-                properties = PopupProperties(focusable = true),
-            ) {
-                Surface(
-                    shape = shape,
-                    color = colors.card,
-                    border = BorderStroke(1.dp, colors.border),
-                    // material3 `MenuDefaults.ShadowElevation`과 같은 값 — 껍데기를 직접
-                    // 그리게 됐어도 그림자까지 달라지면 로그인 화면의 메뉴와 갈린다.
-                    shadowElevation = PrismDimensions.selectMenuElevation,
-                    modifier = Modifier
-                        .width(PrismDimensions.selectMenuWidth)
-                        .semantics { popup() },
-                ) {
-                    Column(
-                        verticalArrangement = Arrangement.spacedBy(
-                            PrismDimensions.selectOptionSpacing,
-                        ),
-                        modifier = Modifier.padding(PrismDimensions.selectMenuPadding),
-                        content = items,
-                    )
-                }
-            }
+            SelectMenuPopup(placement = placement, onDismiss = onDismiss, items = items)
+        }
+    }
+}
+
+/**
+ * 선택 메뉴의 껍데기 — 시안 `Molecule/SelectMenu`(웹 `.select__menu`). 트리거와 같은 `Box`
+ * 안에 두면 그 트리거에 걸린다.
+ *
+ * 설정 스위처와 통화 화면의 카메라·마이크 선택이 **같이 쓴다** — 웹에서는 SelectMenu 하나가
+ * 두 자리를 맡는다. 통화 쪽이 Material `DropdownMenu`를 따로 쓰던 동안에는 판이 테마의
+ * surfaceContainer 색, 모서리 4, 테두리 없음으로 그려져 한 앱 안에 메뉴가 두 벌이었다.
+ */
+@Composable
+internal fun SelectMenuPopup(
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
+    placement: PreferenceMenuPlacement = PreferenceMenuPlacement.BELOW,
+    items: @Composable ColumnScope.() -> Unit,
+) {
+    val colors = PrismTheme.colors
+    val density = LocalDensity.current
+    // `DropdownMenu`가 아니라 `Popup`을 직접 쓴다. 그쪽 배치 규칙은 "트리거 아래
+    // 아니면 트리거 위"뿐이라, 세로 여백이 조금만 모자라도 메뉴가 트리거에서
+    // **떨어져** 위로 날아간다(실기기에서 9px이 모자라 그렇게 떴다). 옆으로 여는
+    // 메뉴는 트리거에 붙어 있는 것이 뜻이므로, 뒤집는 대신 화면 안으로 당긴다.
+    Popup(
+        popupPositionProvider = remember(placement, density) {
+            PreferenceMenuPosition(
+                placement = placement,
+                gap = with(density) { PrismDimensions.spacingSm.roundToPx() },
+                margin = with(density) { PrismDimensions.spacingSm.roundToPx() },
+            )
+        },
+        onDismissRequest = onDismiss,
+        properties = PopupProperties(focusable = true),
+    ) {
+        Surface(
+            shape = RoundedCornerShape(PrismDimensions.radiusMd),
+            color = colors.card,
+            border = BorderStroke(1.dp, colors.border),
+            // material3 `MenuDefaults.ShadowElevation`과 같은 값 — 껍데기를 직접
+            // 그리게 됐어도 그림자까지 달라지면 로그인 화면의 메뉴와 갈린다.
+            shadowElevation = PrismDimensions.selectMenuElevation,
+            modifier = modifier
+                .width(PrismDimensions.selectMenuWidth)
+                .semantics { popup() },
+        ) {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(PrismDimensions.selectOptionSpacing),
+                modifier = Modifier.padding(PrismDimensions.selectMenuPadding),
+                content = items,
+            )
         }
     }
 }
@@ -369,7 +377,7 @@ private class PreferenceMenuPosition(
  * 구분한다 — 배경까지 쓰면 눌림 표시와 겹쳐 읽힌다(웹 .select__option과 같은 규칙).
  */
 @Composable
-private fun PreferenceOption(
+internal fun SelectOption(
     label: String,
     selected: Boolean,
     onClick: () -> Unit,

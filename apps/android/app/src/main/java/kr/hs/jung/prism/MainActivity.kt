@@ -1,12 +1,14 @@
 package kr.hs.jung.prism
 
 import android.content.Context
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.isSystemInDarkTheme
 import kr.hs.jung.prism.core.i18n.withAppLocale
+import kr.hs.jung.prism.core.push.PushLinks
 import kr.hs.jung.prism.core.theme.AppTheme
 import kr.hs.jung.prism.core.theme.PrismAppTheme
 import kr.hs.jung.prism.ui.RootScreen
@@ -23,6 +25,10 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        // 앱이 꺼져 있을 때 시스템이 그린 알림을 눌러 들어온 경로. **처음 만들어질 때만** 읽는다 —
+        // 회전·언어 변경의 `recreate()`도 같은 인텐트로 여기를 다시 지나는데, 그때 또 읽으면
+        // 이미 소비한 통화를 다시 연다(`PushLinks.consume`은 기억만 비운다).
+        if (savedInstanceState == null) PushLinks.offerFrom(intent?.extras, BuildConfig.PRISM_API_URL)
 
         val container = (application as PrismApplication).container
 
@@ -37,5 +43,16 @@ class MainActivity : ComponentActivity() {
                 RootScreen(container = container)
             }
         }
+    }
+
+    /**
+     * 앱이 이미 떠 있는데 알림을 눌렀다. **`singleTop`이라야 여기로 온다** —
+     * 아니면 인스턴스가 하나 더 쌓이고, 새 인스턴스는 소켓도 통화 상태도 없는
+     * 빈 앱이라 `resume`이 갈 곳을 잃는다.
+     */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        PushLinks.offerFrom(intent.extras, BuildConfig.PRISM_API_URL)
     }
 }

@@ -16,6 +16,11 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
 
+    <!-- 알림. **Android 13(33)부터만 런타임 권한이다** — minSdk 24라 그 아래에서는
+         설치와 함께 허용된 것으로 다뤄야 하고, 화면도 묻지 않는다. 묻는 자리는 푸시
+         화면의 `알림 켜기`다 — 로그인은 로그인만 한다(plan/push.md §5-2). -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
     <!-- 카메라가 없는 기기(TV·일부 태블릿)에서도 설치는 되게 둔다 — 통화를 못 걸 뿐,
          대시보드는 그대로 쓸 수 있고 화면이 그 이유를 말한다. -->
     <uses-feature android:name="android.hardware.camera" android:required="false" />
@@ -37,10 +42,14 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.Android">
+        <!-- 알림을 눌러 들어오는 경로가 여기다. **singleTop**이라야 앱이 이미 떠 있을 때
+             새 인스턴스를 쌓지 않고 `onNewIntent`로 배달된다 — 통화 알림은 앱이 열려
+             있는 동안에도 온다(다른 화면을 보고 있을 때). -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
             android:label="@string/app_name"
+            android:launchMode="singleTop"
             android:theme="@style/Theme.Android"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
@@ -72,6 +81,32 @@
                     android:scheme="prism" />
             </intent-filter>
         </activity>
+
+        <!-- FCM 수신기 — **알림을 그리는 곳은 여기 하나다.** 서버가 Android에는 data만
+             보내므로 앞이든 뒤든 `onMessageReceived`가 그린다(plan/push.md §5-20). -->
+        <service
+            android:name=".core.push.PrismMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+
+        <!-- **안전망이다.** 서버는 이제 Android에 `notification` 블록을 보내지 않지만, 그런
+             메시지가 한 번이라도 오면(배포 중 옛 서버 · 콘솔에서 보낸 시험 메시지) FCM SDK가
+             대신 그린다. 그때 런처 아이콘으로 떨어지지 않게 **우리와 같은 아이콘**을 쥐여 둔다
+             — 앞/뒤에서 아이콘이 갈렸던 것이 정확히 이 값이 없어서였다. -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@drawable/ic_notification" />
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="prism_general" />
+
+        <!-- 알림의 `닫기` 버튼. 화면을 띄우지 않고 알림만 지운다(plan/push.md §5-13). -->
+        <receiver
+            android:name=".core.push.PushDismissReceiver"
+            android:exported="false" />
 
         <!-- 카카오톡 앱 로그인 후 앱으로 돌아오는 redirect(kakao{앱키}://oauth)를 받는다.
              스킴의 앱키는 build.gradle.kts의 manifestPlaceholders에서 채운다. -->

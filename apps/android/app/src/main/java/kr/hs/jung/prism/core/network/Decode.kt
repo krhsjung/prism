@@ -120,6 +120,9 @@ fun decodeSessionList(body: String): List<SessionListItem> {
             // 서버는 보내지 않는다 — 여기서 거부하면 배지 하나 때문에 목록 전체가 실패한다.
             // (device를 UNKNOWN으로 접는 것과 같은 규칙이다)
             isConnected = item.opt("isConnected") == true,
+            // isConnected와 같은 규칙으로 접는다 — 푸시가 붙기 전 서버가 이 필드를
+            // 보내지 않아도 목록은 그려져야 한다.
+            pushRegistered = item.opt("pushRegistered") == true,
             // 모르는 값은 거부하지 않고 UNKNOWN으로 접는다 — 갈래가 늘었다고 예전 앱에서
             // 목록 전체가 실패하면 손해가 더 크다(웹 decodeDeviceKind와 같은 규칙).
             device = DeviceKind.from(item.opt("device") as? String),

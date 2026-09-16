@@ -115,6 +115,52 @@ class AuthManagerTest {
     private fun TestScope.manager(native: FakeNative, tokens: FakeTokens) =
         AuthManager(native, tokens)
 
+    // 토큰 폐기의 의무는 **네트워크 전에** 남는다 — 서버 응답을 기다리다 프로세스가 죽어도
+    // 다음 등록이 먼저 버린다(plan/push.md §5-21).
+    @Test
+    fun `로그아웃은 서버 응답 전에 세션 종료 훅을 부른다`() = runTest {
+        val native = FakeNative().apply { logoutGate = CompletableDeferred() }
+        val tokens = FakeTokens(acc = "a", ref = "r")
+        val order = mutableListOf<String>()
+        val manager = AuthManager(native, tokens, onSessionEnded = { order += "ended" })
+
+        val job = launch { manager.signOut() }
+        runCurrent()
+        assertEquals(listOf("ended"), order)
+
+        native.logoutGate?.complete(Unit)
+        job.join()
+    }
+
+    // 앞 세션의 자격증명이 남은 채 다시 로그인하면 — 다른 계정일 수 있다 — 토큰을 버린다.
+    @Test
+    fun `자격증명이 남은 채 다시 로그인하면 세션 종료 훅을 부른다`() = runTest {
+        val native = FakeNative().apply {
+            demoResult = Result.success(
+                AuthSession("a2", "r2", user(), ACCESS_TTL_MS),
+            )
+        }
+        var ended = 0
+        val manager = AuthManager(native, FakeTokens(acc = "a", ref = "r"), onSessionEnded = { ended++ })
+
+        manager.signIn(AuthProvider.DEMO)
+
+        assertEquals(1, ended)
+    }
+
+    @Test
+    fun `처음 로그인에는 세션 종료 훅을 부르지 않는다`() = runTest {
+        val native = FakeNative().apply {
+            demoResult = Result.success(AuthSession("a", "r", user(), ACCESS_TTL_MS))
+        }
+        var ended = 0
+        val manager = AuthManager(native, FakeTokens(), onSessionEnded = { ended++ })
+
+        manager.signIn(AuthProvider.DEMO)
+
+        assertEquals(0, ended)
+    }
+
     @Test
     fun `restores signed-in session from tokens`() = runTest {
         val native = FakeNative().apply { meResult = Result.success(session()) }

@@ -16,6 +16,9 @@ import org.json.JSONObject
  * 쿠키 흐름은 웹 전용이라 앱에는 두지 않는다(iOS와 동일).
  */
 interface NativeAuthApi {
+    // 로그인은 로그인만 한다 — 푸시 등록 토큰은 여기 실리지 않고, 살아 있는 세션에
+    // `POST /auth/push/register`로 붙는다(plan/push.md §5-2를 뒤집었다).
+
     /** Google 네이티브 로그인 — SDK가 준 id_token을 서버가 검증하고 세션을 발급한다. */
     suspend fun googleNative(idToken: String): AuthSession
 
@@ -76,17 +79,19 @@ class HttpAuthApi(private val client: ApiClient) : NativeAuthApi {
 
     override suspend fun googleNative(idToken: String): AuthSession =
         decodeAuthSession(
-            client.request("POST", "/auth/google/native", body(("idToken" to idToken))),
+            client.request("POST", "/auth/google/native", body("idToken" to idToken)),
         )
 
     override suspend fun kakaoNative(accessToken: String): AuthSession =
         decodeAuthSession(
-            client.request("POST", "/auth/kakao/native", body(("accessToken" to accessToken))),
+            client.request("POST", "/auth/kakao/native", body("accessToken" to accessToken)),
         )
 
     /** 원클릭 데모 로그인. 웹 `/auth/demo`(쿠키)와 세션은 같고, 전달만 다르다 — 토큰을 body로. */
     override suspend fun demoNative(): AuthSession =
-        decodeAuthSession(client.request("POST", "/auth/demo/native"))
+        decodeAuthSession(
+            client.request("POST", "/auth/demo/native", body()),
+        )
 
     override suspend fun exchangeNative(code: String): AuthSession =
         decodeAuthSession(
@@ -127,6 +132,8 @@ class HttpAuthApi(private val client: ApiClient) : NativeAuthApi {
     }
 
     /** 단일 필드 JSON body. org.json으로 안전하게 이스케이프한다(수동 문자열 조합 금지). */
-    private fun body(field: Pair<String, String>): String =
-        JSONObject().put(field.first, field.second).toString()
+    private fun body(field: Pair<String, String>? = null): String =
+        JSONObject()
+            .apply { field?.let { put(it.first, it.second) } }
+            .toString()
 }

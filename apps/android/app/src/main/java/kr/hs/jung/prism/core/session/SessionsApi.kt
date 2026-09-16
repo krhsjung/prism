@@ -1,4 +1,4 @@
-package kr.hs.jung.prism.feature.dashboard
+package kr.hs.jung.prism.core.session
 
 import kr.hs.jung.prism.core.network.ApiClient
 import kr.hs.jung.prism.core.network.decodeSessionList
@@ -9,6 +9,9 @@ import kr.hs.jung.prism.domain.model.SessionListItem
  *
  * `AuthManager`와 같은 이유로 인터페이스를 둔다: 화면 로직을 네트워크 없이 테스트할 수
  * 있어야 하고, 세션 목록·폐기는 결과가 파괴적이라 가짜 구현으로 검증하는 편이 안전하다.
+ *
+ * **대시보드의 것이 아니라서 `core`에 있다** — 대시보드가 관리하고, 통화가 상대를 고르고,
+ * 푸시가 대상을 고른다. 셋이 보는 목록은 [SessionStore] 하나다.
  */
 interface SessionsApi {
     /** 내 활성 세션 목록. 현재 세션은 서버가 `isCurrent`로 표시해 준다. */

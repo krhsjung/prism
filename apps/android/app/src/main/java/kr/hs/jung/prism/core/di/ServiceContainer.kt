@@ -14,7 +14,9 @@ import kr.hs.jung.prism.feature.auth.HttpAuthApi
 import kr.hs.jung.prism.feature.auth.social.AndroidSocialSignIn
 import kr.hs.jung.prism.feature.auth.social.GoogleSignInClient
 import kr.hs.jung.prism.feature.auth.social.KakaoSignInClient
-import kr.hs.jung.prism.feature.dashboard.HttpSessionsApi
+import kr.hs.jung.prism.core.push.HttpPushApi
+import kr.hs.jung.prism.core.push.PushTokens
+import kr.hs.jung.prism.core.session.HttpSessionsApi
 
 /**
  * 앱의 의존성을 한 번만 만들고 이어 주는 곳.
@@ -56,15 +58,24 @@ class ServiceContainer(context: Context) {
         kakao = KakaoSignInClient(),
     )
 
+    /** 이 기기의 FCM 등록 토큰과 알림 권한. 붙이는 일은 세션의 `PushRegistration`이 한다. */
+    val pushTokens = PushTokens(context)
+
     val authManager = AuthManager(
         nativeApi = authApi,
         tokens = sessionTokens,
         social = social,
         // 웹 redirect(flow=native)를 브라우저 탭으로 연다. base URL은 API 주소와 같다.
         webAuth = CustomTabsWebAuth(BuildConfig.PRISM_API_URL),
+        // 세션이 끝나면 이 설치의 토큰도 버린다 — 서버에 남았을지 모르는 세션이 이
+        // 기기를 계속 가리키지 못하게(PushTokens.deleteToken).
+        onSessionEnded = pushTokens::deleteToken,
     )
     /** 활성 세션 조회·폐기(`/auth/sessions*`). 인증은 AuthManager가 담은 Bearer로 한다. */
     val sessionsApi = HttpSessionsApi(apiClient)
+
+    /** 푸시 등록·전송(`/auth/push/register` · `/auth/push/send`). 토큰은 서버가 레코드에서 꺼낸다. */
+    val pushApi = HttpPushApi(apiClient)
 
     /**
      * 세션 소켓을 **만드는 법**만 준다 — 인스턴스를 컨테이너가 들고 있지 않는다.
@@ -84,4 +95,12 @@ class ServiceContainer(context: Context) {
     }
     val themeStore = ThemeStore(context)
     val localeStore = LocaleStore(context)
+
+    init {
+        // **localeStore가 만들어진 뒤에** 꽂는다 — 위쪽 init 블록에서 하면 아직
+        // 초기화되지 않은 프로퍼티를 읽는다(선언 순서대로 실행된다).
+        //
+        // 값이 아니라 **읽는 법**을 준다: 언어 스위처로 고르면 다음 요청부터 반영돼야 한다.
+        apiClient.languageTag = { localeStore.locale.tag }
+    }
 }

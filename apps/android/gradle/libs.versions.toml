@@ -18,6 +18,9 @@ browser = "1.8.0"
 # WebRTC 엔진. 구글 공식 배포(org.webrtc:google-webrtc)는 2021년에 멈춰 최신 Android를
 # 검증하지 않는다 — 구글 소스를 정기적으로 다시 빌드해 올리는 커뮤니티 배포를 쓴다.
 webrtc = "125.6422.07"
+# FCM. BoM이 firebase-* 버전을 함께 잡는다 — 개별 버전을 적지 않는다.
+googleServices = "4.4.2"
+firebaseBom = "33.7.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -48,7 +51,10 @@ googleid = { group = "com.google.android.libraries.identity.googleid", name = "g
 kakao-user = { group = "com.kakao.sdk", name = "v2-user", version.ref = "kakao" }
 androidx-browser = { group = "androidx.browser", name = "browser", version.ref = "browser" }
 json = { group = "org.json", name = "json", version = "20240303" }
+firebase-bom = { group = "com.google.firebase", name = "firebase-bom", version.ref = "firebaseBom" }
+firebase-messaging = { group = "com.google.firebase", name = "firebase-messaging" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
+google-services = { id = "com.google.gms.google-services", version.ref = "googleServices" }
