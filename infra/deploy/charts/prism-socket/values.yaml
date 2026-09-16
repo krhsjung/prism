@@ -64,6 +64,17 @@ redis:
 turn:
   secret: "${PRISM_TURN_SECRET:-}"
 
+# FCM 서비스 계정. **셋은 함께 있거나 함께 없다** — 하나만 오면 서버가 부팅에서 막는다.
+# 없으면 푸시가 비활성이고, 목록의 `pushRegistered`가 전부 false로 접혀 화면이
+# 거짓말하지 않는다(app-config.ts의 loadFcmConfig).
+#
+# 비공개 키는 **클라이언트에게 나가지 않는다** — 나가는 것은 이 키로 받아 온 액세스
+# 토큰이 붙은 서버 → FCM 요청뿐이다. env에서는 개행이 `\n`으로 눌려 오고 서버가 되돌린다.
+fcm:
+  projectId: "${PRISM_FCM_PROJECT_ID:-}"
+  clientEmail: "${PRISM_FCM_CLIENT_EMAIL:-}"
+  privateKey: "${PRISM_FCM_PRIVATE_KEY:-}"
+
 # Postgres는 **없다.** 이 서비스는 사용자 행을 조회하지 않는다 — 세션도 presence도
 # Redis에만 있다(@app/common의 SessionsModule / UsersModule 분리).
 

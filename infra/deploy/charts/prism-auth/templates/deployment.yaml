@@ -104,6 +104,16 @@ spec:
                 secretKeyRef:
                   name: {{ include "prism-auth.fullname" . }}-secret
                   key: database-replica-urls
+            # 푸시. 셋이 함께 있거나 함께 없어야 한다 — 비공개 키만 Secret에서 온다.
+            - name: PRISM_FCM_PROJECT_ID
+              value: {{ .Values.fcm.projectId | quote }}
+            - name: PRISM_FCM_CLIENT_EMAIL
+              value: {{ .Values.fcm.clientEmail | quote }}
+            - name: PRISM_FCM_PRIVATE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "prism-auth.fullname" . }}-secret
+                  key: fcm-private-key
           # liveness는 /healthz(프로세스 응답 불능 시 재시작),
           # readiness는 /readyz — DB 필수 배포에선 master 장애 시 트래픽에서 빠진다.
           livenessProbe:
