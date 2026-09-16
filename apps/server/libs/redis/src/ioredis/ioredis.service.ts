@@ -16,6 +16,8 @@ export class IoredisService implements RedisClient, OnModuleDestroy {
   private readonly logger = new Logger(IoredisService.name);
   private client?: Redis;
 
+  private readonly subscribers = new Set<Redis>();
+
   constructor(@Inject(REDIS_CONFIG) private readonly config: RedisConfig) {}
 
   // 부팅 시 1회. required면 연결 실패를 부팅 실패로 올린다 —
@@ -47,7 +49,38 @@ export class IoredisService implements RedisClient, OnModuleDestroy {
     }
   }
 
+  async subscribePattern(
+    pattern: string,
+    onChannel: (channel: string) => void,
+  ): Promise<() => Promise<void>> {
+    // 구독 중인 연결은 다른 명령을 받지 못한다 — 본 연결을 쓰면 세션 조회가 전부 막힌다.
+    const sub = this.conn.duplicate();
+    // 재연결 중 오류가 프로세스를 죽이지 않게 한다(본 연결과 같은 규칙).
+    sub.on('error', (e: Error) =>
+      this.logger.warn(`redis subscriber error: ${e.message}`),
+    );
+    sub.on('pmessage', (_pattern: string, channel: string) => {
+      onChannel(channel);
+    });
+    try {
+      await sub.psubscribe(pattern);
+    } catch (error) {
+      // 구독에 실패한 연결은 아무도 들고 있지 않다 — 여기서 닫지 않으면 새어 나간다
+      // (재시도할 때마다 하나씩 쌓인다).
+      sub.disconnect();
+      throw error;
+    }
+    this.subscribers.add(sub);
+    return async () => {
+      this.subscribers.delete(sub);
+      await sub.quit().catch(() => undefined);
+    };
+  }
+
   async onModuleDestroy(): Promise<void> {
+    // 구독 연결부터 닫는다 — 남겨 두면 프로세스가 내려가지 않는다.
+    for (const sub of this.subscribers) await sub.quit().catch(() => undefined);
+    this.subscribers.clear();
     await this.client?.quit();
   }
 
@@ -62,6 +95,37 @@ export class IoredisService implements RedisClient, OnModuleDestroy {
     // TTL이 0 이하이면 SETEX가 오류를 낸다 — 이미 만료된 세션은 저장할 이유가 없다.
     if (ttlSeconds <= 0) return;
     await this.conn.setex(key, ttlSeconds, value);
+  }
+
+  async setKeepTtl(key: string, value: string): Promise<boolean> {
+    // XX = 있을 때만. KEEPTTL = 만료 시각을 그대로 둔다.
+    const result = await this.conn.set(key, value, 'KEEPTTL', 'XX');
+    return result === 'OK';
+  }
+
+  // 비교와 교체가 **한 번에** 일어난다 — GET 뒤 SET으로 나누면 그 사이에 다른 요청이
+  // 끼어들어 방금 비교한 값이 이미 옛것일 수 있다(그러면 비교의 의미가 없다).
+  // `setKeepTtl`과 같은 이유로 수명은 손대지 않고, 없는 키는 되살리지 않는다(값 비교가
+  // 곧 존재 확인이다 — 없는 키의 GET은 어떤 문자열과도 같지 않다).
+  private static readonly CAS_KEEP_TTL_SCRIPT = `
+    if redis.call('GET', KEYS[1]) ~= ARGV[1] then return 0 end
+    redis.call('SET', KEYS[1], ARGV[2], 'KEEPTTL')
+    return 1
+  `;
+
+  async compareAndSetKeepTtl(
+    key: string,
+    expected: string,
+    next: string,
+  ): Promise<boolean> {
+    const swapped = await this.conn.eval(
+      IoredisService.CAS_KEEP_TTL_SCRIPT,
+      1,
+      key,
+      expected,
+      next,
+    );
+    return swapped === 1;
   }
 
   get(key: string): Promise<string | null> {

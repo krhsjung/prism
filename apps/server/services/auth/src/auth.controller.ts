@@ -18,14 +18,15 @@ import type { Request, Response } from 'express';
 import { PrismConfigService } from '@app/config';
 import { ACTIVITY_HEADER } from '@app/session';
 import { AuthService } from './auth.service';
+import { PushNotificationService, PushUnavailableError } from './push.service';
+import { decodePushRequest, type PushSendBody } from './session/push-request';
 import { WebOriginGuard } from './web-origin.guard';
 import {
   AuthTokenService,
   type SocialState,
 } from './session/auth-token.service';
 import { NativeAuthCodeStore } from './session/native-auth-code.service';
-import { classifyDevice } from './session/device';
-import type { DeviceKind } from '@app/common';
+import { originOf, type SessionOrigin } from './session/session-origin';
 import {
   joinPersonName,
   parseAppleUserName,
@@ -37,9 +38,12 @@ import {
   OAUTH_MESSAGE_TYPE,
   SOCIAL_FLOWS,
   SOCIAL_PROVIDERS,
+  MAX_PUSH_TOKEN_LENGTH,
+  SessionContentionError,
   localeFrom,
   translate,
   type AuthSession,
+  type PushSendResponse,
   type SessionListItem,
   type SessionUser,
   type SocialFlow,
@@ -123,6 +127,7 @@ export class AuthController {
     private readonly config: PrismConfigService,
     // 네이티브 웹-redirect 흐름의 일회용 코드 저장소(flow=native).
     private readonly nativeCodes: NativeAuthCodeStore,
+    private readonly push: PushNotificationService,
   ) {}
 
   // 원클릭 데모 로그인 — 외부 OAuth 없이 시드된 데모 계정으로 세션 발급.
@@ -138,7 +143,7 @@ export class AuthController {
     if (!this.config.demoEnabled) {
       throw new HttpException({ error: AUTH_ERROR_CODES.DEMO_DISABLED }, 503);
     }
-    const session = await this.auth.issueDemoSession(this.deviceOf(req));
+    const session = await this.auth.issueDemoSession(this.originOf(req));
     this.setSession(res, session);
     return {
       user: session.user,
@@ -156,7 +161,7 @@ export class AuthController {
     if (!this.config.demoEnabled) {
       throw new HttpException({ error: AUTH_ERROR_CODES.DEMO_DISABLED }, 503);
     }
-    return this.auth.issueDemoSession(this.deviceOf(req));
+    return this.auth.issueDemoSession(this.originOf(req));
   }
 
   // ──────────────────── 콜백 (provider별 프로토콜이 달라 통합하지 않음) ────────────────────
@@ -188,7 +193,7 @@ export class AuthController {
         'google',
         code,
         undefined,
-        this.deviceOf(req),
+        this.originOf(req),
       );
       await this.completeSocialSuccess(req, res, consumed.flow, session);
     } catch (e) {
@@ -224,7 +229,7 @@ export class AuthController {
         'kakao',
         code,
         undefined,
-        this.deviceOf(req),
+        this.originOf(req),
       );
       await this.completeSocialSuccess(req, res, consumed.flow, session);
     } catch (e) {
@@ -262,7 +267,7 @@ export class AuthController {
         'apple',
         code,
         this.appleNameOf(user),
-        this.deviceOf(req),
+        this.originOf(req),
       );
       await this.completeSocialSuccess(req, res, consumed.flow, session);
     } catch (e) {
@@ -291,7 +296,7 @@ export class AuthController {
         identityToken,
         nonce,
         user,
-        this.deviceOf(req),
+        this.originOf(req),
       );
     } catch (e) {
       this.logFailure(`[apple/native] login failed`, e);
@@ -311,7 +316,7 @@ export class AuthController {
       throw new HttpException({ error: AUTH_ERROR_CODES.INVALID_TOKEN }, 401);
     }
     try {
-      return await this.auth.loginWithGoogleNative(idToken, this.deviceOf(req));
+      return await this.auth.loginWithGoogleNative(idToken, this.originOf(req));
     } catch (e) {
       this.logFailure(`[google/native] login failed`, e);
       throw new HttpException({ error: AUTH_ERROR_CODES.INVALID_TOKEN }, 401);
@@ -333,7 +338,7 @@ export class AuthController {
     try {
       return await this.auth.loginWithKakaoNative(
         accessToken,
-        this.deviceOf(req),
+        this.originOf(req),
       );
     } catch (e) {
       this.logFailure(`[kakao/native] login failed`, e);
@@ -344,6 +349,9 @@ export class AuthController {
   // 네이티브 웹-redirect(flow=native) 로그인의 일회용 코드를 토큰으로 교환한다.
   // 콜백이 커스텀 스킴으로 돌려준 코드를 앱이 여기 보내면 세션(AuthSession)을 받는다.
   // 코드는 1회용(GETDEL)이라 두 번째 교환은 실패한다.
+  //
+  // 푸시 등록은 어느 로그인 경로에도 실리지 않는다 — 살아 있는 세션에 `push/register`로
+  // 붙는다(plan/push.md §5-2). 한때 이 경로만 토큰을 실을 수 없어 예외였지만 그 구분은 사라졌다.
   @Post('native/exchange')
   @UseGuards(ThrottlerGuard)
   async nativeExchange(@Body('code') code?: string): Promise<AuthSession> {
@@ -354,10 +362,13 @@ export class AuthController {
     return session;
   }
 
-  // 요청의 User-Agent를 **기기 종류로 접는다.** 원문은 여기서 끝이고 아래로 내려가지
-  // 않는다 — 저장소에 남는 것은 enum 하나뿐이다(plan/dashboard.md §5).
-  private deviceOf(req: Request): DeviceKind {
-    return classifyDevice(req.headers['user-agent']);
+  // 세션의 출신을 요청 하나에서 읽는다 — 기기 종류(UA를 enum으로 접은 값)다.
+  // **UA 원문은 여기서 끝이고 아래로 내려가지 않는다**(plan/dashboard.md §5).
+  //
+  // 푸시 등록은 **여기를 지나지 않는다**(§5-2를 뒤집었다) — 로그인은 토큰을 나르지 않고,
+  // 푸시 화면이 `POST /auth/push/register`로 살아 있는 세션에 붙인다.
+  private originOf(req: Request): SessionOrigin {
+    return originOf(req.headers);
   }
 
   // ──────────────────────── 세션 ────────────────────────
@@ -461,13 +472,113 @@ export class AuthController {
       this.auth.listSessions(req.user.id),
       this.auth.connectedSessionIds(req.user.id),
     ]);
+    // 자격증명이 없으면 **아무도 깨울 수 없다** — 목록이 `Will notify`라고 해 놓고 아무
+    // 일도 일어나지 않는 것보다, 처음부터 `Notifications off`라고 말하는 편이 정직하다.
+    const canPush = this.config.pushEnabled;
     return sessions
       .map((s) => ({
         ...s,
         isCurrent: s.id === req.sessionId,
         isConnected: connected.has(s.id),
+        pushRegistered: canPush && s.pushRegistered,
       }))
       .sort(byCurrentThenNewest);
+  }
+
+  // 지금 세션에 등록 토큰을 붙인다(푸시 화면의 `알림 켜기`).
+  //
+  // **§5-2를 뒤집은 결과다.** 원래는 토큰이 로그인 요청에만 실렸고, 살아 있는 세션을
+  // 고치는 문을 열지 않으려 했다. 그 값이 "재로그인 한 번"이라던 계산이 틀렸다 —
+  // 권한을 준 사람이 로그인을 다시 해야 했고, 화면이 그 사실을 계속 설명해야 했다.
+  // `SET ... KEEPTTL`이 들어와 수명이 리셋되던 기술적 이유도 사라졌다.
+  //
+  // 알림을 켜는 것은 **활동이 아니다** — 유휴 창을 밀지 않는다(repository 주석).
+  // 남 대신 켜는 요청은 아니지만 폐기·발송과 같은 문(출처 검증 + 레이트리밋)을 지난다.
+  @Post('push/register')
+  @UseGuards(ThrottlerGuard, WebOriginGuard, JwtAuthGuard)
+  async registerPush(
+    @Req() req: Request & { user: User; sessionId: string },
+    @Body('pushToken') pushToken?: string,
+  ): Promise<{ registered: boolean }> {
+    const token = typeof pushToken === 'string' ? pushToken.trim() : '';
+    if (!token || token.length > MAX_PUSH_TOKEN_LENGTH) {
+      throw new HttpException({ error: AUTH_ERROR_CODES.INVALID_TOKEN }, 400);
+    }
+    // 언어는 싣지 않는다 — 세션의 속성이라 가드가 인증된 요청마다 맞춘다(이 요청 포함).
+    const registered = await this.retryable(() =>
+      this.push.registerToken(req.user.id, req.sessionId, token),
+    );
+    return { registered };
+  }
+
+  // 레코드 고치기가 같은 세션의 다른 요청과 잇달아 부딪히면 **다시 시도하라고 답한다.**
+  // `false`로 접으면 화면이 "이제 대상이 아니다"로 읽고 선택을 지운 채 등록만 남는다.
+  private async retryable<T>(work: () => Promise<T>): Promise<T> {
+    try {
+      return await work();
+    } catch (e) {
+      if (e instanceof SessionContentionError) {
+        throw new HttpException({ error: AUTH_ERROR_CODES.CONFLICT }, 409);
+      }
+      throw e;
+    }
+  }
+
+  // 이 세션을 푸시 대상에서 뺀다(푸시 화면의 `알림 끄기`).
+  //
+  // **권한을 되돌리는 것이 아니다** — 브라우저·OS는 앱이 권한을 끄는 길을 주지 않는다.
+  // 끌 수 있는 것은 등록뿐이고, 그것이 목록의 `Notifications off`가 말하는 값이다.
+  // 기기의 토큰은 그대로 두므로 다시 켜는 데 권한 창이 필요 없다(§5-15).
+  @Post('push/unregister')
+  @UseGuards(ThrottlerGuard, WebOriginGuard, JwtAuthGuard)
+  async unregisterPush(
+    @Req() req: Request & { user: User; sessionId: string },
+  ): Promise<{ registered: boolean }> {
+    await this.retryable(() =>
+      this.push.unregisterToken(req.user.id, req.sessionId),
+    );
+    // 지웠든, 그 세션이 이미 사라졌든 **결과는 하나다** — 이제 대상이 아니다.
+    // 둘을 갈라 답하면 화면이 쓰지 않을 갈래를 만들게 된다(목록이 사실을 말한다).
+    // 못 지운 것(부딪힘)만 다르다 — 그건 위에서 409로 갈라 답했다.
+    return { registered: false };
+  }
+
+  // 내 기기들에 알림을 보낸다(푸시 화면).
+  //
+  // **클라이언트는 대상 세션 id들과 내용만 준다** — 토큰은 서버가 레코드에서 꺼낸다
+  // (plan/push.md §5-3). 알림을 남 대신 일으키는 요청이라 폐기와 같은 문(출처 검증 +
+  // 레이트리밋)을 지난다.
+  //
+  // **경로가 세션 하위가 아니다.** 대상이 여럿이라 `sessions/:id/...`에 담기지 않는다.
+  // 단일 발송은 대상이 하나인 다중 발송이므로 경로를 둘로 두지 않는다 — 두면 규칙이
+  // 둘이 되고, 언젠가 한쪽만 고쳐진다.
+  @Post('push/send')
+  @UseGuards(ThrottlerGuard, WebOriginGuard, JwtAuthGuard)
+  async sendPush(
+    @Req() req: Request & { user: User },
+    @Body() body: PushSendBody,
+  ): Promise<PushSendResponse> {
+    const content = decodePushRequest(body, this.push.demoLink());
+    try {
+      return {
+        results: await this.push.sendToSessions(
+          req.user.id,
+          content.sessionIds,
+          content,
+        ),
+      };
+    } catch (e) {
+      // 이 배포에 전송기가 없다(자격증명 미설정). 대상별 일시적 실패는 여기로 오지
+      // 않는다 — 그건 결과의 `failed`다. 코드는 **인증 오류가 아니다**: UNAUTHORIZED로
+      // 보내면 본문이 FCM 장애를 로그인 문제라고 말하게 된다.
+      if (e instanceof PushUnavailableError) {
+        throw new HttpException(
+          { error: AUTH_ERROR_CODES.PUSH_UNAVAILABLE },
+          502,
+        );
+      }
+      throw e;
+    }
   }
 
   // 모든 기기에서 로그아웃. 현재 세션도 포함되므로 쿠키를 정리한다.

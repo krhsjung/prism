@@ -10,6 +10,9 @@ enum AuthErrorCode {
     static let invalidToken = "INVALID_TOKEN"
     static let sessionExpired = "SESSION_EXPIRED"
     static let forbiddenOrigin = "FORBIDDEN_ORIGIN"
+    static let pushUnavailable = "PUSH_UNAVAILABLE"
+    static let conflict = "CONFLICT"
+    static let invalidPushRequest = "INVALID_PUSH_REQUEST"
 }
 
 /// 클라이언트(웹·모바일)가 로컬에서 만드는, 서버 계약에 등재된 코드.
@@ -59,5 +62,41 @@ enum SocketServerMessageType: String, Codable, Sendable {
 /// presence를 주장하지 않는다 — 서버는 이 말을 믿는 대신 세션 저장소를 다시 읽는다.
 /// 그래서 이 메시지에는 아무 권한도 실려 있지 않다(무엇을 폐기했는지도 말하지 않는다).
 enum SessionClientMessageType: String, Codable, Sendable {
-    case sessionsRevoked
+    case sessionsStale
+}
+
+/// 푸시 알림 페이로드의 `data` 키. 세 클라이언트가 같은 문자열을 손으로 베끼지 않게 한다.
+enum PushDataKey {
+    static let kind = "kind"
+    static let callId = "callId"
+    static let device = "device"
+    static let link = "link"
+    static let actions = "actions"
+    static let image = "image"
+    static let title = "title"
+    static let body = "body"
+}
+
+/// 알림의 갈래(`data.kind`). `call`은 소켓 없는 기기를 깨우는 통화 알림이다.
+/// 모르는 값은 `nil`로 접는다(`init?(rawValue:)`) — 갈래가 늘어도 옛 앱이 알림을 버리지는 않는다.
+enum PushKind: String, Codable, Sendable {
+    case call
+    case demo
+}
+
+/// 알림에 붙는 버튼 조합. **iOS가 미리 등록한 것만 쓸 수 있어** 조합 자체를 계약이 정한다.
+enum PushActionSet: String, CaseIterable, Codable, Sendable {
+    case none = "none"
+    case open = "open"
+    case openDismiss = "open-dismiss"
+}
+
+/// 푸시 전송 결과. **FCM이 알려 주는 것은 "받아들였다"까지다** — 배달도 열람도 아니다.
+enum PushSendResult: String, Codable, Sendable {
+    case accepted = "accepted"
+    case noToken = "no-token"
+    case rejected = "rejected"
+    case failed = "failed"
+    case duplicate = "duplicate"
+    case unknown = "unknown"
 }

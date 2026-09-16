@@ -4,6 +4,7 @@ import {
   decodeAuthSession,
   decodeCallClientMessage,
   decodeCallServerMessage,
+  decodePushSendResponse,
   decodeSessionList,
   decodeSessionListItem,
   decodeSocketDownstreamMessage,
@@ -131,6 +132,7 @@ describe('contract decoders', () => {
     expiresAt: '2026-01-02T00:00:00.000Z',
     isCurrent: true,
     isConnected: true,
+    pushRegistered: true,
     device: 'iphone',
   };
 
@@ -163,6 +165,21 @@ describe('contract decoders', () => {
   it('decodeSessionListItem: isConnected가 boolean이 아니면 false로 접는다', () => {
     const coerced = { ...(sessionItem as object), isConnected: 'true' };
     expect(decodeSessionListItem(coerced as JsonValue).isConnected).toBe(false);
+  });
+
+  // isConnected와 **같은 규칙**이다. 푸시가 붙기 전 서버가 이 필드를 보내지 않아도
+  // 목록은 그려져야 한다 — 그 세션은 `Notifications off`로 정직하게 보인다.
+  it('decodeSessionListItem: pushRegistered가 없으면 false로 접는다', () => {
+    expect(
+      decodeSessionListItem(without('pushRegistered')).pushRegistered,
+    ).toBe(false);
+  });
+
+  it('decodeSessionListItem: pushRegistered가 boolean이 아니면 false로 접는다', () => {
+    const coerced = { ...(sessionItem as object), pushRegistered: 1 };
+    expect(decodeSessionListItem(coerced as JsonValue).pushRegistered).toBe(
+      false,
+    );
   });
 
   it('decodeSessionList: 배열이 아니면 거부한다', () => {
@@ -247,6 +264,49 @@ describe('contract decoders', () => {
     expect(() => decodeCallServerMessage({ type: 'claimed' })).toThrow(
       /callId/,
     );
+  });
+
+  // 소켓이 없어 푸시로 알렸다. `ringing`과 같은 모양이라 디코더에 분기가 필요 없고,
+  // 기본 갈래(`{ type, callId }`)가 그대로 받는다 — 갈라 두는 것은 화면의 문구다.
+  it('decodeCallServerMessage: notified는 callId만 나른다', () => {
+    expect(
+      decodeCallServerMessage({ type: 'notified', callId: 'c-1' }),
+    ).toEqual({ type: 'notified', callId: 'c-1' });
+    expect(() => decodeCallServerMessage({ type: 'notified' })).toThrow(
+      /callId/,
+    );
+  });
+
+  // ── 푸시 ──
+
+  // 대상이 여럿이라 **결과도 여럿이다** — 화면이 고른 줄 옆에 그대로 그린다.
+  it('decodePushSendResponse: 대상별 결과를 구성한다', () => {
+    expect(
+      decodePushSendResponse({
+        results: [
+          { sessionId: 's-1', result: 'accepted' },
+          { sessionId: 's-2', result: 'duplicate' },
+        ],
+      }),
+    ).toEqual({
+      results: [
+        { sessionId: 's-1', result: 'accepted' },
+        { sessionId: 's-2', result: 'duplicate' },
+      ],
+    });
+  });
+
+  it('decodePushSendResponse: 모르는 결과는 거부한다', () => {
+    // 모르는 결과를 접으면 화면이 없는 사실을 말하게 된다.
+    expect(() =>
+      decodePushSendResponse({
+        results: [{ sessionId: 's-1', result: 'delivered' }],
+      }),
+    ).toThrow(/unknown result/);
+    expect(() => decodePushSendResponse({})).toThrow(/expected array/);
+    expect(() =>
+      decodePushSendResponse({ results: [{ result: 'accepted' }] }),
+    ).toThrow(/sessionId/);
   });
 
   it('decodeCallClientMessage: 모르는 type은 접지 않고 거부한다', () => {

@@ -5,8 +5,10 @@ import { SessionModule } from '@app/session';
 import { DatabaseModule } from '@app/database';
 import { RedisModule } from '@app/redis';
 import { UsersModule } from '@app/common';
+import { PushModule } from '@app/push';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
+import { PushNotificationService } from './push.service';
 import { HealthController } from './health.controller';
 import { WebOriginGuard } from './web-origin.guard';
 import { AppleOAuthClient } from './oauth/apple-oauth.client';
@@ -46,10 +48,13 @@ import type { SocialProvider } from '@app/common';
       useFactory: (config: PrismConfigService) => config.redisConfig,
     }),
     UsersModule,
+    // FCM 전송기. socket 서비스도 같은 lib을 쓴다(통화 깨우기).
+    PushModule,
   ],
   controllers: [AuthController, HealthController],
   providers: [
     AuthService,
+    PushNotificationService,
     AuthTokenService,
     NativeAuthCodeStore,
     WebOriginGuard,

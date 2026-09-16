@@ -322,6 +322,34 @@ describeIfRedis('IoredisService.compareAndRenew (실제 Redis)', () => {
     expect(bodyAfter).toBeGreaterThan(bodyBefore - 5_000);
   });
 
+  // 레코드 고치기(읽고 → 고쳐서 → 되쓰기)의 되쓰기. **값이 같을 때만** 갈고 수명은 그대로다.
+  // 리포지토리 스펙의 가짜는 의도를 재진술할 뿐이라, GET 비교와 KEEPTTL의 실제 의미는 여기서 본다.
+  it('compareAndSetKeepTtl은 값이 같을 때만 갈고 수명을 건드리지 않는다', async () => {
+    await redis.setEx(casKey, 'old', 600);
+    const before = await probe.pttl(casKey);
+
+    await expect(
+      redis.compareAndSetKeepTtl(casKey, 'old', 'new'),
+    ).resolves.toBe(true);
+    await expect(redis.get(casKey)).resolves.toBe('new');
+    const after = await probe.pttl(casKey);
+    expect(after).toBeLessThanOrEqual(before);
+    expect(after).toBeGreaterThan(before - 5_000);
+
+    // 그사이 바뀐 값(방금 'new'가 됐다)에 옛 기대값으로 되쓰면 실패하고 아무것도 바꾸지 않는다.
+    await expect(redis.compareAndSetKeepTtl(casKey, 'old', 'x')).resolves.toBe(
+      false,
+    );
+    await expect(redis.get(casKey)).resolves.toBe('new');
+  });
+
+  it('compareAndSetKeepTtl은 없는 키를 되살리지 않는다', async () => {
+    await expect(
+      redis.compareAndSetKeepTtl(casKey, 'old', 'new'),
+    ).resolves.toBe(false);
+    await expect(redis.get(casKey)).resolves.toBeNull();
+  });
+
   // 만료가 걸려 있지 않은 키는 비정상이다. 여기서 부르는 쪽의 TTL로 떨어지면 "밀지 않겠다"던
   // 회전이 오히려 창을 가득 채운다 — **아무것도 바꾸지 않고** 실패해야 한다.
   it('수명이 없는 키의 배경 회전은 아무것도 바꾸지 않고 실패한다', async () => {

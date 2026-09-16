@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import type { Request } from 'express';
-import { SessionsRepository, type User } from '@app/common';
+import { SessionsRepository, localeFrom, type User } from '@app/common';
 import { PrismConfigService } from '@app/config';
 import { IS_PUBLIC_KEY } from './public.decorator';
 import { SessionAuthenticator } from './session-authenticator';
@@ -78,6 +78,29 @@ export class JwtAuthGuard implements CanActivate {
     req.user = result.user;
     // 로그아웃이 "이 세션만" 지울 수 있도록 핸들러에 전달한다.
     req.sessionId = result.sessionId;
+
+    // 세션의 언어를 요청의 언어에 맞춘다 — **달라졌을 때만** 쓴다.
+    //
+    // 서버가 그리는 알림 문구(통화 알림·기본 제목)는 세션에 담긴 언어를 쓰는데, 그 값을
+    // 로그인 때 한 번만 담으면 앱에서 언어를 바꾼 뒤에도 옛 언어로 알림이 온다. 세
+    // 클라이언트 모두 앱에서 고른 언어를 매 요청의 `Accept-Language`에 싣는다 — 그래서
+    // 인증된 요청이 닿는 이 자리가 언어를 맞추는 자연스러운 자리다. 헤더가 없는 요청은
+    // 건드리지 않는다(기본 언어로 덮어쓰면 그것이 곧 잘못된 값이다).
+    //
+    // 활동 여부와 무관하다 — 언어는 유휴 창과 관계없는 세션의 속성이다.
+    const language = req.headers['accept-language'];
+    if (language && localeFrom(language) !== result.locale) {
+      try {
+        await this.sessions.updateLocale(
+          result.user.id,
+          result.sessionId,
+          localeFrom(language),
+        );
+      } catch (error) {
+        // 밀기와 같은 규칙 — 요청을 막지 않되, 조용히 삼키지도 않는다.
+        this.logger.warn(`failed to update session locale: ${String(error)}`);
+      }
+    }
 
     // 사용자가 시킨 요청이면 유휴 창을 민다(위 ACTIVITY_HEADER).
     //

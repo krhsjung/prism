@@ -1,6 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { createHash, randomBytes } from 'crypto';
 import { REDIS, type RedisClient } from '@app/redis';
+import { DEFAULT_LOCALE, LOCALES, type Locale } from '../i18n';
 import {
   AUTH_PROVIDERS,
   decodeDeviceKind,
@@ -9,6 +10,7 @@ import {
   parseJsonValue,
   type AuthProvider,
   type DeviceKind,
+  MAX_PUSH_TOKEN_LENGTH,
   type SessionInfo,
   type User,
 } from '../types/contracts';
@@ -23,7 +25,47 @@ interface SessionRecord {
   // 기기 종류(enum). UA 원문이 아니다 — 로그인 시점에 네 갈래로 접어 이 값만 남긴다.
   device: DeviceKind;
   absoluteExpiresAt: number; // epoch(ms) — 리프레시로도 넘을 수 없는 상한
+  // FCM 등록 토큰. **응답으로 나가지 않는다** — 목록에는 파생 불리언
+  // (`SessionInfo.pushRegistered`)만 실린다(plan/push.md §5-3).
+  //
+  // 별도 테이블에 두지 않는 이유는 수명이다: 세션에 담으면 **로그아웃·폐기·유휴 만료가
+  // 그대로 토큰의 수명**이 되고, Postgres와 백업에는 기기 식별자가 남지 않는다(§5-1).
+  // "저장하지 않는다"가 아니라 **"세션과 함께 사라진다"**이다.
+  pushToken?: string;
+  // 이 세션을 쓰는 기기의 표시 언어. **서버가 그리는 알림 문구**를 고르는 데만 쓴다 —
+  // 받는 쪽의 언어는 보내는 쪽의 요청에서 알 수 없기 때문이다(plan/push.md D4).
+  //
+  // 로그인 때 담기고, 그 뒤로는 **인증된 요청마다** `Accept-Language`와 대조해 달라졌을
+  // 때만 고친다(JwtAuthGuard). 푸시 등록에 묶어 두면 언어를 바꾼 뒤 알림을 껐다 켜기
+  // 전까지 옛 언어로 알림이 온다 — 언어는 등록이 아니라 세션의 속성이다.
+  locale?: Locale;
 }
+
+// 푸시를 보낼 때 필요한 것 전부. `pushTargetFor`만 이것을 돌려준다.
+export interface PushTarget {
+  token: string;
+  locale: Locale;
+}
+
+/**
+ * 같은 레코드를 고치는 요청과 잇달아 부딪혀 되쓰지 못했다.
+ *
+ * "없다"가 아니다 — 세션도 토큰도 그대로일 수 있다. 그래서 `false`로 접지 않고 던진다:
+ * `false`로 답하면 호출부가 "이제 대상이 아니다"로 읽고, 클라이언트는 그 답을 믿고 선택을
+ * 지운 채 등록은 남는다. 호출부는 다시 시도하라고(409) 답한다.
+ */
+export class SessionContentionError extends Error {
+  constructor() {
+    super('session record contended');
+  }
+}
+
+// 대상 조회의 세 갈래. `not-owned`는 **없는 세션과 남의 세션을 구별해 주지 않는다** —
+// 남의 세션 id를 넣어 존재를 떠보는 경로를 열지 않기 위해서다(unknown-session과 같은 이유).
+export type PushLookup =
+  | { kind: 'ok'; target: PushTarget }
+  | { kind: 'no-token' }
+  | { kind: 'not-owned' };
 
 // 세션 생성/갱신 결과 — 리프레시 자격증명은 **이때만** 평문으로 존재한다.
 export interface IssuedSession {
@@ -111,6 +153,9 @@ export class SessionsRepository {
     // 세션을 만든 기기의 **종류**. 호출부가 이미 UA를 접어서 넘긴다 — 여기까지 원문이
     // 내려오지 않으므로, 저장소에 UA가 새어 들어갈 경로 자체가 없다.
     device: DeviceKind = 'unknown',
+    // 로그인 요청의 언어. 푸시 토큰은 여기로 들어오지 않는다 — 등록은 살아 있는 세션에
+    // `attachPushToken`으로 붙는다(plan/push.md §5-2를 뒤집은 결과).
+    locale: Locale = DEFAULT_LOCALE,
   ): Promise<IssuedSession> {
     const record: SessionRecord = {
       userId: user.id,
@@ -120,6 +165,7 @@ export class SessionsRepository {
       startedAt: Date.now(),
       absoluteExpiresAt: Date.now() + absoluteTtlMs,
       device,
+      locale,
     };
     const secret = randomBytes(SECRET_BYTES).toString('base64url');
     const ttlSeconds = Math.ceil(idleTtlMs / 1000);
@@ -191,7 +237,7 @@ export class SessionsRepository {
    */
   async findValidSession(
     id: string,
-  ): Promise<{ user: User; absoluteExpiresAt: number } | null> {
+  ): Promise<{ user: User; absoluteExpiresAt: number; locale: Locale } | null> {
     const record = await this.readRecord(id);
     if (!record) return null;
     // 상한은 TTL과 별개로 직접 확인한다 — TTL은 초 단위로 올림되고 인덱스 score는
@@ -205,6 +251,8 @@ export class SessionsRepository {
         createdAt: record.createdAt,
       },
       absoluteExpiresAt: record.absoluteExpiresAt,
+      // 언어도 같은 이유로 함께 준다 — 가드가 요청의 언어와 대조해 달라졌을 때만 고친다.
+      locale: record.locale ?? DEFAULT_LOCALE,
     };
   }
 
@@ -326,9 +374,154 @@ export class SessionsRepository {
         startedAt: new Date(record.startedAt).toISOString(),
         expiresAt: new Date(score).toISOString(),
         device: record.device,
+        // ⚠️ **파생 불리언만 나간다.** 원본 토큰이 이 객체에 한 번이라도 얹히면
+        // 호출부의 스프레드(`{ ...s, isCurrent, isConnected }`)를 타고 **남의 기기
+        // 행까지 든 목록에 그대로 실려 나간다**. 토큰을 돌려주는 문은 pushTargetFor뿐이다.
+        pushRegistered: record.pushToken !== undefined,
       });
     }
     return sessions;
+  }
+
+  // 푸시를 보낼 대상. **토큰을 돌려주는 유일한 메서드다.**
+  //
+  // 소유권을 여기서 함께 확인한다 — 남의 세션 id를 넣어 남의 기기를 울릴 수 있으면
+  // 그것 자체가 공격이다(deleteOwned가 폐기 DoS를 막는 것과 같은 자리).
+  //
+  // 세 갈래를 **한 번의 읽기로** 가른다. 호출부가 "내 것이 아님"과 "토큰 없음"을 다르게
+  // 답해야 하기 때문이다 — 앞의 것은 404(없는 세션과 구별해 주지 않는다), 뒤의 것은
+  // `no-token`이다. 두 메서드로 나누면 같은 레코드를 두 번 읽는다.
+  async pushTargetFor(userId: string, sessionId: string): Promise<PushLookup> {
+    const record = await this.readRecord(sessionId);
+    if (!record || record.userId !== userId) return { kind: 'not-owned' };
+    if (!record.pushToken) return { kind: 'no-token' };
+    return {
+      kind: 'ok',
+      target: {
+        token: record.pushToken,
+        locale: record.locale ?? DEFAULT_LOCALE,
+      },
+    };
+  }
+
+  /**
+   * 살아 있는 세션에 등록 토큰을 붙인다. **유휴 창은 밀지 않는다.**
+   *
+   * 원래는 이 문을 열지 않았다(§5-2) — 세션 레코드를 고치면 남은 TTL을 보존해야 하는데
+   * `setEx`뿐이라 수명이 리셋되기 때문이었다. 그 사이 `SET ... KEEPTTL`이 들어와
+   * 기술적 이유는 사라졌고, 남은 것은 판단이었다. **재로그인 한 번**으로 치기엔 대가가
+   * 컸다: 권한을 준 뒤 로그인을 두 번 해야 하고, 그 사실을 화면이 계속 설명해야 했다.
+   *
+   * 그래서 로그인 화면에서 권한을 먼저 받는 흐름을 버리고, 푸시 화면이 권한과 등록을
+   * 함께 처리한다. 자세한 것은 plan/push.md §5-2.
+   *
+   * 소유권은 여기서 확인한다 — 남의 세션 id로 남의 기기에 토큰을 심을 수 있으면
+   * 그것 자체가 공격이다(`pushTargetFor`와 같은 자리).
+   *
+   * **활동으로 치지 않는다.** 알림을 켜는 것은 사용자의 손짓이지만, 그것으로 세션 수명을
+   * 밀면 유휴 창이 "손을 뗀 지 얼마나 됐나"를 말하지 않게 된다(plan/auth.md §6).
+   *
+   * 언어는 여기서 건드리지 않는다 — 세션의 속성이라 인증된 요청마다 따로 맞춘다
+   * (`updateLocale`). 이 요청도 그 문을 지나왔으므로 이미 최신이다.
+   */
+  async attachPushToken(
+    userId: string,
+    sessionId: string,
+    token: string,
+  ): Promise<boolean> {
+    const outcome = await this.mutateRecord(userId, sessionId, (record) =>
+      record.pushToken === token ? null : { ...record, pushToken: token },
+    );
+    return outcome !== 'missing';
+  }
+
+  /**
+   * 이 세션을 푸시 대상에서 뺀다. **권한을 되돌리는 것이 아니다.**
+   *
+   * 브라우저·OS의 알림 권한은 한 방향으로만 움직여 앱이 끌 수 없다 — 끌 수 있는 것은
+   * "이 세션이 푸시 대상인가"뿐이고, 그것이 목록의 `Notifications off`가 말하는 값이다.
+   * 그래서 화면의 토글도 딱 그만큼만 약속한다(plan/push.md §5-15).
+   *
+   * `attachPushToken`과 같은 규칙이다 — 소유권을 확인하고, 유휴 창은 밀지 않는다.
+   * 기기의 등록 토큰 자체는 그대로 두므로 다시 켜는 데 권한 창이 필요하지 않다.
+   */
+  async clearPushToken(userId: string, sessionId: string): Promise<boolean> {
+    const outcome = await this.mutateRecord(userId, sessionId, (record) =>
+      record.pushToken === undefined ? null : withoutPushToken(record),
+    );
+    return outcome !== 'missing';
+  }
+
+  /**
+   * FCM이 거부한 토큰을 뗀다 — **지금도 그 토큰일 때만.**
+   *
+   * 죽은 토큰을 세션에 두면 목록은 계속 `Will notify`를 그리고, 거는 쪽은 `notified`를
+   * 받고, 다음 발송도 같은 토큰을 겨눈다 — 사용자에게는 "껐다 켜라"는 신호조차 없다.
+   * Firebase도 무효로 판명된 등록은 지우라고 한다.
+   *
+   * 값을 대조하는 이유는 늦게 도착한 거부다. 기기가 그사이 새 토큰으로 다시 등록했다면
+   * 그 거부는 옛 토큰의 것이고, 무조건 지우면 방금 붙인 산 토큰이 사라진다.
+   * `mutateRecord`의 비교-교체가 "읽은 뒤 등록이 끼어든" 창까지 막는다.
+   *
+   * **실제로 뗐을 때만 true다** — 호출부가 그때만 목록 변경을 알린다.
+   */
+  async clearPushTokenIfMatches(
+    userId: string,
+    sessionId: string,
+    token: string,
+  ): Promise<boolean> {
+    const outcome = await this.mutateRecord(userId, sessionId, (record) =>
+      record.pushToken === token ? withoutPushToken(record) : null,
+    );
+    return outcome === 'applied';
+  }
+
+  /**
+   * 세션의 언어를 맞춘다. **가드가 인증된 요청마다** 부른다 — 값이 달라졌을 때만 쓴다.
+   *
+   * 언어를 푸시 등록에 묶어 두면 앱에서 언어를 바꾼 뒤 알림을 껐다 켜기 전까지 알림이
+   * 옛 언어로 온다. 언어는 등록의 속성이 아니라 **세션의 속성**이다.
+   */
+  async updateLocale(
+    userId: string,
+    sessionId: string,
+    locale: Locale,
+  ): Promise<boolean> {
+    const outcome = await this.mutateRecord(userId, sessionId, (record) =>
+      record.locale === locale ? null : { ...record, locale },
+    );
+    return outcome !== 'missing';
+  }
+
+  /**
+   * 살아 있는 레코드의 필드를 고친다 — **읽고, 고치고, 그사이 아무도 안 건드렸을 때만
+   * 되쓴다.** 유휴 창은 밀지 않는다(`compareAndSetKeepTtl`).
+   *
+   * 읽기와 되쓰기 사이에 다른 요청이 같은 레코드를 고칠 수 있다 — 등록과 해제가 겹치면
+   * (전역 복원과 푸시 화면이 각자 시작한다) 늦게 쓴 쪽이 먼저 쓴 쪽을 조용히 덮는다.
+   * 그래서 방금 읽은 원문과 같을 때만 되쓰고, 다르면 다시 읽어 그 위에 고친다.
+   *
+   * `mutate`가 null을 돌려주면 이미 원하는 상태다(`unchanged`) — 쓰지 않는다.
+   * `missing`은 레코드가 없거나 내 것이 아닌 경우다. 재시도를 다 써도 되쓰지 못하면
+   * **던진다**(`SessionContentionError`) — 그건 없는 것이 아니라 못 고친 것이다.
+   */
+  private async mutateRecord(
+    userId: string,
+    sessionId: string,
+    mutate: (record: SessionRecord) => SessionRecord | null,
+  ): Promise<'applied' | 'unchanged' | 'missing'> {
+    const key = sessionKey(sessionId);
+    for (let attempt = 0; attempt < MUTATE_ATTEMPTS; attempt++) {
+      const raw = await this.redis.get(key);
+      const record = raw ? decodeRecord(raw) : null;
+      if (!raw || !record || record.userId !== userId) return 'missing';
+      const next = mutate(record);
+      if (next === null) return 'unchanged';
+      if (await this.redis.compareAndSetKeepTtl(key, raw, JSON.stringify(next)))
+        return 'applied';
+      // 그사이 누군가 고쳤다 — 다시 읽어 그 위에 고친다.
+    }
+    throw new SessionContentionError();
   }
 
   // 소유권 범위 폐기 — 세션 id만으로 지우지 않는다. 남의 id를 넣어도 지워지면 안 된다.
@@ -368,41 +561,9 @@ export class SessionsRepository {
     if (userId) await this.redis.zRem(userIndexKey(userId), id);
   }
 
-  // 저장한 형식과 다르면(구버전 등) 없는 세션으로 취급한다 — 조용히 실패하지 않게
-  // 경계에서 디코딩한다.
   private async readRecord(id: string): Promise<SessionRecord | null> {
     const raw = await this.redis.get(sessionKey(id));
-    if (!raw) return null;
-    try {
-      const obj = decodeObject(parseJsonValue(raw), 'SessionRecord');
-      const provider = AUTH_PROVIDERS.find((p) => p === obj.provider);
-      if (!provider) return null;
-      // 시각 필드가 없으면 이전 형식으로 저장된 세션이다 — 상한도 시작 시각도 모르는
-      // 세션은 올바르게 관리할 수 없다(목록에 1970이 뜨고, 상한 판단이 불가능하다).
-      // 없는 세션으로 취급해 재로그인시킨다.
-      if (
-        typeof obj.startedAt !== 'number' ||
-        typeof obj.absoluteExpiresAt !== 'number'
-      ) {
-        return null;
-      }
-      return {
-        userId: decodeString(obj.userId, 'SessionRecord.userId'),
-        provider,
-        displayName:
-          typeof obj.displayName === 'string' && obj.displayName.trim()
-            ? obj.displayName
-            : FALLBACK_DISPLAY_NAME,
-        createdAt: decodeString(obj.createdAt, 'SessionRecord.createdAt'),
-        startedAt: obj.startedAt,
-        // 이 필드가 생기기 전에 만들어진 세션은 값이 없다 — 거부하지 않고 unknown으로
-        // 접는다. 배포 순간에 살아 있던 세션이 목록에서 통째로 사라지면 안 된다.
-        device: decodeDeviceKind(obj.device),
-        absoluteExpiresAt: obj.absoluteExpiresAt,
-      };
-    } catch {
-      return null;
-    }
+    return raw ? decodeRecord(raw) : null;
   }
 
   // 지나간 항목을 인덱스에서 걷어낸다. 본체는 TTL로 이미 사라졌으므로 인덱스만 정리하면 된다.
@@ -410,5 +571,60 @@ export class SessionsRepository {
     // 자르는 기준도 **Redis 시계**다 — score를 Redis가 찍으므로 섞으면 시계 차이만큼
     // 살아 있는 항목을 지우거나 죽은 항목을 남긴다.
     await this.redis.pruneExpired(userIndexKey(userId));
+  }
+}
+
+// 되쓸 때 필드 하나를 뺀다 — `undefined`로 두면 JSON.stringify가 키를 빼므로 readRecord가
+// 예전 세션과 같은 모양으로 읽는다(`pushToken`이 없으면 대상이 아니다).
+function withoutPushToken(record: SessionRecord): SessionRecord {
+  const rest = { ...record };
+  delete rest.pushToken;
+  return rest;
+}
+
+// 비교-교체가 실패했을 때 다시 읽어 고치는 횟수. 겹치는 것은 같은 세션의 등록·해제뿐이라
+// 두 번째에서 거의 끝난다 — 상한은 무한 루프를 막는 안전장치다.
+const MUTATE_ATTEMPTS = 3;
+
+// 저장한 형식과 다르면(구버전 등) 없는 세션으로 취급한다 — 조용히 실패하지 않게
+// 경계에서 디코딩한다.
+function decodeRecord(raw: string): SessionRecord | null {
+  try {
+    const obj = decodeObject(parseJsonValue(raw), 'SessionRecord');
+    const provider = AUTH_PROVIDERS.find((p) => p === obj.provider);
+    if (!provider) return null;
+    // 시각 필드가 없으면 이전 형식으로 저장된 세션이다 — 상한도 시작 시각도 모르는
+    // 세션은 올바르게 관리할 수 없다(목록에 1970이 뜨고, 상한 판단이 불가능하다).
+    // 없는 세션으로 취급해 재로그인시킨다.
+    if (
+      typeof obj.startedAt !== 'number' ||
+      typeof obj.absoluteExpiresAt !== 'number'
+    ) {
+      return null;
+    }
+    return {
+      userId: decodeString(obj.userId, 'SessionRecord.userId'),
+      provider,
+      displayName:
+        typeof obj.displayName === 'string' && obj.displayName.trim()
+          ? obj.displayName
+          : FALLBACK_DISPLAY_NAME,
+      createdAt: decodeString(obj.createdAt, 'SessionRecord.createdAt'),
+      startedAt: obj.startedAt,
+      // 이 필드가 생기기 전에 만들어진 세션은 값이 없다 — 거부하지 않고 unknown으로
+      // 접는다. 배포 순간에 살아 있던 세션이 목록에서 통째로 사라지면 안 된다.
+      device: decodeDeviceKind(obj.device),
+      absoluteExpiresAt: obj.absoluteExpiresAt,
+      // device와 **같은 규칙**으로 접는다 — 이 필드들이 생기기 전에 만들어진 세션은
+      // 값이 없다. 거부하면 배포 순간에 살아 있던 세션이 통째로 사라진다.
+      ...(typeof obj.pushToken === 'string' &&
+      obj.pushToken.length > 0 &&
+      obj.pushToken.length <= MAX_PUSH_TOKEN_LENGTH
+        ? { pushToken: obj.pushToken }
+        : {}),
+      locale: LOCALES.find((l) => l === obj.locale) ?? DEFAULT_LOCALE,
+    };
+  } catch {
+    return null;
   }
 }

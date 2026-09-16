@@ -1,6 +1,7 @@
 import {
   loadAuthConfig,
   loadHttpConfig,
+  loadFcmConfig,
   loadIceConfig,
   loadPostgresConfig,
 } from './app-config';
@@ -285,5 +286,54 @@ describe('loadIceConfig', () => {
     expect(() => loadIceConfig({ ...turn, PRISM_TURN_URLS: 'stun:a' })).toThrow(
       /PRISM_TURN_URLS/,
     );
+  });
+});
+
+// 푸시는 **없어도 서버가 뜬다.** 대신 일부만 설정된 상태는 부팅에서 막는다 —
+// 푸시를 켰다고 믿는 채 알림만 안 오는 상태는 통화가 `Call expired`로 끝나야만
+// 드러난다(loadIceConfig가 TURN에 하는 것과 같은 판단이다).
+describe('loadFcmConfig', () => {
+  const PEM = '-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----\n';
+  const full = {
+    PRISM_FCM_PROJECT_ID: 'prism-test',
+    PRISM_FCM_CLIENT_EMAIL: 'sender@prism-test.iam.gserviceaccount.com',
+    PRISM_FCM_PRIVATE_KEY: PEM,
+  };
+
+  it('아무것도 없으면 null이다(푸시 비활성)', () => {
+    expect(loadFcmConfig({})).toBeNull();
+  });
+
+  it('셋이 다 있으면 설정이 선다', () => {
+    expect(loadFcmConfig(full)).toEqual({
+      projectId: 'prism-test',
+      clientEmail: 'sender@prism-test.iam.gserviceaccount.com',
+      privateKey: PEM,
+    });
+  });
+
+  it.each([
+    'PRISM_FCM_PROJECT_ID',
+    'PRISM_FCM_CLIENT_EMAIL',
+    'PRISM_FCM_PRIVATE_KEY',
+  ])('하나라도 빠지면 부팅에서 던진다 (%s 없음)', (missing) => {
+    const partial = { ...full };
+    delete partial[missing as keyof typeof full];
+    expect(() => loadFcmConfig(partial)).toThrow(/must be set together/);
+  });
+
+  // env는 개행을 담기 어려워 `\n`으로 눌려 온다(Apple .p8 키와 같은 사정).
+  it('이스케이프된 개행을 복원한다', () => {
+    const escaped =
+      '-----BEGIN PRIVATE KEY-----\\nabc\\n-----END PRIVATE KEY-----\\n';
+    const cfg = loadFcmConfig({ ...full, PRISM_FCM_PRIVATE_KEY: escaped });
+    expect(cfg?.privateKey).toBe(PEM);
+  });
+
+  // 서비스 계정 JSON을 통째로 붙여 넣는 실수는 첫 전송이 아니라 부팅에서 드러나야 한다.
+  it('PEM이 아니면 거부한다', () => {
+    expect(() =>
+      loadFcmConfig({ ...full, PRISM_FCM_PRIVATE_KEY: 'not-a-key' }),
+    ).toThrow(/PEM/);
   });
 });

@@ -2,13 +2,15 @@ import { JwtService } from '@nestjs/jwt';
 import type { CookieOptions, Request, Response } from 'express';
 import { PrismConfigService } from '@app/config';
 import { AuthController } from './auth.controller';
+import { PushNotificationService, PushUnavailableError } from './push.service';
+import { SessionContentionError } from '@app/common';
 import { AuthService } from './auth.service';
 import { SessionTokenService } from '@app/session';
 import {
   AuthTokenService,
   OAUTH_STATE_TTL_MS,
 } from './session/auth-token.service';
-import type { AuthSession } from '@app/common';
+import type { AuthSession, User } from '@app/common';
 
 // jose는 ESM 전용이라 jest(CJS)가 파싱하지 못한다 — 이 스펙은 AppleOAuthClient를
 // 인스턴스화하지 않으므로(auth.service import 경유로만 닿음) 모듈 로드만 차단한다.
@@ -57,6 +59,24 @@ describe('AuthController', () => {
     redeem: redeemNativeCode,
   } as object as import('./session/native-auth-code.service').NativeAuthCodeStore;
 
+  // 푸시 전송은 이 스위트의 관심사가 아니다 — 로그인·세션 경로가 등록 토큰을 어떻게
+  // 나르는지만 본다. 전송 자체는 push.service/PushSender 스펙이 갖는다.
+  const sendToSessions = jest.fn((_userId: string, ids: string[]) =>
+    Promise.resolve(
+      ids.map((sessionId) => ({ sessionId, result: 'accepted' as const })),
+    ),
+  );
+  const registerToken = jest.fn<Promise<boolean>, [string, string, string]>();
+  const unregisterToken = jest.fn<Promise<boolean>, [string, string]>(() =>
+    Promise.resolve(true),
+  );
+  const pushStub = {
+    sendToSessions,
+    registerToken,
+    unregisterToken,
+    demoLink: () => 'https://prism.example/push',
+  } as object as PushNotificationService;
+
   const makeConfig = (demoEnabled = true, isProduction = false) =>
     ({
       demoEnabled,
@@ -76,6 +96,7 @@ describe('AuthController', () => {
     sessionTokens,
     makeConfig(),
     nativeCodes,
+    pushStub,
   );
 
   const makeRes = () => {
@@ -189,6 +210,7 @@ describe('AuthController', () => {
       sessionTokens,
       makeConfig(true, true),
       nativeCodes,
+      pushStub,
     );
     const state = tokens.buildState('google', 'nA', 'redirect');
     const { fns, res } = makeRes();
@@ -215,6 +237,7 @@ describe('AuthController', () => {
       sessionTokens,
       makeConfig(true, true),
       nativeCodes,
+      pushStub,
     );
     const start = makeRes();
     prod.socialStart(reqWith(), 'google', start.res);
@@ -237,7 +260,7 @@ describe('AuthController', () => {
       'google',
       'code-1',
       undefined,
-      'unknown',
+      { device: 'unknown', locale: 'en' },
     );
     expect(fns.clearCookie).toHaveBeenCalledWith(
       issued,
@@ -436,7 +459,7 @@ describe('AuthController', () => {
       'google',
       'code-1',
       undefined,
-      'unknown',
+      { device: 'unknown', locale: 'en' },
     );
     expect(sessionCookieOf(fns)).toEqual([
       'prism_session',
@@ -643,6 +666,7 @@ describe('AuthController', () => {
       sessionTokens,
       makeConfig(false),
       nativeCodes,
+      pushStub,
     );
     const { res } = makeRes();
     await expect(disabled.demo(reqWith(), res)).rejects.toThrow();
@@ -661,6 +685,7 @@ describe('AuthController', () => {
       sessionTokens,
       makeConfig(false),
       nativeCodes,
+      pushStub,
     );
     await expect(disabled.demoNative(reqWith())).rejects.toThrow();
   });
@@ -675,7 +700,10 @@ describe('AuthController', () => {
     await expect(controller.googleNative(reqWith(), 'id-tok-1')).resolves.toBe(
       session,
     );
-    expect(loginWithGoogleNative).toHaveBeenCalledWith('id-tok-1', 'unknown');
+    expect(loginWithGoogleNative).toHaveBeenCalledWith('id-tok-1', {
+      device: 'unknown',
+      locale: 'en',
+    });
   });
 
   it('google/native: idToken이 없으면 401 INVALID_TOKEN (검증 호출 안 함)', async () => {
@@ -700,7 +728,10 @@ describe('AuthController', () => {
     await expect(controller.kakaoNative(reqWith(), 'acc-tok-1')).resolves.toBe(
       session,
     );
-    expect(loginWithKakaoNative).toHaveBeenCalledWith('acc-tok-1', 'unknown');
+    expect(loginWithKakaoNative).toHaveBeenCalledWith('acc-tok-1', {
+      device: 'unknown',
+      locale: 'en',
+    });
   });
 
   it('kakao/native: accessToken이 없으면 401 INVALID_TOKEN (검증 호출 안 함)', async () => {
@@ -742,6 +773,7 @@ describe('AuthController', () => {
       sessionTokens,
       makeConfig(true, true),
       nativeCodes,
+      pushStub,
     );
     const { fns, res } = makeRes();
 
@@ -819,5 +851,127 @@ describe('AuthController', () => {
     await controller.logout(reqWith(`prism_session=${forged}`), res);
 
     expect(revokeSession).not.toHaveBeenCalled();
+  });
+
+  // ── 푸시 (plan/push.md) ──
+  //
+  // 등록은 **로그인과 분리됐다**(§5-2를 뒤집었다) — 살아 있는 세션에 붙인다. 그래서 이
+  // 스위트가 보는 것은 그 한 경로이고, 로그인 경로들은 더 이상 토큰을 나르지 않는다.
+  describe('푸시 등록', () => {
+    const TOKEN = 'fcm-token-abcdef';
+    const req = {
+      user: { id: 'u-1' },
+      sessionId: 's-1',
+      headers: { 'accept-language': 'ko' },
+    } as object as Request & { user: User; sessionId: string };
+
+    // 언어는 싣지 않는다 — 세션의 속성이라 가드가 인증된 요청마다 맞춘다.
+    it('지금 세션에 토큰을 붙인다', async () => {
+      registerToken.mockResolvedValue(true);
+
+      await expect(controller.registerPush(req, TOKEN)).resolves.toEqual({
+        registered: true,
+      });
+      expect(registerToken).toHaveBeenCalledWith('u-1', 's-1', TOKEN);
+    });
+
+    it('그 세션이 사라졌으면 false를 돌려준다 — 화면이 목록으로 사실을 말한다', async () => {
+      registerToken.mockResolvedValue(false);
+
+      await expect(controller.registerPush(req, TOKEN)).resolves.toEqual({
+        registered: false,
+      });
+    });
+
+    it.each([
+      ['빈 값', '  '],
+      ['없음', undefined],
+    ])('%s이면 400이다', async (_label, value) => {
+      await expect(controller.registerPush(req, value)).rejects.toThrow();
+    });
+
+    // 잇달아 부딪혀 못 고친 것은 "이제 대상이 아니다"가 아니다 — false로 답하면 화면이
+    // 선택을 지운 채 등록만 남긴다. 다시 시도하라고 답한다.
+    it('레코드 고치기가 계속 부딪히면 409 CONFLICT다', async () => {
+      registerToken.mockRejectedValueOnce(new SessionContentionError());
+      await expect(controller.registerPush(req, TOKEN)).rejects.toMatchObject({
+        status: 409,
+        response: { error: 'CONFLICT' },
+      });
+
+      unregisterToken.mockRejectedValueOnce(new SessionContentionError());
+      await expect(controller.unregisterPush(req)).rejects.toMatchObject({
+        status: 409,
+        response: { error: 'CONFLICT' },
+      });
+    });
+
+    it('끄기는 지웠든 이미 없든 registered: false다', async () => {
+      await expect(controller.unregisterPush(req)).resolves.toEqual({
+        registered: false,
+      });
+    });
+  });
+
+  describe('푸시 전송', () => {
+    const req = { user: { id: 'u-1' } } as object as Request & { user: User };
+
+    it('대상마다 결과를 그대로 돌려준다', async () => {
+      await expect(
+        controller.sendPush(req, {
+          sessionIds: ['s-1', 's-2'],
+          message: 'hello',
+        }),
+      ).resolves.toEqual({
+        results: [
+          { sessionId: 's-1', result: 'accepted' },
+          { sessionId: 's-2', result: 'accepted' },
+        ],
+      });
+    });
+
+    it('내용을 그대로 서비스에 넘긴다', async () => {
+      await controller.sendPush(req, {
+        sessionIds: ['s-1'],
+        message: '  hi  ',
+        imageUrl: 'https://cdn.example/a.png',
+        link: 'https://example.com/x',
+        actions: 'open',
+      });
+
+      expect(sendToSessions).toHaveBeenCalledWith('u-1', ['s-1'], {
+        sessionIds: ['s-1'],
+        message: 'hi',
+        imageUrl: 'https://cdn.example/a.png',
+        link: 'https://example.com/x',
+        actions: 'open',
+      });
+    });
+
+    it.each([
+      ['빈 문구', { sessionIds: ['s-1'], message: '' }],
+      ['대상 없음', { sessionIds: [], message: 'hi' }],
+      [
+        'https가 아닌 링크',
+        { sessionIds: ['s-1'], message: 'hi', link: 'http://x.test' },
+      ],
+    ])('%s이면 400이다', async (_label, body) => {
+      await expect(controller.sendPush(req, body)).rejects.toMatchObject({
+        status: 400,
+      });
+    });
+
+    // 전송기가 없는 것은 계약의 결과가 아니다 — 그리고 **인증 오류도 아니다**. 코드가
+    // UNAUTHORIZED면 본문이 FCM 장애를 로그인 문제라고 말한다.
+    it('전송기가 없으면 502이고 코드는 PUSH_UNAVAILABLE이다', async () => {
+      sendToSessions.mockRejectedValueOnce(new PushUnavailableError());
+
+      await expect(
+        controller.sendPush(req, { sessionIds: ['s-1'], message: 'hi' }),
+      ).rejects.toMatchObject({
+        status: 502,
+        response: { error: 'PUSH_UNAVAILABLE' },
+      });
+    });
   });
 });

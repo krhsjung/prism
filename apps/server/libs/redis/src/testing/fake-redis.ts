@@ -26,6 +26,27 @@ export class FakeRedis implements RedisClient {
     return Promise.resolve();
   }
 
+  // 값만 갈고 만료 시각은 그대로 둔다(실제 Lua의 SET ... KEEPTTL XX).
+  setKeepTtl(key: string, value: string): Promise<boolean> {
+    const found = this.values.get(key);
+    if (!found || found.expiresAt <= Date.now()) return Promise.resolve(false);
+    this.values.set(key, { value, expiresAt: found.expiresAt });
+    return Promise.resolve(true);
+  }
+
+  // 값이 같을 때만 갈고 만료 시각은 그대로 둔다(실제 Lua의 GET 비교 + SET ... KEEPTTL).
+  compareAndSetKeepTtl(
+    key: string,
+    expected: string,
+    next: string,
+  ): Promise<boolean> {
+    const found = this.values.get(key);
+    if (!found || found.expiresAt <= Date.now()) return Promise.resolve(false);
+    if (found.value !== expected) return Promise.resolve(false);
+    this.values.set(key, { value: next, expiresAt: found.expiresAt });
+    return Promise.resolve(true);
+  }
+
   get(key: string): Promise<string | null> {
     const entry = this.values.get(key);
     if (!entry) return Promise.resolve(null);
@@ -191,6 +212,28 @@ export class FakeRedis implements RedisClient {
       this.zsets.set(key, set);
     }
     return Promise.resolve(true);
+  }
+
+  // 구독은 흉내만 낸다 — 테스트는 `emit`으로 이벤트를 직접 일으킨다.
+  private readonly patterns = new Map<string, (channel: string) => void>();
+
+  subscribePattern(
+    pattern: string,
+    onChannel: (channel: string) => void,
+  ): Promise<() => Promise<void>> {
+    this.patterns.set(pattern, onChannel);
+    return Promise.resolve(() => {
+      this.patterns.delete(pattern);
+      return Promise.resolve();
+    });
+  }
+
+  /** 테스트가 keyspace 이벤트를 흉내 낸다. 패턴의 `*`만 다룬다 — 우리가 쓰는 형태다. */
+  emit(channel: string): void {
+    for (const [pattern, handler] of this.patterns) {
+      const prefix = pattern.endsWith('*') ? pattern.slice(0, -1) : pattern;
+      if (channel.startsWith(prefix)) handler(channel);
+    }
   }
 
   ping(): Promise<void> {

@@ -2,6 +2,7 @@
 // 번역(i18n) · 공유 리포지토리.
 // (auth 전용 코드는 services/auth에, 인프라는 @app/config·@app/database에)
 export * from './types/contracts';
+export * from './http/fetch-with-timeout';
 export * from './i18n';
 export * from './types/user';
 export * from './repositories/users.repository';

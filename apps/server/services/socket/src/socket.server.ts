@@ -33,12 +33,12 @@ const MAX_FRAME_BYTES = 4 * MAX_SDP_LENGTH;
 // 재협상마다 다시) 넉넉히 잡는다 — 정상 통화가 걸리면 안 되는 값이다.
 const RATE_WINDOW_MS = 10_000;
 const MAX_FRAMES_PER_WINDOW = 120;
-// 같은 창 안에서 **저장소를 건드리는** 메시지(`call`·`sessionsRevoked`)의 상한.
+// 같은 창 안에서 **저장소를 건드리는** 메시지(`call`·`sessionsStale`)의 상한.
 // 이 둘만 Redis 왕복을 부르므로 훨씬 촘촘하게 잡는다 — 사람이 걸고 끊는 속도의 몇 배다.
 const MAX_STORE_FRAMES_PER_WINDOW = 10;
 const STORE_BACKED_TYPES: SocketUpstreamMessage['type'][] = [
   'call',
-  'sessionsRevoked',
+  'sessionsStale',
 ];
 
 // 창 하나를 세는 계수기. 넘으면 **그 프레임만 버리고 연결은 살려 둔다** — 계약에
@@ -163,6 +163,9 @@ export class PrismSocketServer {
       ws.on('close', () => this.disconnect(connection));
       ws.on('error', () => this.disconnect(connection));
       await this.gateway.open(connection);
+      // 알림을 **열지 않고** 앱만 연 경우, 벨이 울리는 중인 통화를 이 연결에 배달한다.
+      // 알림을 눌러 들어오면 클라이언트가 `resume`을 보내므로 그쪽은 이 경로가 아니다.
+      this.calls.opened(connection);
     } catch (error) {
       this.logger.warn(`socket accept failed: ${String(error)}`);
       this.send(ws, { type: 'error', code: AUTH_ERROR_CODES.UNAUTHORIZED });
@@ -196,9 +199,9 @@ export class PrismSocketServer {
     try {
       // 세션 도메인과 통화 도메인이 한 소켓을 나눠 쓴다 — 계약이 갈라져 있으니
       // 여기서도 갈라 보낸다. presence는 **여전히 소켓의 존재만** 보고 정해진다:
-      // `sessionsRevoked`는 살아 있다는 주장이 아니라 재검증 요청이고, 게이트웨이가
+      // `sessionsStale`은 살아 있다는 주장이 아니라 재검증 요청이고, 게이트웨이가
       // 세션 저장소를 다시 읽어 판단한다(plan/webrtc.md §5의 규칙을 깨지 않는다).
-      if (message.type === 'sessionsRevoked') {
+      if (message.type === 'sessionsStale') {
         await this.gateway.resync(connection);
         return;
       }

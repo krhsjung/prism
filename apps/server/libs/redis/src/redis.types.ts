@@ -84,6 +84,24 @@ export interface ScoredMember {
 export interface RedisClient {
   // 값 + TTL(초). 세션 본체는 TTL로 자연 소멸한다.
   setEx(key: string, value: string, ttlSeconds: number): Promise<void>;
+  // 값만 갈고 **수명은 손대지 않는다**(SET ... KEEPTTL XX).
+  //
+  // 살아 있는 레코드의 한 필드를 고칠 때 쓴다. `setEx`로 다시 쓰면 유휴 창이 리셋되어
+  // "사용자가 손을 뗀 지 얼마나 됐나"가 거짓이 되고, 세션이 조용히 길어진다.
+  // `XX`라서 **없는 키를 되살리지 않는다** — 그 사이 만료된 세션은 만료된 채로 둔다.
+  // 바뀌었으면 true, 키가 없으면 false.
+  setKeepTtl(key: string, value: string): Promise<boolean>;
+  // 값이 expected와 **같을 때만** 갈고, 수명은 손대지 않는다(GET 비교 + SET ... KEEPTTL).
+  //
+  // 살아 있는 레코드를 "읽고 → 고쳐서 → 되쓰는" 자리를 위한 것이다. 되쓰기 사이에 다른
+  // 요청이 같은 레코드를 고쳤으면 그 변경이 조용히 사라진다(lost update) — 여기서는
+  // 실패로 답하고, 부르는 쪽이 다시 읽어 다시 고친다. `setKeepTtl`과 같이 없는 키를
+  // 되살리지 않는다. 바뀌었으면 true, 값이 다르거나 키가 없으면 false.
+  compareAndSetKeepTtl(
+    key: string,
+    expected: string,
+    next: string,
+  ): Promise<boolean>;
   get(key: string): Promise<string | null>;
   // 값을 읽으면서 **원자적으로** 지운다(GETDEL) — 일회용 토큰/코드의 소비에 쓴다.
   // get 후 del로 나누면 그 틈에 두 요청이 같은 값을 읽어 한 번만 유효해야 할 코드가
@@ -120,5 +138,20 @@ export interface RedisClient {
   pruneExpired(key: string): Promise<number>;
 
   // 연결 확인(readiness).
+  /**
+   * 패턴 구독. 매칭되는 채널에 메시지가 오면 채널 이름으로 콜백한다.
+   *
+   * ⚠️ **전용 연결이 필요하다** — 구독 중인 연결은 다른 명령을 받지 못한다. 그래서 이
+   * 메서드는 연결을 새로 열고, 돌려주는 함수로 닫는다(같은 클라이언트를 쓰면 세션 조회가
+   * 전부 막힌다).
+   *
+   * 패턴 매칭은 **Redis 쪽에서** 한다 — 다른 키(refresh·presence·nonce)의 이벤트가
+   * 우리 연결로 쏟아지지 않는다.
+   */
+  subscribePattern(
+    pattern: string,
+    onChannel: (channel: string) => void,
+  ): Promise<() => Promise<void>>;
+
   ping(): Promise<void>;
 }

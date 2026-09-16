@@ -51,7 +51,7 @@ describe('SessionPresenceGateway', () => {
   let redis: FakeRedis;
   let registry: ConnectionRegistry;
   let presence: PresenceRepository;
-  let sessions: { findValid: jest.Mock };
+  let sessions: { findValid: jest.Mock; listForUser: jest.Mock };
   let gateway: SessionPresenceGateway;
 
   beforeEach(() => {
@@ -59,11 +59,16 @@ describe('SessionPresenceGateway', () => {
     redis = new FakeRedis();
     registry = new ConnectionRegistry();
     presence = new PresenceRepository(redis);
-    sessions = { findValid: jest.fn(() => Promise.resolve(user)) };
+    sessions = {
+      findValid: jest.fn(() => Promise.resolve(user)),
+      // 만료 감지가 틱마다 읽는다 — 기본은 "변화 없음"이라 알림이 나가지 않는다.
+      listForUser: jest.fn(() => Promise.resolve([{ id: 's-1' }])),
+    };
     gateway = new SessionPresenceGateway(
       registry,
       presence,
       sessions as object as SessionsRepository,
+      redis,
     );
   });
 
@@ -202,6 +207,133 @@ describe('SessionPresenceGateway', () => {
       expect([...(await connected())]).toEqual(['s-1']);
     });
 
+    // 접속·해제·폐기에는 알림이 있는데 **만료에만 없었다** — 소켓이 붙어 있는 화면이
+    // 만료된 줄을 계속 들고 있던 이유다.
+    it('다른 세션이 만료되면 붙어 있는 기기에 sessionsChanged가 간다', async () => {
+      const c = new FakeConnection('c-1', 'u-1', 's-1');
+      sessions.listForUser.mockResolvedValue([{ id: 's-1' }, { id: 's-2' }]);
+      await gateway.open(c);
+      await gateway.tick(); // 첫 틱: 기준을 잡는다
+      c.sent = [];
+
+      // s-2가 만료됐다 — 목록에서 사라진다.
+      sessions.listForUser.mockResolvedValue([{ id: 's-1' }]);
+      await gateway.tick();
+      await flush();
+
+      expect(c.types()).toContain('sessionsChanged');
+    });
+
+    // 스윕을 기다리지 않는다 — Redis가 만료를 알려 주면 그 자리에서 대조한다(§9).
+    it('만료 이벤트가 오면 스윕을 기다리지 않고 알린다', async () => {
+      const c = new FakeConnection('c-1', 'u-1', 's-1');
+      sessions.listForUser.mockResolvedValue([{ id: 's-1' }, { id: 's-2' }]);
+      gateway.start();
+      await flush(); // 구독이 붙을 때까지 (start는 기다리지 않는다)
+      await gateway.open(c);
+      await gateway.tick(); // 기준을 잡는다
+      c.sent = [];
+
+      sessions.listForUser.mockResolvedValue([{ id: 's-1' }]);
+      redis.emit('__keyspace@0__:prism:session:s-2');
+      await flush(); // 대조가 끝나고
+      await flush(); // 코얼레싱 창이 닫힐 때까지
+
+      expect(c.types()).toContain('sessionsChanged');
+    });
+
+    // 기준이 없으면 첫 관찰이 기준이 된다 — 그 관찰이 이미 만료 뒤라면 그 만료는 어느
+    // 스냅샷에도 차이로 남지 않아 영영 알려지지 않는다. 붙는 순간의 목록이 기준이다.
+    it('붙은 뒤 첫 스윕 전에 만료된 세션도 알린다', async () => {
+      const c = new FakeConnection('c-1', 'u-1', 's-1');
+      sessions.listForUser.mockResolvedValue([{ id: 's-1' }, { id: 's-2' }]);
+      await gateway.open(c);
+      c.sent = [];
+
+      // 첫 스윕이 돌기 전에 s-2가 만료됐다.
+      sessions.listForUser.mockResolvedValue([{ id: 's-1' }]);
+      await gateway.tick();
+      await flush();
+
+      expect(c.types()).toContain('sessionsChanged');
+    });
+
+    // 구독 콜백은 promise를 돌려줄 곳이 없다 — 여기서 새는 거부는 아무도 받지 않아
+    // 소켓 서비스를 죽일 수 있다. 실패는 로그로 남고 다음 이벤트는 그대로 처리된다.
+    it('만료 대조가 던져도 다음 이벤트는 처리된다', async () => {
+      const c = new FakeConnection('c-1', 'u-1', 's-1');
+      sessions.listForUser.mockResolvedValue([{ id: 's-1' }, { id: 's-2' }]);
+      gateway.start();
+      await flush();
+      await gateway.open(c);
+      await gateway.tick();
+      c.sent = [];
+
+      sessions.listForUser.mockRejectedValueOnce(new Error('redis down'));
+      redis.emit('__keyspace@0__:prism:session:s-2');
+      await flush();
+      await flush();
+      expect(c.types()).not.toContain('sessionsChanged');
+
+      sessions.listForUser.mockResolvedValue([{ id: 's-1' }]);
+      redis.emit('__keyspace@0__:prism:session:s-2');
+      await flush();
+      await flush();
+      expect(c.types()).toContain('sessionsChanged');
+    });
+
+    // 세션 여럿이 한꺼번에 만료되면 이벤트도 한꺼번에 온다 — 대조는 최신 목록만 보면
+    // 되므로 하나가 도는 동안의 나머지는 **한 번 더**로 접는다.
+    it('이벤트가 몰려도 대조는 한 번에 하나만 돌고 한 번 더로 접는다', async () => {
+      const c = new FakeConnection('c-1', 'u-1', 's-1');
+      gateway.start();
+      await flush();
+      await gateway.open(c);
+      await gateway.tick();
+      sessions.listForUser.mockClear();
+
+      let release: () => void = () => {};
+      sessions.listForUser.mockReturnValueOnce(
+        new Promise((resolve) => {
+          release = () => resolve([{ id: 's-1' }]);
+        }),
+      );
+      redis.emit('__keyspace@0__:prism:session:s-2');
+      redis.emit('__keyspace@0__:prism:session:s-3');
+      redis.emit('__keyspace@0__:prism:session:s-4');
+      expect(sessions.listForUser).toHaveBeenCalledTimes(1);
+
+      release();
+      await flush();
+      await flush();
+      expect(sessions.listForUser).toHaveBeenCalledTimes(2);
+    });
+
+    // 아무것도 안 바뀌었는데 알리면 클라이언트가 20초마다 목록을 다시 가져간다.
+    it('변화가 없으면 알리지 않는다', async () => {
+      const c = new FakeConnection('c-1', 'u-1', 's-1');
+      await gateway.open(c);
+      await gateway.tick();
+      c.sent = [];
+
+      await gateway.tick();
+      await flush();
+
+      expect(c.types()).not.toContain('sessionsChanged');
+    });
+
+    // 탭이 셋이어도 목록은 한 번만 읽는다 — 연결마다 읽으면 조회가 셋이 된다.
+    it('사용자마다 한 번만 읽는다', async () => {
+      await gateway.open(new FakeConnection('c-1', 'u-1', 's-1'));
+      await gateway.open(new FakeConnection('c-2', 'u-1', 's-1'));
+      await gateway.open(new FakeConnection('c-3', 'u-1', 's-2'));
+      sessions.listForUser.mockClear();
+
+      await gateway.tick();
+
+      expect(sessions.listForUser).toHaveBeenCalledTimes(1);
+    });
+
     it('하트비트를 보내고 프로토콜 ping을 찌른다', async () => {
       const c = new FakeConnection('c-1', 'u-1', 's-1');
       await gateway.open(c);
@@ -264,7 +396,7 @@ describe('SessionPresenceGateway', () => {
   // 세션 폐기는 auth 서비스가 처리하고 socket은 그 사실을 전달받는 통로가 없다 —
   // 스윕이 돌 때까지(최대 PRESENCE_RENEW_MS) 폐기된 기기가 멀쩡히 앉아 있다.
   // 해제한 클라이언트가 자기 소켓으로 깨워 주면 그 자리에서 끝난다.
-  describe('재검증(sessionsRevoked)', () => {
+  describe('재검증(sessionsStale)', () => {
     it('폐기된 연결을 즉시 끊는다 — 스윕을 기다리지 않는다', async () => {
       const revoker = new FakeConnection('c-1', 'u-1', 's-1');
       const revoked = new FakeConnection('c-2', 'u-1', 's-2');

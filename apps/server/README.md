@@ -23,7 +23,7 @@ pnpm build:auth       # auth 프로덕션 빌드
 ## 테스트
 
 ```bash
-pnpm test         # 유닛 (Jest) — 300개
+pnpm test         # 유닛 (Jest) — 458개
 pnpm test:e2e     # E2E
 ```
 
@@ -35,8 +35,14 @@ Redis 통합 스펙(`libs/redis`, 26개)은 실제 Redis를 요구해 기본 실
 
 ```bash
 docker run -d --rm -p 6399:6379 redis:8.2
-PRISM_REDIS_URL=redis://localhost:6399 pnpm test   # 326개 전부
+PRISM_REDIS_URL=redis://localhost:6399 pnpm test   # 484개 전부
 ```
+
+**`host.docker.internal`은 테스트에서 자동으로 이 기기로 되돌립니다.** 배포용 값
+(kind의 파드가 개발 기기의 Redis에 닿는 이름)이 셸에 그대로 있으면, 테스트 프로세스는
+그 이름을 풀지 못해 26개가 **skip이 아니라 실패**로 뜹니다 — Redis가 멀쩡히 떠 있는데도.
+값은 한 벌로 두고 `test/redis-url.setup.ts`가 읽을 때만 호스트를 바꿉니다(자격증명·포트는
+그대로).
 
 ## 세션
 

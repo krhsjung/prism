@@ -3,6 +3,7 @@ import {
   AUTH_ERROR_CODES,
   SessionsRepository,
   type AuthErrorCode,
+  type Locale,
   type User,
 } from '@app/common';
 import { SessionTokenService } from './session-token.service';
@@ -21,7 +22,15 @@ export type SessionAuthResult =
   // absoluteExpiresAt를 함께 주는 이유: 유휴 창을 미는 쪽(JwtAuthGuard)이 상한을 알아야
   // 하는데, 그 값은 방금 읽은 세션 레코드에 이미 있다. 다시 읽으면 요청마다 Redis 왕복이
   // 하나 더 붙는다.
-  | { ok: true; user: User; sessionId: string; absoluteExpiresAt: number }
+  //
+  // locale도 같은 이유다 — 가드가 요청의 `Accept-Language`와 대조해 달라졌을 때만 고친다.
+  | {
+      ok: true;
+      user: User;
+      sessionId: string;
+      absoluteExpiresAt: number;
+      locale: Locale;
+    }
   | { ok: false; code: AuthErrorCode };
 
 @Injectable()
@@ -64,6 +73,7 @@ export class SessionAuthenticator {
       user: found.user,
       sessionId,
       absoluteExpiresAt: found.absoluteExpiresAt,
+      locale: found.locale,
     };
   }
 }

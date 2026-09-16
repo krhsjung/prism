@@ -1,7 +1,11 @@
 import { OAuth2Client } from 'google-auth-library';
-import { decodeObject, decodeString, jsonBodyOf } from '@app/common';
+import {
+  decodeObject,
+  decodeString,
+  fetchWithTimeout,
+  jsonBodyOf,
+} from '@app/common';
 import type { GoogleOAuthOptions } from '@app/config';
-import { fetchWithTimeout } from './fetch-with-timeout';
 import type { OAuthClient } from './oauth-client';
 import type { OAuthProfile } from './oauth-profile';
 

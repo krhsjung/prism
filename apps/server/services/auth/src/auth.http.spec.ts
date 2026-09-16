@@ -8,6 +8,7 @@ import { PrismConfigService } from '@app/config';
 import { SessionsRepository, type AuthSession, type User } from '@app/common';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
+import { PushNotificationService } from './push.service';
 import { WebOriginGuard } from './web-origin.guard';
 import {
   JwtAuthGuard,
@@ -127,6 +128,11 @@ describe('auth HTTP 경계', () => {
             issue: jest.fn(() => Promise.resolve('native-code')),
             redeem: jest.fn(() => Promise.resolve(null)),
           },
+        },
+        // 이 스위트는 HTTP 경계(출처 검증·Set-Cookie)를 본다 — 전송은 관심사가 아니다.
+        {
+          provide: PushNotificationService,
+          useValue: { sendToSession: jest.fn() },
         },
         {
           provide: PrismConfigService,

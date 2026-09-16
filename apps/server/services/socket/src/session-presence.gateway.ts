@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
+import { Inject, Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import {
   AUTH_ERROR_CODES,
   PRESENCE_RENEW_MS,
@@ -6,6 +6,7 @@ import {
   SessionsRepository,
   type AuthErrorCode,
 } from '@app/common';
+import { REDIS, type RedisClient } from '@app/redis';
 import type { SocketConnection } from './connection';
 import { ConnectionRegistry } from './connection-registry';
 
@@ -18,6 +19,17 @@ const BROADCAST_COALESCE_MS = 50;
 
 // 인증을 기다려 주는 시간. 101은 됐는데 아무 말도 하지 않는 소켓이 남아 있으면 안 된다.
 const AUTH_DEADLINE_MS = 5_000;
+
+// 세션 키의 만료를 Redis가 알려 주는 채널.
+//
+// `__keyspace@<db>__:<key>` 형식이라 **키 이름으로 패턴을 걸 수 있다** — 매칭은 Redis가
+// 하므로 다른 키(refresh·presence·nonce)의 만료가 우리 연결로 오지 않는다.
+// (`__keyevent__` 쪽은 채널이 이벤트 이름이라 키로 거를 수 없다.)
+//
+// ⚠️ 이것만으로는 부족하다. pub/sub은 저장도 재전송도 없어 파드가 재시작 중이면 그
+// 이벤트는 사라진다 — 그래서 스윕이 **안전망으로 남는다**. 여기서 얻는 것은 지연이다:
+// 최대 20초가 대략 1초 안쪽이 된다.
+const SESSION_EXPIRY_PATTERN = '__keyspace@0__:prism:session:*';
 
 // presence의 주인.
 //
@@ -34,11 +46,21 @@ export class SessionPresenceGateway implements OnModuleDestroy {
     { timer: NodeJS.Timeout; exclude: SocketConnection | null }
   >();
   private sweep: NodeJS.Timeout | null = null;
+  private unsubscribe: (() => Promise<void>) | null = null;
+  // 지금 도는 만료 대조와, 그동안 또 이벤트가 왔는지. 이벤트가 몰려와도 조회는 한 번에
+  // 하나만 돌고, 그 사이의 것은 **한 번 더**로 접는다(대조는 최신 목록만 보면 된다).
+  private expiryScan: Promise<void> | null = null;
+  private expiryScanQueued = false;
+  // 사용자별로 **지난 틱에 본 세션 집합**. 만료를 알아채는 유일한 방법이다 —
+  // 접속·해제·폐기에는 알림이 있지만 **만료에는 이벤트가 없기 때문이다**(아래 tick).
+  // 연결이 하나도 없는 사용자는 지운다(파드가 오래 살수록 쌓인다).
+  private lastSeen = new Map<string, string>();
 
   constructor(
     private readonly registry: ConnectionRegistry,
     private readonly presence: PresenceRepository,
     private readonly sessions: SessionsRepository,
+    @Inject(REDIS) private readonly redis: RedisClient,
   ) {}
 
   // 인증을 통과한 연결이 들어왔다.
@@ -49,6 +71,7 @@ export class SessionPresenceGateway implements OnModuleDestroy {
       connection.sessionId,
       connection.id,
     );
+    await this.baselineExpiries(connection.userId);
     // Redis를 다녀오는 사이에 소켓이 닫혔을 수 있다. **그 순서라면 `close`가 먼저
     // 지우고 우리가 다시 쓴다** — 아무도 붙어 있지 않은 세션이 다음 스윕까지 Active로
     // 남는다(`close`는 registry에 없는 연결을 이미 처리된 것으로 보고 그냥 돌아간다).
@@ -96,14 +119,22 @@ export class SessionPresenceGateway implements OnModuleDestroy {
   }
 
   /**
-   * "방금 세션을 폐기했다"는 신호를 받았다. **믿지 않고 다시 읽는다.**
+   * "방금 내 세션 레코드를 고쳤다"는 신호를 받았다. **믿지 않고 다시 읽는다.**
    *
-   * 스윕이 결국 같은 일을 하지만 최대 PRESENCE_RENEW_MS만큼 늦다 — 해제한 사람은 상대
-   * 기기가 즉시 쫓겨나기를 기대한다. 클라이언트가 깨워 주면 그 자리에서 확인할 수 있고,
-   * 신호 자체에는 아무 권한도 실려 있지 않다: 무엇이 폐기됐는지는 **세션 저장소만** 안다.
+   * 원인은 여럿이다 — 폐기 · 전체 폐기 · 알림 등록/해제. 신호는 그중 무엇인지 말하지
+   * 않고, 말할 필요도 없다: 어느 쪽이든 여기서 할 일은 같다(다시 읽고, 사라진 연결을
+   * 끊고, 남은 기기에 알린다). 무엇이 달라졌는지는 **세션 저장소만** 안다.
    *
-   * 그래서 남이 이 메시지를 보내도 얻는 것이 없다 — 자기 사용자의 연결을 한 번 더
-   * 검증하게 만들 뿐이고, 멀쩡한 세션은 그대로 남는다.
+   * **폐기 쪽은** 스윕이 결국 같은 일을 하지만 최대 PRESENCE_RENEW_MS만큼 늦다 —
+   * 해제한 사람은 상대 기기가 즉시 쫓겨나기를 기대한다.
+   *
+   * ⚠️ **알림 등록/해제는 스윕이 아예 못 잡는다.** 스윕은 세션 id 목록을 대조하므로
+   * (`noticeExpiries`) 구성원이 그대로인 변화는 스냅샷이 같아 브로드캐스트가 나가지
+   * 않는다. 그쪽에는 이 신호가 **유일한 경로**이고, 소켓이 없으면 상대는 자기가
+   * 재연결할 때까지 낡은 `pushRegistered`를 본다.
+   *
+   * 신호 자체에는 아무 권한도 실려 있지 않아, 남이 이 메시지를 보내도 얻는 것이 없다 —
+   * 자기 사용자의 연결을 한 번 더 검증하게 만들 뿐이고, 멀쩡한 세션은 그대로 남는다.
    */
   async resync(origin: SocketConnection): Promise<void> {
     for (const connection of this.registry.connectionsOf(origin.userId)) {
@@ -113,17 +144,89 @@ export class SessionPresenceGateway implements OnModuleDestroy {
       this.reject(connection, AUTH_ERROR_CODES.UNAUTHORIZED);
       await this.close(connection);
     }
-    // 소켓이 없는 세션을 폐기했을 수도 있다(끊을 것이 없어 위 루프가 조용하다) —
-    // 그때도 남은 기기의 목록은 바뀌었으므로 알린다. 폐기한 쪽은 HTTP 응답으로
-    // 이미 최신이라 빼 둔다.
+    // 끊을 것이 없어도(소켓 없는 세션을 폐기했거나, 알림 등록만 바뀌었거나) 남은
+    // 기기의 목록은 바뀌었으므로 알린다. **보낸 쪽은 뺀다** — 폐기는 HTTP 응답이
+    // 이미 최신이고, 등록/해제는 그 화면이 스스로 다시 가져온다(등록 여부는 응답에
+    // 실리지 않아 목록을 다시 읽어야 안다).
     this.scheduleBroadcast(origin.userId, origin);
   }
 
   start(): void {
     if (this.sweep) return;
-    this.sweep = setInterval(() => void this.tick(), PRESENCE_RENEW_MS);
+    // 타이머 콜백에서 새는 거부는 아무도 받지 않는다 — 프로세스가 죽을 수 있다. 여기서 받는다.
+    this.sweep = setInterval(() => {
+      this.tick().catch((error) =>
+        this.logger.warn(`presence sweep failed: ${String(error)}`),
+      );
+    }, PRESENCE_RENEW_MS);
     // 타이머 하나 때문에 프로세스가 안 죽는 일이 없게 한다.
     this.sweep.unref?.();
+    void this.watchExpiries();
+  }
+
+  /**
+   * 만료를 **기다리지 않고 듣는다**. 스윕이 20초를 기다리는 자리를 이벤트가 앞당긴다.
+   *
+   * 이벤트는 키 이름만 실어 오고 값은 이미 사라진 뒤라 **누구 세션이었는지 알 수 없다.**
+   * 알 필요도 없다 — 지금 붙어 있는 사용자들의 목록만 다시 대조하면 되고, 그 대조는
+   * 스윕이 쓰는 것과 **같은 코드**다.
+   *
+   * 구독에 실패해도 던지지 않는다. 이벤트가 없으면 스윕이 하던 대로 20초마다 잡는다 —
+   * 느려질 뿐 틀리지 않는다.
+   */
+  private async watchExpiries(): Promise<void> {
+    try {
+      this.unsubscribe = await this.redis.subscribePattern(
+        SESSION_EXPIRY_PATTERN,
+        () => this.scheduleExpiryScan(),
+      );
+    } catch (e) {
+      const reason = e instanceof Error ? e.message : 'unexpected error';
+      // 설정(notify-keyspace-events)이나 ACL(channels)이 없으면 여기서 걸린다.
+      this.logger.warn(`session expiry events unavailable: ${reason}`);
+    }
+  }
+
+  // 이 사용자의 첫 연결이다 — 만료 대조의 **기준을 지금 잡는다.**
+  //
+  // 대조는 지난 스냅샷과의 차이만 알린다. 기준이 없으면 첫 관찰이 기준이 되는데, 그
+  // 관찰이 이미 만료 **뒤**라면(붙기 전에 다른 세션이 만료됐다) 그 만료는 어느 스냅샷에도
+  // 차이로 남지 않아 영영 알려지지 않는다. 그래서 붙는 순간의 목록을 기준으로 둔다 —
+  // 조회 하나가 더 들지만 사용자의 첫 연결에 한 번뿐이다. 실패하면 첫 스윕이 잡는다.
+  private async baselineExpiries(userId: string): Promise<void> {
+    if (this.lastSeen.has(userId)) return;
+    try {
+      const sessions = await this.sessions.listForUser(userId);
+      // 그사이 첫 스윕이 먼저 기준을 잡았을 수 있다 — 더 늦은 관찰이 이긴다.
+      this.lastSeen.set(userId, snapshotOf(sessions));
+    } catch (error) {
+      this.logger.warn(`session baseline unavailable: ${String(error)}`);
+    }
+  }
+
+  // 만료 이벤트가 왔다 — 붙어 있는 사용자들의 목록을 다시 대조한다.
+  //
+  // **콜백의 경계에서 받는다.** 구독 콜백은 promise를 돌려줄 곳이 없어, 여기서 새는 거부는
+  // 처리되지 않은 거부가 된다(조회가 던지면 소켓 서비스가 죽을 수 있다). 겹치면 한 번만
+  // 더 돈다 — 세션 여럿이 한꺼번에 만료돼 이벤트가 몰려도 조회는 사용자마다 한 번이다.
+  private scheduleExpiryScan(): void {
+    if (this.expiryScan) {
+      this.expiryScanQueued = true;
+      return;
+    }
+    this.expiryScan = this.noticeExpiries(
+      new Set(this.registry.all().map((c) => c.userId)),
+    )
+      .catch((error) =>
+        this.logger.warn(`session expiry scan failed: ${String(error)}`),
+      )
+      .finally(() => {
+        this.expiryScan = null;
+        if (this.expiryScanQueued) {
+          this.expiryScanQueued = false;
+          this.scheduleExpiryScan();
+        }
+      });
   }
 
   // 주기 스윕 — 한 번에 세 가지 일을 한다.
@@ -136,7 +239,11 @@ export class SessionPresenceGateway implements OnModuleDestroy {
   // 몇 시간을 사므로, verifySession을 다시 돌리면 멀쩡한 소켓이 첫 틱에 죽는다.
   // 세션 레코드의 TTL은 클라이언트의 평상시 /auth/refresh 트래픽이 밀어 준다.
   async tick(): Promise<void> {
+    // 이 틱에 연결을 가진 사용자들 — 아래에서 목록 변화를 한 번씩만 확인한다.
+    const users = new Set<string>();
+
     for (const connection of this.registry.all()) {
+      users.add(connection.userId);
       // 하트비트는 app-level이다 — 브라우저 JS는 프로토콜 ping/pong을 관찰할 수 없어,
       // 이것이 없으면 웹이 죽은 서버를 붙들고 몇 시간이고 앉아 있는다.
       connection.send({ type: 'heartbeat' });
@@ -158,6 +265,39 @@ export class SessionPresenceGateway implements OnModuleDestroy {
         connection.sessionId,
         connection.id,
       );
+    }
+
+    await this.noticeExpiries(users);
+  }
+
+  /**
+   * **만료를 알아채는 자리.** 접속·해제·폐기에는 브로드캐스트가 있는데 만료에만 없어서,
+   * 소켓이 붙어 있는 화면도 만료된 줄을 계속 들고 있었다.
+   *
+   * 서버가 만료를 이벤트로 받을 길은 Redis keyspace notification뿐인데, pub/sub이라
+   * 파드가 재시작 중이면 유실된다 — 어차피 안전망이 필요하다. 스윕은 **놓쳐도 다음 틱에
+   * 잡으므로** 그 안전망 자체가 되고, Redis 설정이나 ACL을 바꾸지 않는다.
+   *
+   * 목록을 **읽는 것만으로** 만료가 드러난다(`listForUser`가 지나간 인덱스 항목을 걷어내고
+   * 본체 없는 멤버를 건너뛴다). 그래서 여기서 하는 일은 지난 틱과의 대조뿐이다.
+   *
+   * ⚠️ **사용자마다 한 번만 읽는다.** 연결마다 읽으면 탭이 셋인 사람에게 조회가 셋이 된다.
+   */
+  private async noticeExpiries(users: Set<string>): Promise<void> {
+    for (const userId of users) {
+      const sessions = await this.sessions.listForUser(userId);
+      const snapshot = snapshotOf(sessions);
+      const previous = this.lastSeen.get(userId);
+      this.lastSeen.set(userId, snapshot);
+      // 첫 틱에는 비교할 것이 없다 — 알릴 변화도 없다.
+      if (previous === undefined || previous === snapshot) continue;
+      // 원인이 특정 연결이 아니다(시간이 원인이다) → 전원에게 보낸다.
+      this.scheduleBroadcast(userId);
+    }
+    // 연결이 끊긴 사용자의 기억은 버린다. 남겨 두면 파드 수명만큼 쌓이고, 다시 붙었을 때
+    // **그사이의 변화를 이미 본 것으로 착각**해 첫 알림을 삼킨다.
+    for (const userId of this.lastSeen.keys()) {
+      if (!users.has(userId)) this.lastSeen.delete(userId);
     }
   }
 
@@ -192,8 +332,13 @@ export class SessionPresenceGateway implements OnModuleDestroy {
   async onModuleDestroy(): Promise<void> {
     if (this.sweep) clearInterval(this.sweep);
     this.sweep = null;
+    await this.unsubscribe?.().catch(() => undefined);
+    this.unsubscribe = null;
+    // 대조가 돌던 중이면 그 뒤에 또 돌지 않게 한다 — 파드가 내려가는 중이다.
+    this.expiryScanQueued = false;
     for (const { timer } of this.pending.values()) clearTimeout(timer);
     this.pending.clear();
+    this.lastSeen.clear();
 
     for (const connection of this.registry.all()) {
       this.registry.remove(connection);
@@ -217,4 +362,12 @@ export class SessionPresenceGateway implements OnModuleDestroy {
   get authDeadlineMs(): number {
     return AUTH_DEADLINE_MS;
   }
+}
+
+// 목록을 비교용 한 줄로 접는다 — 정렬하므로 목록의 순서는 관심사가 아니다.
+function snapshotOf(sessions: { id: string }[]): string {
+  return sessions
+    .map((session) => session.id)
+    .sort()
+    .join(',');
 }

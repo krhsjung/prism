@@ -1,9 +1,10 @@
 import { FakeRedis } from '@app/redis/testing/fake-redis';
 import {
   REFRESH_REUSE_GRACE_MS,
+  SessionContentionError,
   SessionsRepository,
 } from './sessions.repository';
-import type { User } from '../types/contracts';
+import { parseJsonValue, type JsonValue, type User } from '../types/contracts';
 
 const user: User = {
   id: 'u-1',
@@ -460,5 +461,305 @@ describe('SessionsRepository (Redis)', () => {
   it('이미 지난 idle 수명으로는 살아남지 않는다', async () => {
     await repo.create('s-1', user, -1, WEEK);
     await expect(repo.findValid('s-1')).resolves.toBeNull();
+  });
+
+  // ── 푸시 (plan/push.md) ──
+  //
+  // 토큰은 **세션 안에서만 살고 세션과 함께 사라진다** — 별도 테이블도, 정리 잡도 없다.
+  describe('푸시 등록', () => {
+    const TOKEN = 'fcm-tok-1';
+
+    // 로그인은 토큰을 나르지 않는다(§5-2를 뒤집었다) — 살아 있는 세션에 붙인다.
+    const createWithPush = async (id: string) => {
+      const issued = await repo.create(id, user, HOUR, WEEK, 'iphone', 'ko');
+      await repo.attachPushToken('u-1', id, TOKEN);
+      return issued;
+    };
+
+    it('살아 있는 세션에 붙는다', async () => {
+      await createWithPush('s-1');
+
+      const lookup = await repo.pushTargetFor('u-1', 's-1');
+      expect(lookup).toEqual({
+        kind: 'ok',
+        target: { token: TOKEN, locale: 'ko' },
+      });
+    });
+
+    // 등록 없이 만든 세션은 켜기 전까지 푸시 대상이 아니다 —
+    // 화면에는 `Notifications off`로 정직하게 보인다.
+    it('등록 없이 만들면 no-token이다', async () => {
+      await repo.create('s-2', user, HOUR, WEEK, 'mac');
+
+      expect(await repo.pushTargetFor('u-1', 's-2')).toEqual({
+        kind: 'no-token',
+      });
+    });
+
+    // 남의 세션 id로 남의 기기를 울릴 수 있으면 그것 자체가 공격이다.
+    // 없는 세션과 남의 세션을 **구별해 주지 않는다**.
+    it('남의 세션과 없는 세션은 같은 답을 준다', async () => {
+      await createWithPush('s-3');
+
+      expect(await repo.pushTargetFor('u-2', 's-3')).toEqual({
+        kind: 'not-owned',
+      });
+      expect(await repo.pushTargetFor('u-1', 'no-such')).toEqual({
+        kind: 'not-owned',
+      });
+    });
+
+    it('남의 세션에는 붙지 않는다', async () => {
+      await repo.create('s-3b', user, HOUR, WEEK, 'mac');
+
+      await expect(repo.attachPushToken('u-2', 's-3b', TOKEN)).resolves.toBe(
+        false,
+      );
+      expect(await repo.pushTargetFor('u-1', 's-3b')).toEqual({
+        kind: 'no-token',
+      });
+    });
+
+    // ⚠️ 목록에는 **파생 불리언만** 나간다. 원본 토큰이 이 객체에 얹히면 호출부의
+    // 스프레드를 타고 남의 기기 행까지 든 목록에 그대로 실려 나간다(plan/push.md §5-3).
+    it('목록은 pushRegistered만 싣고 토큰은 싣지 않는다', async () => {
+      await createWithPush('s-4');
+      await repo.create('s-5', user, HOUR, WEEK, 'mac');
+
+      const list = await repo.listForUser('u-1');
+      const registered = list.map((s) => [s.id, s.pushRegistered]);
+      expect(registered).toEqual(
+        expect.arrayContaining([
+          ['s-4', true],
+          ['s-5', false],
+        ]),
+      );
+      expect(JSON.stringify(list)).not.toContain(TOKEN);
+      for (const item of list) {
+        expect(Object.keys(item)).not.toContain('pushToken');
+      }
+    });
+
+    // 회전은 자격증명만 교체하고 본체는 건드리지 않는다 — 그래서 필드를 더해도
+    // 옮겨 담는 코드가 필요 없다(plan/push.md §5-1).
+    it('회전해도 토큰이 살아남는다', async () => {
+      const issued = await createWithPush('s-6');
+      await repo.rotate(issued.refreshCredential, HOUR);
+
+      expect(await repo.pushTargetFor('u-1', 's-6')).toEqual({
+        kind: 'ok',
+        target: { token: TOKEN, locale: 'ko' },
+      });
+    });
+
+    // 등록은 **활동이 아니다** — 유휴 창을 밀면 "손을 뗀 지 얼마나 됐나"가 거짓이 된다.
+    it('붙여도 유휴 창은 그대로다', async () => {
+      await repo.create('s-6b', user, HOUR, WEEK, 'mac');
+      const before = (await repo.listForUser('u-1'))[0]?.expiresAt;
+
+      jest.advanceTimersByTime(60_000);
+      await repo.attachPushToken('u-1', 's-6b', TOKEN);
+
+      expect((await repo.listForUser('u-1'))[0]?.expiresAt).toBe(before);
+    });
+
+    // 이 필드가 생기기 전에 만들어진 세션은 값이 없다 — 거부하면 배포 순간에 살아
+    // 있던 세션이 목록에서 통째로 사라진다(device를 unknown으로 접는 것과 같은 규칙).
+    it('예전 형식의 레코드도 거부하지 않는다', async () => {
+      await repo.create('s-7', user, HOUR, WEEK, 'mac');
+      const raw = await redis.get('prism:session:s-7');
+      const record = parseJsonValue(raw ?? '{}') as { [k: string]: JsonValue };
+      delete record.locale;
+      await redis.setEx('prism:session:s-7', JSON.stringify(record), 3600);
+
+      const list = await repo.listForUser('u-1');
+      expect(list.find((s) => s.id === 's-7')?.pushRegistered).toBe(false);
+    });
+  });
+
+  // 끄기는 **권한을 되돌리는 것이 아니다** — 이 세션을 대상에서 빼는 것뿐이다(§5-15).
+  describe('clearPushToken', () => {
+    const withPush = async (id: string) => {
+      await repo.create(id, user, HOUR, WEEK, 'mac');
+      await repo.attachPushToken('u-1', id, 'fcm-1');
+    };
+
+    it('토큰을 빼고 목록이 그 사실을 말한다', async () => {
+      await withPush('s-1');
+      expect((await repo.listForUser('u-1'))[0]?.pushRegistered).toBe(true);
+
+      await expect(repo.clearPushToken('u-1', 's-1')).resolves.toBe(true);
+
+      expect((await repo.listForUser('u-1'))[0]?.pushRegistered).toBe(false);
+    });
+
+    // 유휴 창을 밀면 "손을 뗀 지 얼마나 됐나"가 거짓이 된다(plan/auth.md §6).
+    // 목록의 `expiresAt`은 인덱스 score라, 밀렸다면 이 값이 함께 움직인다.
+    it('유휴 창을 밀지 않는다', async () => {
+      await withPush('s-1');
+      const before = (await repo.listForUser('u-1'))[0]?.expiresAt;
+
+      jest.advanceTimersByTime(60_000);
+      await repo.clearPushToken('u-1', 's-1');
+
+      expect((await repo.listForUser('u-1'))[0]?.expiresAt).toBe(before);
+    });
+
+    it('남의 세션은 건드리지 않는다', async () => {
+      await withPush('s-1');
+
+      await expect(repo.clearPushToken('other', 's-1')).resolves.toBe(false);
+      expect((await repo.listForUser('u-1'))[0]?.pushRegistered).toBe(true);
+    });
+
+    // 없는 세션은 "이제 대상이 아니다"가 아니라 "내 것이 아니다"다 — 화면은 목록으로 사실을 말한다.
+    it('없는 세션은 false다', async () => {
+      await expect(repo.clearPushToken('u-1', 'no-such')).resolves.toBe(false);
+    });
+  });
+
+  // FCM이 거부한 토큰은 세션에서 뗀다 — **지금도 그 토큰일 때만.**
+  describe('clearPushTokenIfMatches', () => {
+    beforeEach(async () => {
+      await repo.create('s-1', user, HOUR, WEEK, 'mac');
+      await repo.attachPushToken('u-1', 's-1', 'fcm-dead');
+    });
+
+    it('같은 토큰이면 뗀다', async () => {
+      await expect(
+        repo.clearPushTokenIfMatches('u-1', 's-1', 'fcm-dead'),
+      ).resolves.toBe(true);
+      expect(await repo.pushTargetFor('u-1', 's-1')).toEqual({
+        kind: 'no-token',
+      });
+    });
+
+    // 늦게 도착한 거부 — 기기는 그사이 새 토큰으로 다시 등록했다. 옛 토큰의 거부로 산
+    // 토큰을 지우면 방금 켠 알림이 조용히 꺼진다.
+    it('그사이 새 토큰이 붙었으면 건드리지 않는다', async () => {
+      await repo.attachPushToken('u-1', 's-1', 'fcm-fresh');
+
+      await expect(
+        repo.clearPushTokenIfMatches('u-1', 's-1', 'fcm-dead'),
+      ).resolves.toBe(false);
+      expect(await repo.pushTargetFor('u-1', 's-1')).toEqual({
+        kind: 'ok',
+        target: { token: 'fcm-fresh', locale: 'en' },
+      });
+    });
+
+    it('남의 세션은 건드리지 않는다', async () => {
+      await expect(
+        repo.clearPushTokenIfMatches('u-2', 's-1', 'fcm-dead'),
+      ).resolves.toBe(false);
+      expect((await repo.listForUser('u-1'))[0]?.pushRegistered).toBe(true);
+    });
+  });
+
+  // 언어는 등록의 속성이 아니라 **세션의 속성**이다 — 가드가 인증된 요청마다 맞춘다.
+  describe('updateLocale', () => {
+    it('로그인 때의 언어가 알림 문구의 언어다', async () => {
+      await repo.create('s-1', user, HOUR, WEEK, 'mac', 'ja');
+      await repo.attachPushToken('u-1', 's-1', 'fcm-1');
+
+      expect(await repo.pushTargetFor('u-1', 's-1')).toEqual({
+        kind: 'ok',
+        target: { token: 'fcm-1', locale: 'ja' },
+      });
+      expect(await repo.findValidSession('s-1')).toMatchObject({
+        locale: 'ja',
+      });
+    });
+
+    it('언어를 바꾸면 등록을 다시 하지 않아도 알림 언어가 따라온다', async () => {
+      await repo.create('s-1', user, HOUR, WEEK, 'mac', 'ja');
+      await repo.attachPushToken('u-1', 's-1', 'fcm-1');
+
+      await expect(repo.updateLocale('u-1', 's-1', 'ko')).resolves.toBe(true);
+
+      expect(await repo.pushTargetFor('u-1', 's-1')).toEqual({
+        kind: 'ok',
+        target: { token: 'fcm-1', locale: 'ko' },
+      });
+    });
+
+    it('유휴 창을 밀지 않는다', async () => {
+      await repo.create('s-1', user, HOUR, WEEK, 'mac', 'ja');
+      const before = (await repo.listForUser('u-1'))[0]?.expiresAt;
+
+      jest.advanceTimersByTime(60_000);
+      await repo.updateLocale('u-1', 's-1', 'ko');
+
+      expect((await repo.listForUser('u-1'))[0]?.expiresAt).toBe(before);
+    });
+  });
+
+  // 레코드 고치기는 **읽고 → 고치고 → 그사이 아무도 안 건드렸을 때만 되쓴다.**
+  // 등록과 해제가 겹치면(전역 복원과 푸시 화면이 각자 시작한다) 늦게 쓴 쪽이 먼저 쓴
+  // 쪽을 조용히 덮는다 — 그 창을 재현해 되쓰기가 다시 읽어 그 위에 고치는지 본다.
+  describe('레코드 고치기의 경합', () => {
+    it('되쓰기 사이에 끼어든 변경 위에 다시 고친다', async () => {
+      await repo.create('s-1', user, HOUR, WEEK, 'mac', 'ja');
+      await repo.attachPushToken('u-1', 's-1', 'fcm-1');
+
+      // 첫 읽기 직후, 되쓰기 전에 다른 요청이 언어를 바꾼다(가드의 updateLocale).
+      const original = redis.get.bind(redis);
+      let intruded = false;
+      jest.spyOn(redis, 'get').mockImplementation(async (key: string) => {
+        const value = await original(key);
+        if (!intruded && value) {
+          intruded = true;
+          redis.load(
+            key,
+            JSON.stringify({ ...JSON.parse(value), locale: 'ko' }),
+          );
+        }
+        return value;
+      });
+
+      await expect(repo.clearPushToken('u-1', 's-1')).resolves.toBe(true);
+
+      // 둘 다 살아남았다 — 토큰은 빠지고, 끼어든 언어 변경은 덮이지 않았다.
+      expect(await repo.pushTargetFor('u-1', 's-1')).toEqual({
+        kind: 'no-token',
+      });
+      expect(await repo.findValidSession('s-1')).toMatchObject({
+        locale: 'ko',
+      });
+    });
+
+    // 잇달아 부딪혀 되쓰지 못한 것은 "없다"가 아니다 — false로 접으면 호출부가 "이제
+    // 대상이 아니다"로 읽고, 클라이언트는 선택을 지운 채 등록만 남긴다.
+    it('계속 부딪히면 없는 것이 아니라 못 고친 것으로 던진다', async () => {
+      await repo.create('s-1', user, HOUR, WEEK, 'mac', 'ja');
+      await repo.attachPushToken('u-1', 's-1', 'fcm-1');
+
+      // 읽을 때마다 다른 요청이 끼어든다.
+      const original = redis.get.bind(redis);
+      let turn = 0;
+      jest.spyOn(redis, 'get').mockImplementation(async (key: string) => {
+        const value = await original(key);
+        if (value) {
+          turn += 1;
+          redis.load(
+            key,
+            JSON.stringify({
+              ...JSON.parse(value),
+              locale: turn % 2 ? 'ko' : 'en',
+            }),
+          );
+        }
+        return value;
+      });
+
+      await expect(repo.clearPushToken('u-1', 's-1')).rejects.toBeInstanceOf(
+        SessionContentionError,
+      );
+      // 토큰은 그대로다 — 못 고친 것이지 없어진 것이 아니다.
+      jest.restoreAllMocks();
+      expect(await repo.pushTargetFor('u-1', 's-1')).toMatchObject({
+        kind: 'ok',
+      });
+    });
   });
 });
