@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!-- 푸시 — 내 기기에 알림을 보내 보는 화면(plan/push.md) -->
+    <string name="push_title">プッシュ</string>
+    <string name="push_desc">端末を選んで通知を送ってみましょう。</string>
+
+    <!-- 카드 바닥 한 줄 — 토큰이 어디에 사는지 말한다(§5-3). 목록 응답에 토큰이 실리지 않는 이유이기도 하다 -->
+    <string name="push_foot">登録トークンはセッション内にあり、サーバーの外に出ません。サインアウトすると一緒に消えます。</string>
+
+    <!-- 목록은 대시보드·WebRTC 로비와 같은 데이터다. 다른 것은 할 수 있는 일뿐이다 -->
+    <string name="push_devices">端末に送信</string>
+    <string name="push_devices_desc">登録済みの端末が通知を受け取れます。それ以外はまだです。</string>
+
+    <!-- 여럿 고를 수 있다. 같은 설치가 여러 세션에 걸리면 서버가 합쳐 한 번만 보낸다(§5-10) -->
+    <string name="push_select_all">すべて選択</string>
+    <string name="push_clear_all">解除</string>
+    <string name="push_selected_count">{count} 件選択中</string>
+
+    <!-- 고른 줄은 버튼 글자로 말한다 — 목록에 라디오를 따로 두면 누를 곳이 둘이 된다 -->
+    <string name="push_select">選択</string>
+    <string name="push_selected">選択中</string>
+
+    <!-- 제목은 선택이다 — 비우면 서버가 받는 기기의 언어로 그린다(server.csv의 demo_title) -->
+    <string name="push_title_label">タイトル</string>
+    <string name="push_title_placeholder">空欄なら既定のタイトルになります</string>
+    <string name="push_message_label">メッセージ</string>
+    <string name="push_message_placeholder">端末に表示する文言を入力</string>
+    <string name="push_send">送信</string>
+
+    <!-- 알림이 실을 수 있는 것들 — 셋 다 선택이다(§5-11 ~ §5-13) -->
+    <string name="push_image_label">画像</string>
+    <string name="push_image_hint">公開 https アドレスです。下のサンプルはこのサイトが配信します。</string>
+
+    <!-- 그리는 것은 결국 OS다 — macOS Chrome은 시스템 알림 센터를 쓰고 거기엔 큰 그림 자리가 없다(§5-11) -->
+    <string name="push_image_desktop_note">デスクトップのブラウザーでは画像が表示されないことがあります。</string>
+    <string name="push_image_placeholder">https://example.com/photo.jpg</string>
+    <string name="push_image_none">画像なし</string>
+    <string name="push_link_label">リンク</string>
+    <string name="push_link_hint">通知をタップしたときに開く場所です。</string>
+    <string name="push_content_too_long">長すぎて送信できません — 画像かリンクのアドレスを短くしてください。</string>
+    <string name="push_link_placeholder">https://example.com</string>
+    <string name="push_actions_label">ボタン</string>
+
+    <!-- 버튼이 어디에 보이는지는 **받는 기기**가 정한다 — iOS는 알림을 펼쳐야 보이고(접힌 배너에는 안 뜬다) Android는 앱이 앞에 있을 때만(뒤에 있으면 시스템이 그린 알림에 버튼 자리가 없다) 웹은 데스크톱 Chrome·Edge에서만 나온다(§5-13) -->
+
+    <!-- image_desktop_note와 같은 규칙으로 **받는 쪽**을 가리킨다 — 한 줄을 웹과 앱이 나눠 쓰므로 실행 중인 플랫폼을 이름으로 부르면 다른 쪽에서 거짓이 된다 -->
+    <string name="push_actions_hint">通知を展開しないとボタンが表示されない端末や、まったく表示されない端末もあります。</string>
+    <string name="push_actions_none">なし</string>
+    <string name="push_actions_open">開く</string>
+    <string name="push_actions_open_dismiss">開くと閉じる</string>
+
+    <!-- 알림에 붙는 버튼의 문구. **서버가 보내지 않는다** — iOS는 등록 시점에 굳어 요청의 언어를 알 수 없다(§5-13) -->
+    <string name="push_action_open">開く</string>
+    <string name="push_action_dismiss">閉じる</string>
+
+    <!-- FCM이 알려 주는 것은 받아들였다까지다 — 배달도 열람도 알 수 없다 -->
+    <string name="push_result_accepted">送信しました。端末が起動していれば通知が表示されます。</string>
+
+    <!-- 같은 설치가 여러 세션에 걸렸다 — 실패가 아니라 한 번만 보냈다는 사실이다(§5-5) -->
+    <string name="push_result_duplicate">別の行と同じ端末です — 一度だけ送信しました。</string>
+    <string name="push_result_unknown">そのセッションはありません。一覧を更新してください。</string>
+    <string name="push_result_no_token">その端末は通知を受け取っていません。その端末で通知をオンにしてください。</string>
+    <string name="push_result_rejected">Firebase がその端末のトークンを拒否したため通知はオフになりました。その端末でもう一度オンにしてください。</string>
+    <string name="push_result_failed">その端末への送信が今はできませんでした。しばらくしてからもう一度お試しください。</string>
+
+    <!-- Android 알림 채널 이름 — 시스템 설정에 그대로 보인다. 통화와 데모를 가르는 이유는 하나를 끌 때 둘 다 꺼지지 않게 하려는 것이다 -->
+    <string name="push_channel_calls">通話</string>
+    <string name="push_channel_general">通知</string>
+
+    <!-- 권한은 로그인 화면에서 먼저 받는다 — 토큰이 로그인 요청에 실려야 하기 때문이다(§5-2) -->
+    <string name="push_allow">通知をオンにする</string>
+    <string name="push_allow_desc">アプリを閉じていても、この端末が通話とプッシュを受け取れるようになります。</string>
+
+    <!-- 끌 수 있는 것은 **등록**뿐이다 — 브라우저·OS 권한은 앱이 되돌릴 수 없다(§5-15) -->
+
+    <!-- ⚠️ 아래 셋은 **주어를 쓰지 않는다** — 한 문구를 웹과 앱이 나눠 쓰므로 브라우저/앱 중 어느 쪽을 적어도 다른 쪽에서 거짓이 된다 -->
+    <string name="push_allow_off">通知をオフにする</string>
+    <string name="push_allow_off_desc">この端末は受信しなくなります。通知の権限はそのままです。</string>
+    <string name="push_allow_denied">通知がブロックされています。設定でオンに戻してください。</string>
+
+    <!-- 차단된 상태에서 할 수 있는 일을 내놓는다 — **앱만 이 버튼을 갖는다**(브라우저에는 사이트 권한 설정을 여는 API가 없다 -->
+    <string name="push_allow_open_settings">設定を開く</string>
+    <string name="push_allow_unsupported">ここでは通知を受け取れません。</string>
+</resources>

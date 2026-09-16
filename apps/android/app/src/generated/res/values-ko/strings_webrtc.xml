@@ -25,7 +25,7 @@
     <!-- 소켓이 붙어 있으면 바로 울리고(isConnected) 아니면 알림으로 깨운다(pushRegistered). -->
 
     <!-- 둘 다 없는 세션만 걸 수 없다 — 그 줄에는 버튼 대신 이유를 둔다 -->
-    <string name="webrtc_devices_desc">연결된 기기는 바로 울립니다. 나머지는 아직 부를 수 없습니다.</string>
+    <string name="webrtc_devices_desc">연결된 기기는 바로 울립니다. 나머지는 알림을 받습니다.</string>
     <string name="webrtc_call">걸기</string>
 
     <!-- 푸시 경로임을 행이 말한다 — 기다리는 시간이 왜 긴지를 화면이 설명해야 한다 -->

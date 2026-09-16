@@ -352,19 +352,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Connected devices ring right away. The rest can't be reached yet."
+            "value": "Connected devices ring right away. The rest get a notification."
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "연결된 기기는 바로 울립니다. 나머지는 아직 부를 수 없습니다."
+            "value": "연결된 기기는 바로 울립니다. 나머지는 알림을 받습니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "接続中の端末はすぐに鳴ります。それ以外にはまだ発信できません。"
+            "value": "接続中の端末はすぐに鳴ります。それ以外には通知が届きます。"
           }
         }
       }

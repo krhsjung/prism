@@ -96,7 +96,7 @@ export const messages: Messages = {
   'webrtc.devices': 'Your devices',
   // 소켓이 붙어 있으면 바로 울리고(isConnected) 아니면 알림으로 깨운다(pushRegistered).
   // 둘 다 없는 세션만 걸 수 없다 — 그 줄에는 버튼 대신 이유를 둔다
-  'webrtc.devices_desc': 'Connected devices ring right away. The rest can\'t be reached yet.',
+  'webrtc.devices_desc': 'Connected devices ring right away. The rest get a notification.',
   'webrtc.call': 'Call',
   // 푸시 경로임을 행이 말한다 — 기다리는 시간이 왜 긴지를 화면이 설명해야 한다
   'webrtc.will_notify': 'Will notify',
@@ -208,6 +208,72 @@ export const messages: Messages = {
   'webrtc.log_empty': 'Nothing yet.',
   // 루프백은 시그널링을 타지 않으므로 로그가 비어 있는 것이 정상이다
   'webrtc.log_loopback': 'Loopback doesn’t use the signaling server.',
+
+  // ── push ──
+  // 푸시 — 내 기기에 알림을 보내 보는 화면(plan/push.md)
+  'push.title': 'Push',
+  'push.desc': 'Pick devices and send them a notification.',
+  // 카드 바닥 한 줄 — 토큰이 어디에 사는지 말한다(§5-3). 목록 응답에 토큰이 실리지 않는 이유이기도 하다
+  'push.foot': 'Registration tokens live inside the session and never leave the server. They disappear when you sign out.',
+  // 목록은 대시보드·WebRTC 로비와 같은 데이터다. 다른 것은 할 수 있는 일뿐이다
+  'push.devices': 'Send to a device',
+  'push.devices_desc': 'Registered devices can receive a notification. The rest can\'t yet.',
+  // 여럿 고를 수 있다. 같은 설치가 여러 세션에 걸리면 서버가 합쳐 한 번만 보낸다(§5-10)
+  'push.select_all': 'Select all',
+  'push.clear_all': 'Clear',
+  'push.selected_count': '{count} selected',
+  // 고른 줄은 버튼 글자로 말한다 — 목록에 라디오를 따로 두면 누를 곳이 둘이 된다
+  'push.select': 'Select',
+  'push.selected': 'Selected',
+  // 제목은 선택이다 — 비우면 서버가 받는 기기의 언어로 그린다(server.csv의 demo_title)
+  'push.title_label': 'Title',
+  'push.title_placeholder': 'Leave empty to use the default',
+  'push.message_label': 'Message',
+  'push.message_placeholder': 'Type what the device should show',
+  'push.send': 'Send',
+  // 알림이 실을 수 있는 것들 — 셋 다 선택이다(§5-11 ~ §5-13)
+  'push.image_label': 'Image',
+  'push.image_hint': 'A public https address. Samples below are served by this site.',
+  // 그리는 것은 결국 OS다 — macOS Chrome은 시스템 알림 센터를 쓰고 거기엔 큰 그림 자리가 없다(§5-11)
+  'push.image_desktop_note': 'Desktop browsers may not show the picture.',
+  'push.image_placeholder': 'https://example.com/photo.jpg',
+  'push.image_none': 'No image',
+  'push.link_label': 'Link',
+  'push.link_hint': 'Where the notification opens when it is tapped.',
+  'push.content_too_long': 'Too long to send — shorten the image or link address.',
+  'push.link_placeholder': 'https://example.com',
+  'push.actions_label': 'Buttons',
+  // 버튼이 어디에 보이는지는 **받는 기기**가 정한다 — iOS는 알림을 펼쳐야 보이고(접힌 배너에는 안 뜬다) Android는 앱이 앞에 있을 때만(뒤에 있으면 시스템이 그린 알림에 버튼 자리가 없다) 웹은 데스크톱 Chrome·Edge에서만 나온다(§5-13)
+  // image_desktop_note와 같은 규칙으로 **받는 쪽**을 가리킨다 — 한 줄을 웹과 앱이 나눠 쓰므로 실행 중인 플랫폼을 이름으로 부르면 다른 쪽에서 거짓이 된다
+  'push.actions_hint': 'Some devices show buttons only when the notification is expanded — and some not at all.',
+  'push.actions_none': 'None',
+  'push.actions_open': 'Open',
+  'push.actions_open_dismiss': 'Open and Dismiss',
+  // 알림에 붙는 버튼의 문구. **서버가 보내지 않는다** — iOS는 등록 시점에 굳어 요청의 언어를 알 수 없다(§5-13)
+  'push.action_open': 'Open',
+  'push.action_dismiss': 'Dismiss',
+  // FCM이 알려 주는 것은 받아들였다까지다 — 배달도 열람도 알 수 없다
+  'push.result_accepted': 'Sent. It shows on that device if the device is awake.',
+  // 같은 설치가 여러 세션에 걸렸다 — 실패가 아니라 한 번만 보냈다는 사실이다(§5-5)
+  'push.result_duplicate': 'Same device as another line — sent once.',
+  'push.result_unknown': 'That session is gone. Refresh the list.',
+  'push.result_no_token': 'That device isn\'t receiving notifications. Turn them on from that device.',
+  'push.result_rejected': 'Firebase rejected that device\'s token so notifications were turned off there. Turn them back on from that device.',
+  'push.result_failed': 'Couldn\'t reach Firebase for that device just now. Try again in a moment.',
+  // Android 알림 채널 이름 — 시스템 설정에 그대로 보인다. 통화와 데모를 가르는 이유는 하나를 끌 때 둘 다 꺼지지 않게 하려는 것이다
+  'push.channel_calls': 'Calls',
+  'push.channel_general': 'Notifications',
+  // 권한은 로그인 화면에서 먼저 받는다 — 토큰이 로그인 요청에 실려야 하기 때문이다(§5-2)
+  'push.allow': 'Turn on notifications',
+  'push.allow_desc': 'Lets this device receive calls and pushes while the app is closed.',
+  // 끌 수 있는 것은 **등록**뿐이다 — 브라우저·OS 권한은 앱이 되돌릴 수 없다(§5-15)
+  // ⚠️ 아래 셋은 **주어를 쓰지 않는다** — 한 문구를 웹과 앱이 나눠 쓰므로 브라우저/앱 중 어느 쪽을 적어도 다른 쪽에서 거짓이 된다
+  'push.allow_off': 'Turn off notifications',
+  'push.allow_off_desc': 'This device stops receiving. The notification permission stays as it is.',
+  'push.allow_denied': 'Notifications are blocked. Turn them back on in your settings.',
+  // 차단된 상태에서 할 수 있는 일을 내놓는다 — **앱만 이 버튼을 갖는다**(브라우저에는 사이트 권한 설정을 여는 API가 없다
+  'push.allow_open_settings': 'Open settings',
+  'push.allow_unsupported': 'Notifications aren\'t available here.',
 
   // ── error ──
   // 오류 메시지 — 키는 계약의 오류 코드와 1:1로 대응한다 (contracts.ts)
