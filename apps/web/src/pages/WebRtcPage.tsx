@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { AppShell } from '../components/AppShell';
 import { Button } from '../components/Button';
 import { CallControls } from '../components/webrtc/CallControls';
@@ -6,13 +7,12 @@ import { CallTargetList } from '../components/webrtc/CallTargetList';
 import { DeviceSelect } from '../components/webrtc/DeviceSelect';
 import { Diagnostics } from '../components/webrtc/Diagnostics';
 import { VideoTile, type TileState } from '../components/webrtc/VideoTile';
-import { api } from '../lib/api';
 import { DEVICE_LABELS } from '../lib/devices';
 import { useI18n } from '../lib/i18n/i18n-context';
 import { useMediaQuery } from '../lib/useMediaQuery';
-import { useSessionSocket } from '../lib/session-socket-context';
+import { useSessions } from '../lib/sessions-context';
 import { useCall } from '../lib/webrtc/call-context';
-import type { CallErrorCode, SessionListItem } from '../lib/contracts.gen';
+import type { CallErrorCode } from '../lib/contracts.gen';
 import type { CallNotice, CallStatus } from '../lib/webrtc/call-context';
 import type { MediaErrorKind } from '../lib/webrtc/media';
 import type { MessageKey } from '../lib/i18n/messages.gen';
@@ -20,6 +20,9 @@ import type { MessageKey } from '../lib/i18n/messages.gen';
 // 배지는 `Atom/Badge`의 **기존 여섯 변형을 그대로** 쓴다 — 새 변형 없음(plan/webrtc.md §4).
 const STATUS: Record<CallStatus, { variant: string; key: MessageKey }> = {
   ringing: { variant: 'neutral', key: 'webrtc.status_ringing' },
+  // `Ringing`과 갈라 둔다 — 알림이 뜨고 사람이 기기를 집어 앱을 여는 시간이 창 안에
+  // 들어가므로 체감이 다르다. 같은 배지로 뭉뚱그리면 느린 쪽이 고장으로 읽힌다(§4).
+  notified: { variant: 'neutral', key: 'webrtc.status_notified' },
   connecting: { variant: 'info', key: 'webrtc.status_connecting' },
   connected: { variant: 'success', key: 'webrtc.status_connected' },
   reconnecting: { variant: 'warning', key: 'webrtc.status_reconnecting' },
@@ -70,7 +73,10 @@ const MEDIA_TILES: Record<MediaErrorKind, MessageKey> = {
 export function WebRtcPage() {
   const { t } = useI18n();
   const isMobile = useMediaQuery('(max-width: 720px)');
-  const { ready: socketReady, changed } = useSessionSocket();
+  // 목록은 대시보드·푸시와 **같은 것 하나**다 — 조회와 소켓 신호는 `SessionsProvider`가
+  // 한 자리에서 처리한다(lib/SessionsProvider.tsx).
+  const { sessions, loadFailed, socketReady, reload } = useSessions();
+  const [params, setParams] = useSearchParams();
   const {
     localStream,
     remoteStream,
@@ -95,50 +101,30 @@ export function WebRtcPage() {
     starting,
     startCall,
     startLoopback,
+    resumeCall,
     startPreview,
     cancelCall,
     retryCall,
     hangUp,
   } = useCall();
 
-  const [sessions, setSessions] = useState<SessionListItem[] | null>(null);
-  const [loadFailed, setLoadFailed] = useState(false);
-  const alive = useRef(true);
-  // 요청은 마운트당 한 번만. StrictMode의 이중 마운트에서 두 번 나가지 않게 하고,
-  // 효과의 setState를 조건부로 만든다(DashboardPage가 쓰는 가드와 같다).
-  const started = useRef(false);
-  const handled = useRef(changed);
-
-  // 목록은 대시보드와 **같은 HTTP 경로**에서 온다(GET /auth/sessions) — 소켓은 신호만
-  // 준다. 이 화면이 목록을 직접 주입받으면 스탬핑·회전 처리를 통째로 우회한다.
-  const fetchSessions = useCallback(async (background = false) => {
-    try {
-      const list = await api.sessions(background);
-      if (alive.current) setSessions(list);
-    } catch {
-      if (alive.current) setLoadFailed(true);
-    }
-  }, []);
-
-  // **로비에서는 카메라를 열지 않는다.** 권한은 통화가 시작되는 순간에 묻고(`Call`·
-  // `Accept`·`Test`), 끝나거나 화면을 벗어나면 놓는다 — 화면을 열어 둔 것만으로 카메라
-  // 표시등이 켜져 있으면, 우리가 보고 있지 않다는 말을 화면이 증명하지 못한다.
+  // 알림을 눌러 들어왔다 — **이 통화가 아직 살아 있나**(§6).
+  //
+  // 소켓이 붙은 뒤에야 물을 수 있다. 살아 있으면 벨이 다시 울리고, 아니면
+  // `Call expired`를 본다 — 그것이 푸시 경로의 정상 결말이다(§8-10).
+  //
+  // 물은 뒤에는 **주소에서 지운다**(`replace`) — 남겨 두면 새로고침할 때마다 같은
+  // 통화를 다시 물어 이미 끝난 통화의 알림이 되풀이된다.
+  const resumed = useRef<string | null>(null);
   useEffect(() => {
-    alive.current = true;
-    if (!started.current) {
-      started.current = true;
-      void fetchSessions();
-    }
-    return () => {
-      alive.current = false;
-    };
-  }, [fetchSessions]);
-
-  useEffect(() => {
-    if (changed === handled.current) return;
-    handled.current = changed;
-    void fetchSessions(true);
-  }, [changed, fetchSessions]);
+    const callId = params.get('callId');
+    if (!callId || !socketReady || resumed.current === callId) return;
+    resumed.current = callId;
+    resumeCall(callId);
+    const next = new URLSearchParams(params);
+    next.delete('callId');
+    setParams(next, { replace: true });
+  }, [params, setParams, socketReady, resumeCall]);
 
   const inCall = call !== null;
   const peerLabel = call?.isLoopback
@@ -156,7 +142,16 @@ export function WebRtcPage() {
           title: t('webrtc.calling', { device: peerLabel }),
           desc: `${t('webrtc.ringing_desc')} ${t('webrtc.ring_timeout_note')}`,
         }
-      : { title: t('webrtc.in_call'), desc: undefined };
+      : call.status === 'notified'
+        ? {
+            // 기다리는 시간이 **왜 긴지**를 화면이 말한다(§4).
+            //
+            // `ring_timeout_note`를 덧붙이지 않는다 — `notified_desc`가 이미 45초를
+            // 말하고 있어 숫자가 두 번 나온다. 상한은 화면에 **한 번만** 적는다(§4).
+            title: t('webrtc.calling', { device: peerLabel }),
+            desc: t('webrtc.notified_desc', { device: peerLabel }),
+          }
+        : { title: t('webrtc.in_call'), desc: undefined };
 
   const controls = (
     <CallControls
@@ -167,7 +162,7 @@ export function WebRtcPage() {
       onHangUp={hangUp}
       // 로비에도, 호출 중에도 종료는 **없다** — 아직 통화가 아니고, 나가는 길은
       // 호출 중이라면 `Cancel` 하나여야 한다(§4).
-      end={inCall && call.status !== 'ringing'}
+      end={inCall && !awaitingAnswer(call.status)}
     />
   );
 
@@ -209,10 +204,7 @@ export function WebRtcPage() {
             <Button
               variant="outline"
               className="btn--compact"
-              onClick={() => {
-                setLoadFailed(false);
-                void fetchSessions();
-              }}
+              onClick={() => void reload()}
             >
               {t('common.retry')}
             </Button>
@@ -233,7 +225,7 @@ export function WebRtcPage() {
               action={
                 // 타일의 행동은 **하나뿐이다** — 호출 중에는 `Cancel`, 실패에는
                 // `Try again`. 실패에는 문구가 없으므로(§4) 이 버튼만 남는다.
-                call.status === 'ringing' ? (
+                awaitingAnswer(call.status) ? (
                   <Button
                     variant="outline"
                     className="btn--compact"
@@ -456,8 +448,14 @@ function selfTileMessage(
   return cameraOn ? undefined : t('webrtc.tile_camera_off');
 }
 
+// 답을 기다리는 중 — 벨이 울리든(`ringing`) 알림으로 깨우든(`notified`) 나가는 길은 `Cancel`
+// 하나이고 타일도 같은 자리다. 다른 것은 설명 문구뿐이다(§4).
+function awaitingAnswer(status: CallStatus): boolean {
+  return status === 'ringing' || status === 'notified';
+}
+
 function peerTileState(status: CallStatus, stream: MediaStream | null): TileState {
-  if (status === 'ringing') return 'ringing';
+  if (awaitingAnswer(status)) return 'ringing';
   if (status === 'reconnecting') return 'reconnecting';
   if (!stream) return 'connecting';
   return status === 'connected' ? 'live' : 'connecting';
@@ -469,6 +467,8 @@ function peerTileMessage(
   t: (key: MessageKey) => string,
 ): string | undefined {
   if (status === 'ringing') return t('webrtc.tile_ringing');
+  // 소켓 경로와 다른 문구다 — 기다리는 것이 "응답"이 아니라 "기기가 열리는 것"이다.
+  if (status === 'notified') return t('webrtc.tile_notified');
   if (status === 'reconnecting') return t('webrtc.tile_reconnecting');
   // 실패 타일은 **문구를 갖지 않는다** — 배지가 이미 그 말을 한다(§4).
   if (status === 'failed') return undefined;

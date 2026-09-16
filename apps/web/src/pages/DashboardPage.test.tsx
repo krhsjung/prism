@@ -13,6 +13,7 @@ import {
   SessionSocketContext,
   type SessionSocketValue,
 } from "../lib/session-socket-context";
+import { SessionsProvider } from "../lib/SessionsProvider";
 import type { SocketUpstreamMessage } from "../lib/contracts.gen";
 import { I18nContext } from "../lib/i18n/i18n-context";
 import { englishI18n } from "../lib/i18n/test-i18n";
@@ -22,12 +23,11 @@ import type { SessionListItem, User } from "../lib/contracts.gen";
 
 // 대시보드는 마운트 시 세션을 불러오고 revoke/sign-out-all을 호출한다 — 네트워크 대신
 // 계약 형태의 값을 돌려주는 가짜 api로 대체한다(테스트가 서버에 의존하지 않게).
-vi.mock("../lib/api", () => ({
-  api: {
-    sessions: vi.fn(),
-    revokeSession: vi.fn(),
-    revokeAllSessions: vi.fn(),
-  },
+// api는 **완전한 가짜 한 벌** 위에 이 테스트가 쓰는 것만 덮는다(lib/test-api.ts).
+// 일부만 채우면 화면이 나중에 쓰기 시작한 메서드가 조용히 `undefined`가 되고, 그 호출은
+// 대부분 `try` 안이라 TypeError가 catch로 들어가 "네트워크 실패"와 구별되지 않는다.
+vi.mock("../lib/api", async () => ({
+  api: (await import("../lib/test-api")).fakeApi(),
 }));
 import { api } from "../lib/api";
 
@@ -44,6 +44,7 @@ const currentSession: SessionListItem = {
   expiresAt: "2026-01-01T17:00:00.000Z",
   isCurrent: true,
   isConnected: true,
+  pushRegistered: true,
   device: "mac",
 };
 const otherSession: SessionListItem = {
@@ -53,6 +54,7 @@ const otherSession: SessionListItem = {
   isCurrent: false,
   // 기본 픽스처는 **붙어 있지 않다** — 소켓이 ready일 때만 그 사실이 배지에 드러난다.
   isConnected: false,
+  pushRegistered: false,
   device: "iphone",
 };
 
@@ -84,7 +86,11 @@ function renderDashboard(
         <ThemeContext.Provider value={lightTheme()}>
           <AuthContext.Provider value={auth}>
             <SessionSocketContext.Provider value={value}>
-              <DashboardPage />
+              {/* 목록을 쥐는 자리는 **진짜 Provider**다 — 화면이 목록을 어떻게 얻는지가
+                  이 테스트들이 확인하는 것의 절반이다(소켓 신호 → 재조회). */}
+              <SessionsProvider>
+                <DashboardPage />
+              </SessionsProvider>
             </SessionSocketContext.Provider>
           </AuthContext.Provider>
         </ThemeContext.Provider>
@@ -261,7 +267,7 @@ describe("DashboardPage", () => {
     fireEvent.click(revokeButtons()[0]!);
 
     await waitFor(() =>
-      expect(sent).toContainEqual({ type: "sessionsRevoked" }),
+      expect(sent).toContainEqual({ type: "sessionsStale" }),
     );
   });
 

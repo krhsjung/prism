@@ -12,12 +12,13 @@ import type { CallStats } from './stats';
  * 통화의 상태. **배지 여섯 변형과 1:1**이다(plan/webrtc.md §4) — 화면이 배지를 그리려고
  * 상태를 다시 조합하지 않게, 여기서 이미 그 모양으로 나눠 둔다.
  *
- * `notified`(푸시로 깨웠다)는 아직 도달할 수 없다 — 소켓이 없는 기기는 서버가
- * `unreachable`로 거절하고, 푸시 경로는 push 슬라이스와 함께 붙는다(§8-11).
- * 문구와 배지는 이미 있으므로 그때 갈래 하나만 늘면 된다.
+ * `ringing`과 `notified`를 **갈라 두는 이유는 기다리는 성격이 다르기 때문이다**:
+ * 푸시 경로는 알림이 뜨고 사람이 기기를 집어 앱을 여는 시간까지 창 안에 들어간다.
+ * 같은 `Ringing`으로 뭉뚱그리면 느린 쪽이 고장으로 읽힌다(§4·§8-10).
  */
 export type CallStatus =
   | 'ringing'
+  | 'notified'
   | 'connecting'
   | 'connected'
   | 'reconnecting'
@@ -119,6 +120,13 @@ export interface CallContextValue {
   /** 실패한 통화를 **같은 상대에게** 다시 건다(§4의 타일 `Try again`). */
   retryCall(): void;
   hangUp(): void;
+  /**
+   * 알림을 열고 들어왔다 — **이 통화가 아직 살아 있나**(§6).
+   *
+   * 살아 있으면 벨이 다시 울리고, 아니면 `Call expired`를 본다. 이미 통화 중이거나
+   * 벨이 울리는 중이면 아무것도 하지 않는다 — 그 화면이 이미 답이다.
+   */
+  resumeCall(callId: string): void;
 }
 
 const NOT_IN_PROVIDER = (): void => {
@@ -157,6 +165,7 @@ export const CallContext = createContext<CallContextValue>({
   cancelCall: NOT_IN_PROVIDER,
   retryCall: NOT_IN_PROVIDER,
   hangUp: NOT_IN_PROVIDER,
+  resumeCall: NOT_IN_PROVIDER,
 });
 
 export function useCall(): CallContextValue {

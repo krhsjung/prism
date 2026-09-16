@@ -8,7 +8,11 @@ import {
   type JsonValue,
   type SocialFlow,
   type SocialProvider,
+  decodePushRegisterResponse,
+  decodePushSendResponse,
+  type PushSendRequest,
 } from './contracts.gen';
+import { currentLocale } from './i18n/locale';
 import { log, routeTemplate } from './log';
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
@@ -16,6 +20,18 @@ const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 // popup 흐름에서 들어오는 postMessage의 발신 출처를 대조할 값.
 // (API와 웹이 같은 도메인을 쓰는 운영에서도, 포트가 갈리는 로컬에서도 이 값이 기준)
 export const API_ORIGIN = new URL(API_URL, window.location.href).origin;
+
+/**
+ * 요청을 보내기 전에 세션이 갈렸다 — 선제 회전을 기다리는 사이 로그아웃과 다른 계정의
+ * 로그인이 끝난 경우다. 그대로 보내면 **앞 세션의 일이 새 세션의 쿠키로** 나간다(끄기가
+ * 다음 사람의 등록을 떼는 식). 보내지 않고 던진다 — 서버에는 아무것도 닿지 않았다.
+ */
+export class SessionReplacedError extends Error {
+  constructor() {
+    super('session replaced');
+    this.name = 'SessionReplacedError';
+  }
+}
 
 export class ApiError extends Error {
   status: number;
@@ -36,8 +52,19 @@ async function fetchOrThrow(path: string, init?: RequestInit): Promise<Response>
   const route = routeTemplate(path);
   try {
     const res = await fetch(`${API_URL}${path}`, {
-      headers: { 'Content-Type': 'application/json', ...(init?.headers ?? {}) },
       ...init,
+      // ⚠️ **`...init` 뒤에 온다.** 앞에 두면 `init.headers`가 병합 결과를 통째로
+      // 덮어쓴다 — 활동 표시가 붙는 요청은 전부 `init.headers`를 갖고 있으므로
+      // `Content-Type`이 조용히 사라지고, body를 실은 POST가 서버에서 파싱되지 않는다.
+      headers: {
+        'Content-Type': 'application/json',
+        // 서버가 **세션의 언어**를 여기서 읽는다 — 로그인 시점에 세션에 담아 두고,
+        // 나중에 그 기기로 보내는 알림 문구를 그 언어로 그린다(plan/push.md D4).
+        // 브라우저의 기본 헤더가 아니라 **앱에서 고른 언어**를 싣는다: 언어 스위처가
+        // 있는 앱에서 둘은 자주 다르고, 사용자가 보는 것은 후자다.
+        'Accept-Language': currentLocale(),
+        ...(init?.headers ?? {}),
+      },
       // 세션은 HttpOnly 쿠키다 — JS가 토큰을 들고 다니지 않으므로 쿠키를 실어 보낸다.
       // (로컬은 웹:5173 ↔ API:3000으로 교차 출처라 이 옵션이 없으면 쿠키가 빠진다)
       credentials: 'include',
@@ -218,13 +245,18 @@ async function fetchWithRefresh(
   //
   // 실패해도 그대로 보낸다 — 정말 만료였다면 아래 반응형 경로가 받아 낸다.
   // 여기는 정확성이 아니라 최적화다. (single-flight라 겹쳐 불려도 요청은 한 번이다)
+  //
+  // 표식은 **회전보다 먼저** 찍는다 — 회전을 기다리는 사이에도 세션은 갈릴 수 있고(로그아웃
+  // 뒤 다른 계정의 로그인), 그러면 이 요청은 앞 세션의 일인데 새 세션의 쿠키로 나간다.
+  // 회전 뒤에 표식이 달라졌으면 보내지 않는다. 응답이 돌아왔을 때 그사이 세션이 갈렸는지도
+  // 같은 값으로 안다.
+  const mark = authority?.mark() ?? null;
   if (!SESSION_OWNED_PATHS.has(path) && isNearExpiry()) {
     await refreshSession();
+    if (mark !== null && mark !== authority?.mark()) {
+      throw new SessionReplacedError();
+    }
   }
-  // 표식은 **보내기 전에** 찍는다 — 응답이 돌아왔을 때 그사이 세션이 갈렸는지는
-  // 이 값으로만 알 수 있다. 위 회전을 기다리는 동안에도 세션은 갈릴 수 있으므로
-  // 찍는 것은 회전 **뒤**다.
-  const mark = authority?.mark() ?? null;
   // 소켓이 시킨 재조회만 표시를 달지 않는다 — 나머지는 전부 사용자가 시킨 것이다.
   const request: RequestInit | undefined = background
     ? init
@@ -305,8 +337,13 @@ async function requestEmpty(path: string, init?: RequestInit): Promise<void> {
 
 export const api = {
   // 응답에 토큰이 없다 — 세션은 서버가 심은 HttpOnly 쿠키에만 있다.
+  // 로그인은 로그인만 한다 — 푸시 등록은 살아 있는 세션에 `registerPush`로 붙는다
+  // (plan/push.md §5-2를 뒤집었다).
   demoLogin: () =>
-    requestJson('/auth/demo', decodeAndNoteSession, { method: 'POST' }),
+    requestJson('/auth/demo', decodeAndNoteSession, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    }),
   // 소셜 로그인은 fetch가 아니라 브라우저 이동(전체 페이지 또는 popup)으로 시작한다.
   // flow는 서버가 서명된 state에 실어 콜백까지 가져가고, 결과 전달 방식을 결정한다.
   socialLoginUrl: (provider: SocialProvider, flow: SocialFlow) =>
@@ -334,4 +371,35 @@ export const api = {
   // 내 모든 세션 폐기(현재 세션 포함) — 이후 쿠키는 무효가 된다.
   revokeAllSessions: () =>
     requestEmpty('/auth/sessions/revoke-all', { method: 'POST' }),
+  // 이 세션을 대상에서 뺀다 — 푸시 화면의 `알림 끄기`(§5-15).
+  // **권한을 되돌리는 것이 아니다**: 브라우저는 앱이 권한을 끄는 길을 주지 않는다.
+  unregisterPush: () =>
+    requestJson(
+      '/auth/push/unregister',
+      decodePushRegisterResponse,
+      { method: 'POST' },
+      // **활동으로 세지 않는다**(§5-2). 저장소의 `KEEPTTL`만으로는 부족하다 — 그 전에
+      // 인증 가드가 활동 표식을 보고 이미 유휴 창을 밀어 버린다(jwt-auth.guard.ts).
+      true,
+    ),
+
+  // 지금 세션에 등록 토큰을 붙인다 — 푸시 화면의 `알림 켜기`가 부른다(§5-2).
+  registerPush: (pushToken: string) =>
+    requestJson(
+      '/auth/push/register',
+      decodePushRegisterResponse,
+      { method: 'POST', body: JSON.stringify({ pushToken }) },
+      // 끄기와 같은 이유로 활동이 아니다(§5-2).
+      true,
+    ),
+
+  // 내 기기**들**에 알림을 보낸다. **토큰은 보내지 않는다** — 서버가 세션 레코드에서
+  // 꺼낸다(plan/push.md §5-3). 답은 **대상마다** 따로 온다(§5-10). 요청 전체가 실패하는
+  // 것은 형식(400)과 이 배포에 전송기가 없을 때(502 PUSH_UNAVAILABLE)뿐이다 — FCM의
+  // 일시적 실패는 그 줄의 `failed`다.
+  sendPush: (request: PushSendRequest) =>
+    requestJson('/auth/push/send', decodePushSendResponse, {
+      method: 'POST',
+      body: JSON.stringify(request),
+    }),
 };

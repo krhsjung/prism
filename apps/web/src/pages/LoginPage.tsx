@@ -74,7 +74,10 @@ export function LoginPage() {
   // 화면을 떠날 때 진행 중인 팝업을 정리한다(리스너·타이머 누수 방지).
   useEffect(() => () => popupRef.current?.cancel(), []);
 
-  // 전체 페이지 이동 — 서버가 OAuth 제공자로 redirect한다.
+
+  // 전체 페이지 이동 — 서버가 OAuth 제공자로 redirect한다. 팝업 차단이 있는 브라우저와
+  // 모바일의 경로다. (한때 여기서 알림 토큰을 서버에 맡겼지만 그 흐름은 뒤집혔다 —
+  // 등록은 푸시 화면이 한다, plan/push.md §5-2.)
   function startRedirect(provider: SocialProvider) {
     window.location.assign(api.socialLoginUrl(provider, 'redirect'));
   }
@@ -195,6 +198,8 @@ export function LoginPage() {
           </Button>
         </div>
 
+        {/* 알림 권한은 여기서 묻지 않는다 — 로그인은 로그인만 하고, 권한과 등록은 푸시
+            화면의 `알림 켜기`가 함께 끝낸다(plan/push.md §5-2). */}
         <p className="card__note">{t('auth.no_personal_data')}</p>
       </section>
 

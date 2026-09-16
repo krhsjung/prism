@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppShell } from '../components/AppShell';
 import { Button } from '../components/Button';
@@ -7,7 +7,7 @@ import { DeviceIcon } from '../components/DeviceIcon';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/auth-context';
 import { DEVICE_LABELS } from '../lib/devices';
-import { useSessionSocket } from '../lib/session-socket-context';
+import { useSessions } from '../lib/sessions-context';
 import { useI18n } from '../lib/i18n/i18n-context';
 import { useMediaQuery } from '../lib/useMediaQuery';
 import type { SessionListItem } from '../lib/contracts.gen';
@@ -32,12 +32,17 @@ function statusOf(
 
 export function DashboardPage() {
   const navigate = useNavigate();
-  const { refresh } = useAuth();
+  // 세션 목록의 `refresh`와 이름이 겹친다 — 이쪽은 **인증 상태**를 다시 확인하는 것이다.
+  const { refresh: refreshAuth } = useAuth();
   const { t, locale } = useI18n();
 
   // 세션 목록은 서버만 안다(세션 id가 HttpOnly 쿠키 안에 있다). null=로딩 전/중.
-  const [sessions, setSessions] = useState<SessionListItem[] | null>(null);
-  const [loadFailed, setLoadFailed] = useState(false);
+  //
+  // **이 화면이 들고 있지 않다.** 목록은 통화·푸시와 같은 것이고, 조회와 소켓 신호는
+  // `SessionsProvider`가 한 자리에서 처리한다 — 화면마다 옮겨 적으면 화면마다 신선도가
+  // 달라진다.
+  const { sessions, loadFailed, socketReady, refresh, reload, notifyChanged } =
+    useSessions();
   const [revokingId, setRevokingId] = useState<string | null>(null);
   const [signingOutAll, setSigningOutAll] = useState(false);
   // 전체 로그아웃은 되돌릴 수 없다 — 누르면 바로 실행하지 않고 한 번 되묻는다.
@@ -46,69 +51,6 @@ export function DashboardPage() {
   // "모두 로그아웃"은 모바일에서 카드 머리 대신 **목록 아래로 자리를 옮긴다**(시안
   // `Dashboard / Mobile`). 부모가 바뀌는 배치라 CSS로는 표현할 수 없어 폭을 상태로 읽는다.
   const isMobile = useMediaQuery('(max-width: 720px)');
-
-  // 언마운트 뒤 도착한 응답이 상태를 건드리지 않게 한다(경합·누수 방지). 이 가드가
-  // await 뒤 setState를 조건부로 만들어, 효과에서의 동기 setState 경고도 함께 없앤다
-  // (AuthProvider가 generation으로 하는 것과 같은 방식).
-  // 소켓은 **신호만** 준다 — 목록은 아래 fetchSessions가 기존 HTTP 경로로 다시 가져온다.
-  const { ready: socketReady, changed, send } = useSessionSocket();
-  const alive = useRef(true);
-  const started = useRef(false);
-  // 이미 반영한 신호 번호.
-  //
-  // ⚠️ **0이 아니라 지금 값에서 시작한다.** 소켓은 화면보다 오래 살아(앱 전역) 카운터가
-  // 이미 올라가 있을 수 있는데, 0에서 시작하면 대시보드에 다시 들어올 때마다 **이미 지나간**
-  // 신호를 새 신호로 읽어 배경 재조회가 한 번 더 나간다. 마운트의 첫 조회가 이미 최신
-  // 목록을 가져오므로 그 재조회는 얻는 것이 없고, 같은 순간의 전경 조회와 겹쳐 회전을
-  // 두고 경합한다(plan/auth.md §6의 single-flight).
-  const handled = useRef(changed);
-  // `background`는 **소켓이 시킨 재조회**라는 뜻이다 — 그 경우 세션의 유휴 창을 밀지
-  // 않는다. 사용자가 한 일이 아닌 트래픽까지 창을 밀면 기기가 둘일 때 서로가 서로의
-  // 세션을 영원히 살려낸다(plan/auth.md §6).
-  const fetchSessions = useCallback(async (background = false) => {
-    try {
-      const list = await api.sessions(background);
-      if (alive.current) setSessions(list);
-    } catch {
-      if (alive.current) setLoadFailed(true);
-    }
-  }, []);
-
-  // 재시도는 사용자 액션 — 여기서는 로딩 상태로 되돌린 뒤 다시 불러온다.
-  const reload = useCallback(async () => {
-    setLoadFailed(false);
-    setSessions(null);
-    await fetchSessions();
-  }, [fetchSessions]);
-
-  useEffect(() => {
-    // **다시 살아났음을 먼저 표시한다.** StrictMode는 개발에서 마운트→정리→마운트를
-    // 한 번 더 돌리는데, 정리가 alive를 끈 뒤 두 번째 마운트가 started에 막히면
-    // 첫 요청의 응답이 영영 버려져 화면이 로딩에 멈춘다(운영 빌드에서는 이중 마운트가
-    // 없어 드러나지 않는다).
-    alive.current = true;
-    // 요청 자체는 마운트당 한 번만 보낸다. 이 가드는 AuthProvider의 generation 가드와
-    // 같은 역할이며, 효과의 setState를 조건부로 만든다.
-    if (!started.current) {
-      started.current = true;
-      void fetchSessions();
-    }
-    return () => {
-      alive.current = false;
-    };
-  }, [fetchSessions]);
-
-  // 소켓이 "바뀌었다"고 하면 다시 가져온다.
-  //
-  // **비우지 않는다**(load가 아니라 fetchSessions) — 다른 기기가 하나 붙었다고 카드가
-  // "불러오는 중"으로 접혔다 펴지면 목록 전체가 깜빡인다(plan/dashboard.md §4).
-  // changed는 0에서 시작하고 소켓의 첫 ready가 1로 올리므로, 마운트 시의 첫 조회와
-  // 겹치지 않는다.
-  useEffect(() => {
-    if (changed === handled.current) return;
-    handled.current = changed;
-    void fetchSessions(true);
-  }, [changed, fetchSessions]);
 
   // 시각은 화면 언어를 따른다 — 언어를 바꾸면 날짜 표기도 함께 바뀐다.
   const dtf = useMemo(
@@ -130,11 +72,11 @@ export function DashboardPage() {
       // socket 서비스는 그 사실을 전달받는 통로가 없어, 스윕이 돌 때까지(최대
       // PRESENCE_RENEW_MS) 상대 기기가 멀쩡히 앉아 있다. 소켓은 이미 붙어 있으니
       // 우리가 깨워 준다 — 서버는 이 말을 믿지 않고 세션 저장소를 다시 읽는다.
-      send({ type: 'sessionsRevoked' });
+      notifyChanged();
       // 로컬에서 그 행만 지우지 않고 서버에 다시 묻는다 — 그사이 다른 기기에서 로그인·
-      // 만료가 일어날 수 있다(앱도 같은 규칙). `reload`가 아니라 `fetchSessions`인 것이
+      // 만료가 일어날 수 있다(앱도 같은 규칙). `reload`가 아니라 `refresh`인 것이
       // 중요하다: 목록을 비우면 카드가 "불러오는 중"으로 접혔다 펴져 화면이 흔들린다.
-      await fetchSessions();
+      await refresh();
     } catch {
       setActionFailed(true);
     } finally {
@@ -150,14 +92,14 @@ export function DashboardPage() {
       await api.revokeAllSessions();
       // 전체 폐기도 같다 — 다만 이 요청은 **내 세션까지** 끝내므로, 아래에서 곧바로
       // 로그인 화면으로 간다. 그 전에 다른 기기들이 즉시 쫓겨나게 해 둔다.
-      send({ type: 'sessionsRevoked' });
+      notifyChanged();
     } catch {
       setActionFailed(true);
       setSigningOutAll(false);
       return;
     }
     // 현재 세션 쿠키도 무효가 됐다 — 상태를 비우고(401→anonymous) 로그인으로 보낸다.
-    await refresh();
+    await refreshAuth();
     navigate('/login', { replace: true });
   }
 

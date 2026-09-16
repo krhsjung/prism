@@ -4,11 +4,14 @@ import { AuthCallbackPage } from "./pages/AuthCallbackPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { LoginPage } from "./pages/LoginPage";
 import { WebRtcPage } from "./pages/WebRtcPage";
+import { PushPage } from "./pages/PushPage";
 import { IncomingCallDialog } from "./components/webrtc/IncomingCallDialog";
 import { CallProvider } from "./lib/webrtc/CallProvider";
 import { useCall } from "./lib/webrtc/call-context";
 import { AuthProvider } from "./lib/AuthProvider";
 import { SessionSocketProvider } from "./lib/SessionSocketProvider";
+import { SessionsProvider } from "./lib/SessionsProvider";
+import { PushRegistrationProvider } from "./lib/push/PushRegistrationProvider";
 import { useAuth } from "./lib/auth-context";
 import { useI18n } from "./lib/i18n/i18n-context";
 
@@ -64,32 +67,50 @@ export default function App() {
         {/* 소켓은 로그인해 있는 동안 열려 있다 — 대시보드 밖에서도 내 기기는
             "붙어 있음"이어야 한다. AuthProvider 안이라 인증 상태를 볼 수 있다. */}
         <SessionSocketProvider>
-          {/* 통화 상태도 소켓처럼 **화면이 아니라 앱**에 매단다 — 라우터 안이라
-              수락이 곧 /webrtc로 옮겨 갈 수 있다. */}
-          <CallProvider>
-            <Routes>
-            <Route path="/login" element={<LoginPage />} />
-            <Route path="/auth/callback" element={<AuthCallbackPage />} />
-            <Route
-              path="/dashboard"
-              element={
-                <RequireAuth>
-                  <DashboardPage />
-                </RequireAuth>
-              }
-            />
-              <Route
-                path="/webrtc"
-                element={
-                  <RequireAuth>
-                    <WebRtcPage />
-                  </RequireAuth>
-                }
-              />
-              <Route path="*" element={<HomeRedirect />} />
-            </Routes>
-            <IncomingCallGate />
-          </CallProvider>
+          {/* 세션 목록도 **화면이 아니라 앱**의 것이다 — 대시보드·통화·푸시가 같은
+              목록을 보고, 소켓 신호를 듣는 자리는 여기 하나뿐이다. 화면마다 따로
+              들고 있으면 화면마다 신선도가 달라진다(lib/SessionsProvider.tsx). */}
+          <SessionsProvider>
+            {/* 이 기기의 알림 등록도 **앱**의 것이다 — 로그인 직후의 되살리기, 탭 복귀의
+                권한 재확인, 토큰 회전이 한 자리에서 맞춰진다. 붙인 뒤 목록을 다시 받아야
+                해서 목록 **안쪽**에 선다(lib/push/PushRegistrationProvider.tsx). */}
+            <PushRegistrationProvider>
+            {/* 통화 상태도 소켓처럼 **화면이 아니라 앱**에 매단다 — 라우터 안이라
+                수락이 곧 /webrtc로 옮겨 갈 수 있다. */}
+            <CallProvider>
+              <Routes>
+                <Route path="/login" element={<LoginPage />} />
+                <Route path="/auth/callback" element={<AuthCallbackPage />} />
+                <Route
+                  path="/dashboard"
+                  element={
+                    <RequireAuth>
+                      <DashboardPage />
+                    </RequireAuth>
+                  }
+                />
+                <Route
+                  path="/webrtc"
+                  element={
+                    <RequireAuth>
+                      <WebRtcPage />
+                    </RequireAuth>
+                  }
+                />
+                <Route
+                  path="/push"
+                  element={
+                    <RequireAuth>
+                      <PushPage />
+                    </RequireAuth>
+                  }
+                />
+                <Route path="*" element={<HomeRedirect />} />
+              </Routes>
+              <IncomingCallGate />
+            </CallProvider>
+            </PushRegistrationProvider>
+          </SessionsProvider>
         </SessionSocketProvider>
       </AuthProvider>
     </BrowserRouter>

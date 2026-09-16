@@ -2,9 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // 소켓은 만료를 만나면 **기존 공유 회전**을 타야 한다 — 자기 회전을 새로 시작하면
 // 1회용 리프레시 자격증명이 두 번 소비돼 멀쩡한 세션이 죽는다.
-vi.mock('./api', () => ({
-  api: { refreshSession: vi.fn() },
-}));
+// api는 **완전한 가짜 한 벌**로 대체한다(lib/test-api.ts). 일부만 채우면 화면이 나중에
+// 쓰기 시작한 메서드가 조용히 `undefined`가 되고, 그 호출은 대부분 `try` 안이라
+// TypeError가 catch로 들어가 "네트워크 실패"와 구별되지 않는다.
+vi.mock('./api', async () => ({ api: (await import('./test-api')).fakeApi() }));
 import { api } from './api';
 import { connectSessionSocket, type SessionSocket } from './socket';
 import type { CallServerMessage } from './contracts.gen';

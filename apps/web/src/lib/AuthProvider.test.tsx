@@ -19,29 +19,28 @@ import type { SessionUser, User } from './contracts.gen';
 // api를 mock해 /auth/me 응답 타이밍을 테스트가 제어한다. refreshSession은 선제 갱신
 // 타이머·wake가 부르지만 이 파일의 예약 지연(≥11분)은 테스트 중 발화하지 않는다 —
 // 그래도 호출돼도 안전하도록 성공 결과를 돌려준다.
-vi.mock('./api', () => ({
-  // provider가 "확정 401인지"를 이 타입으로 가린다 — mock에도 있어야 한다.
-  ApiError: class ApiError extends Error {
-    status: number;
-    code: string;
-    constructor(status: number, code: string) {
-      super(code);
-      this.status = status;
-      this.code = code;
-    }
-  },
-  api: {
-    me: vi.fn(),
-    logout: vi.fn(async () => undefined),
-    refreshSession: vi.fn(async () => ({
-      ok: true,
-      ttlMs: 15 * 60 * 1000,
-      rejected: false,
-    })),
-  },
-  // 확정 401을 알리는 고리 — provider가 마운트될 때 꽂고 언마운트에서 뗀다.
-  setSessionAuthority: vi.fn(),
-}));
+// api는 **완전한 가짜 한 벌** 위에 이 테스트가 정하는 것만 덮는다(lib/test-api.ts).
+// 일부만 채우면 provider가 나중에 쓰기 시작한 메서드가 조용히 `undefined`가 되고, 그
+// 호출은 대부분 `try` 안이라 TypeError가 catch로 들어가 "실패"와 구별되지 않는다.
+//
+// `ApiError`는 **진짜를 쓴다** — provider가 "확정 401인지"를 그 타입으로 가리는데,
+// 손으로 다시 지으면 진짜와 따로 흘러간다(생성자 인자 하나만 어긋나도 조용히 빗나간다).
+vi.mock('./api', async () => {
+  const actual = await vi.importActual<typeof import('./api')>('./api');
+  const api = (await import('./test-api')).fakeApi();
+  api.logout.mockResolvedValue(undefined);
+  api.refreshSession.mockResolvedValue({
+    ok: true,
+    ttlMs: 15 * 60 * 1000,
+    rejected: false,
+  });
+  return {
+    ...actual,
+    api,
+    // 확정 401을 알리는 고리 — provider가 마운트될 때 꽂고 언마운트에서 뗀다.
+    setSessionAuthority: vi.fn(),
+  };
+});
 import { api, setSessionAuthority, type SessionAuthority } from './api';
 
 const user: User = {
@@ -416,4 +415,5 @@ describe('AuthProvider 세션 종료 알림', () => {
     expect(result.current.state.status).toBe('authenticated');
     expect(result.current.endedUnexpectedly).toBe(false);
   });
+
 });

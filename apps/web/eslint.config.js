@@ -7,6 +7,19 @@ import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
   globalIgnores(['dist']),
+  // 서비스 워커는 Vite가 손대지 않고 복사하는 **classic 워커**다(public/). flat config에는
+  // `/* eslint-env */` 주석이 없으므로 워커 전역을 여기서 연다 — `firebase`는 compat SDK가
+  // importScripts로 심는 전역이다.
+  {
+    files: ['public/firebase-messaging-sw.js'],
+    extends: [js.configs.recommended],
+    languageOptions: {
+      globals: { ...globals.serviceworker, firebase: 'readonly' },
+    },
+    rules: {
+      'no-console': 'error',
+    },
+  },
   {
     files: ['**/*.{ts,tsx}'],
     extends: [

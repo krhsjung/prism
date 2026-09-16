@@ -10,16 +10,17 @@ import { lightTheme } from '../lib/theme/test-theme';
 import { OAUTH_MESSAGE_TYPE, type User } from '../lib/contracts.gen';
 
 // 소셜 시작은 브라우저 이동이라 api 모듈만 대체하고 실제 이동은 스텁으로 막는다.
-vi.mock('../lib/api', () => ({
+vi.mock('../lib/api', async () => ({
   API_ORIGIN: 'https://api.test',
   ApiError: class ApiError extends Error {
     status = 0;
     code = '';
   },
   api: {
+    ...(await import('../lib/test-api')).fakeApi(),
+    // 이 두 개만 이 테스트가 값을 정한다 — 나머지는 완전한 가짜가 채운다.
     socialLoginUrl: (provider: string, flow: string) =>
       `https://api.test/auth/${provider}?flow=${flow}`,
-    demoLogin: vi.fn(),
   },
 }));
 
