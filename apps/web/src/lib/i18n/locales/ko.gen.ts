@@ -29,6 +29,7 @@ export const messages: Messages = {
   'auth.try_the_demo': '데모 체험하기',
   'auth.connecting': '연결하는 중…',
   'auth.no_personal_data': '이 포트폴리오는 개인정보를 저장하지 않습니다.',
+  'auth.privacy_policy': '개인정보처리방침',
   // 소셜 로그인 redirect 착지 화면
   'auth.signing_you_in': '로그인하는 중…',
 
@@ -50,6 +51,11 @@ export const messages: Messages = {
   // 전체 로그아웃은 되돌릴 수 없다 — 누르기 전에 무엇이 끊기는지 적는다
   'dashboard.sign_out_all_confirm_title': '모든 기기에서 로그아웃할까요?',
   'dashboard.sign_out_all_confirm_body': '지금 이 세션을 포함해 모든 세션이 끊깁니다. 다시 로그인해야 합니다.',
+  // 계정 삭제(plan/auth.md §8). 사이드바 바닥에 있고 확인 창이 무엇을 잃는지 적는다
+  'dashboard.delete_account': '계정 삭제',
+  'dashboard.deleting_account': '삭제하는 중…',
+  'dashboard.delete_account_confirm_title': '계정을 삭제할까요?',
+  'dashboard.delete_account_confirm_body': '계정과 모든 세션이 지금 사라집니다. 되돌릴 수 없고, 다시 로그인하면 새 계정이 만들어집니다.',
   'dashboard.col_device': '기기',
   'dashboard.col_started': '시작',
   'dashboard.col_expires': '만료',
@@ -286,6 +292,7 @@ export const messages: Messages = {
   'error.logout_failed': '로그아웃하지 못했습니다. 아직 로그인된 상태입니다 — 연결을 확인하고 다시 시도해 주세요.',
   'error.sessions_load_failed': '세션을 불러오지 못했습니다. 연결을 확인하고 다시 시도해 주세요.',
   'error.revoke_failed': '해당 세션을 로그아웃하지 못했습니다. 다시 시도해 주세요.',
+  'error.delete_account_failed': '계정을 삭제하지 못했습니다. 아무것도 바뀌지 않았습니다 — 연결을 확인하고 다시 시도해 주세요.',
   // 스스로 로그아웃한 것이 아닌데 로그인 화면으로 온 경우. 서버는 폐기·만료·로그아웃을 한 코드(UNAUTHORIZED)로만 알려주므로 원인을 단정하지 않는다
   'error.session_ended': '세션이 종료되었습니다. 다시 로그인해 주세요.',
   // WebRTC — 계약의 오류 코드가 아니라 클라이언트가 만드는 문구

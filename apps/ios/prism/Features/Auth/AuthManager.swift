@@ -200,6 +200,44 @@ final class AuthManager: SessionAuthority {
         }
     }
 
+    /// 계정 삭제(plan/auth.md §8).
+    ///
+    /// 서버가 계정과 모든 세션을 지우면 **로그아웃과 끝 상태가 같다** — 그래서 성공한
+    /// 뒤에는 `signOut()`의 정리를 그대로 탄다(자격증명 폐기 · 푸시 토큰 반납 · signedOut).
+    ///
+    /// 로그아웃과 **다른 점 하나**: 여기서는 네트워크가 먼저다. 로그아웃은 실패해도 로컬을
+    /// 비우는 것이 맞지만(서버 세션은 언젠가 만료된다), 삭제는 서버가 지웠다는 답을 받기
+    /// 전에 로컬을 비우면 "지운 줄 알았는데 계정이 남아 있는" 상태가 된다. 실패하면 아무것도
+    /// 건드리지 않고 화면이 다시 시도할 수 있게 둔다.
+    ///
+    /// - Returns: 지웠으면 true. false면 세션은 그대로다.
+    @discardableResult
+    func deleteAccount() async -> Bool {
+        let token = beginAuthAction()
+        let gen = generation
+        defer { endAuthAction(token) }
+
+        let accessToken = keychain.load().credentials?.accessToken
+        do {
+            try await service.deleteAccount(accessToken: accessToken)
+        } catch {
+            Log.auth("delete account failed")
+            return false
+        }
+        guard gen == generation else { return true }
+
+        // 서버에는 이미 아무것도 없다 — 로컬 정리만 남았고, 그것은 로그아웃과 같다.
+        let revoked = keychain.revoke()
+        onSessionEnded()
+        if revoked || keychain.clear() {
+            forgetAccessToken()
+            state = .signedOut
+        } else {
+            Log.error("account deleted but local credentials could not be cleared")
+        }
+        return true
+    }
+
     // MARK: - 로그인
 
     /// 소셜·데모 로그인.

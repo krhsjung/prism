@@ -1,0 +1,304 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Prism 개인정보처리방침 · Privacy Policy</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="description" content="Prism 개인정보처리방침 — Privacy policy for the Prism app." />
+    <style>
+      /* 앱과 같은 토큰(apps/web/src/index.css)을 쓰되, SPA가 뜨지 않아도 읽히도록 인라인한다.
+         이 페이지는 스토어 심사자와 이용자가 보는 정적 문서이므로 자바스크립트가 없다. */
+      :root{--surface:#f5f8fc;--card:#fff;--border:#d4deec;--heading:#162338;--text:#3b4e68;--muted:#5f6f85;--accent:#4a78b8}
+      @media (prefers-color-scheme:dark){:root{--surface:#1a2436;--card:#243044;--border:#30425e;--heading:#fff;--text:#e5ecf7;--muted:#aab8cc;--accent:#7fa9de}}
+      *{box-sizing:border-box}
+      body{margin:0;background:var(--surface);color:var(--text);
+        font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Apple SD Gothic Neo","Noto Sans KR",sans-serif;
+        line-height:1.7;font-size:16px;-webkit-text-size-adjust:100%}
+      main{max-width:760px;margin:0 auto;padding:44px 20px 96px}
+      .brand{display:flex;align-items:center;gap:12px}
+      .brand img{width:40px;height:40px;border-radius:9px}
+      .brand span{font-size:22px;font-weight:700;color:var(--heading)}
+      h1{font-size:27px;line-height:1.35;color:var(--heading);margin:26px 0 6px}
+      h2{font-size:19px;color:var(--heading);margin:38px 0 8px;padding-top:20px;border-top:1px solid var(--border)}
+      p,li{margin:8px 0}
+      ul{padding-left:20px}
+      a{color:var(--accent)}
+      .meta{color:var(--muted);font-size:14px;margin:0}
+      .lede{font-size:17px}
+      .table-wrap{overflow-x:auto;margin:16px 0}
+      table{border-collapse:collapse;width:100%;font-size:15px;min-width:460px}
+      th,td{border:1px solid var(--border);padding:8px 10px;text-align:left;vertical-align:top}
+      th{background:var(--card);color:var(--heading);font-weight:600}
+      .switch{margin:26px 0 0;font-size:15px;color:var(--muted)}
+      footer{margin-top:52px;padding-top:20px;border-top:1px solid var(--border);color:var(--muted);font-size:14px}
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="brand">
+        <img src="/apple-touch-icon.png" alt="" />
+        <span>Prism</span>
+      </div>
+
+      <!-- ── 한국어 ────────────────────────────────────────────────────────── -->
+      <h1 id="ko">개인정보처리방침</h1>
+      <p class="meta">시행일: 2026년 9월 18일</p>
+      <p class="switch"><a href="#en">Read this in English</a></p>
+
+      <p class="lede">
+        Prism은 하나의 서버를 웹·iOS·Android 세 클라이언트로 구현해 비교해 보이는 개인
+        포트폴리오 앱입니다. 이 방침은 Prism이 무엇을 다루고 무엇을 다루지 않는지를 있는
+        그대로 적은 것입니다.
+      </p>
+
+      <h2>1. 저장하는 정보</h2>
+      <p>
+        Prism은 이름·이메일·프로필 사진을 <strong>데이터베이스에 저장하지 않습니다.</strong>
+        계정 레코드에 남는 것은 어느 제공자로 로그인했는지와 그 제공자가 준 식별자뿐입니다.
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>구분</th><th>내용</th><th>보관</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>계정 레코드</td>
+              <td>내부 식별자, 로그인 제공자 종류(Google·Apple·Kakao·데모), 그 제공자가 준 사용자 식별자, 생성·수정 시각</td>
+              <td>계정을 삭제할 때까지</td>
+            </tr>
+            <tr>
+              <td>세션</td>
+              <td>표시 이름, 로그인 제공자, 기기 종류(웹·iOS·Android 등으로 분류된 값), 시작·만료 시각, 표시 언어, 알림을 켠 경우 푸시 등록 토큰</td>
+              <td>로그아웃·해제·미사용 만료와 함께 삭제. 계속 써도 7일이 지나면 끝납니다</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        표시 이름은 <strong>세션에만</strong> 있습니다. 로그인할 때 제공자에게 받아 화면에
+        쓰고, 세션이 끝나면 함께 사라집니다. 데이터베이스와 그 백업에는 남지 않습니다.
+      </p>
+      <p>
+        기기 정보는 원문을 그대로 두지 않고 <strong>몇 갈래로 분류한 값</strong>만 남깁니다.
+        브라우저·기기의 상세 문자열은 저장하지 않습니다.
+      </p>
+
+      <h2>2. 수집하지 않는 정보</h2>
+      <ul>
+        <li>분석·통계 도구와 광고 식별자를 쓰지 않습니다. 세 클라이언트 어디에도 분석이나 크래시 수집 도구가 들어 있지 않습니다.</li>
+        <li>위치, 연락처, 사진첩, 파일을 읽지 않습니다.</li>
+        <li>광고를 싣지 않고, 어떤 정보도 판매하지 않습니다.</li>
+      </ul>
+      <p>
+        앱 서버는 <strong>IP 주소도 브라우저·기기의 상세 문자열도 기록하지 않습니다.</strong>
+        다만 그 앞에 선 웹 서버와 통화 중계 서버는 운영에 필요한 일반적인 접속 기록(접속 시각,
+        요청 경로, IP 주소)을 남깁니다. 이는 서버 운영과 장애 대응을 위한 것이며 이용자 계정과
+        연결해 분석하지 않습니다.
+      </p>
+
+      <h2>3. 영상 통화</h2>
+      <p>
+        통화의 영상과 음성은 두 기기 사이를 <strong>직접 오갑니다</strong>(P2P). 서버는
+        연결을 맺어 주는 신호만 주고받고 통화 내용은 지나가지 않으며,
+        <strong>녹화하거나 저장하지 않습니다.</strong>
+      </p>
+      <p>
+        방화벽 때문에 직접 연결이 되지 않을 때만 중계 서버가 끼어듭니다. 이때도 중계 서버는
+        암호화된 데이터를 전달할 뿐 내용을 열어 보지 않으며, 전달한 내용을 저장하지 않습니다.
+      </p>
+      <p>
+        다만 중계는 두 기기 사이에 서서 주고받는 일이라, 중계 서버는 <strong>양쪽 기기의 IP
+        주소를 보게 되고</strong> 연결 기록을 운영 로그에 남깁니다. 중계에 쓰는 접속 자격증명은
+        통화마다 새로 발급되고 정해진 시간이 지나면 만료됩니다.
+      </p>
+
+      <h2>4. 알림</h2>
+      <p>
+        알림은 Google의 Firebase Cloud Messaging을 통해 전달됩니다. 알림을 켜면 기기의 푸시
+        등록 토큰이 세션에 담기고, 알림을 보낼 때 토큰과 알림에 표시될 문구가 Google의 서버를
+        거칩니다. 알림을 끄거나 로그아웃하면 토큰은 세션과 함께 사라집니다.
+      </p>
+
+      <h2>5. 다른 서비스와의 연결</h2>
+      <p>Prism은 아래 서비스와만 정보를 주고받습니다. 각 서비스의 처리 방침은 해당 회사의 방침을 따릅니다.</p>
+      <ul>
+        <li><strong>Google</strong> — 로그인, 알림 전달(Firebase Cloud Messaging)</li>
+        <li><strong>Apple</strong> — 로그인</li>
+        <li><strong>Kakao</strong> — 로그인</li>
+      </ul>
+      <p>
+        로그인할 때 제공자에게서 받는 것은 그 제공자가 발급한 사용자 식별자와 표시 이름입니다.
+        <strong>이메일 주소는 요청하지도, 받지도 않습니다.</strong> 비밀번호는 Prism이 보거나
+        저장하지 않습니다.
+      </p>
+      <p>
+        웹에서 알림을 쓰면 브라우저가 Google의 콘텐츠 전송망에서 알림 처리용 스크립트를
+        내려받습니다. 이때 브라우저의 IP 주소가 Google에 전달됩니다.
+      </p>
+
+      <h2>6. 기기에 저장되는 것</h2>
+      <p>
+        로그인 상태를 유지하는 자격증명은 각 플랫폼의 보안 저장소에 둡니다. iOS는 키체인,
+        Android는 암호화된 저장소, 웹은 서버가 설정하는 세션 쿠키입니다. 표시 언어·테마 같은
+        화면 설정과, 계정이 바뀐 것을 알아채 알림 등록을 고치기 위한 내부 식별자도 기기에
+        남습니다. 로그아웃하면 자격증명은 지워집니다.
+      </p>
+
+      <h2>7. 이용자의 권리</h2>
+      <p>
+        기기 목록에서 원하는 세션을 직접 해제할 수 있고, 모두 로그아웃을 누르면 모든 기기의
+        세션이 사라집니다. 계정 레코드까지 삭제하고 싶으면 아래 주소로 알려 주세요. 확인 뒤
+        지우고 결과를 알려 드립니다.
+      </p>
+      <p>데모 로그인은 공용 체험 계정이라 개인을 식별할 정보가 처음부터 없습니다.</p>
+
+      <h2>8. 아동</h2>
+      <p>
+        Prism은 아동을 대상으로 하지 않으며, 아동의 개인정보를 의도적으로 수집하지 않습니다.
+      </p>
+
+      <h2>9. 방침 변경</h2>
+      <p>
+        내용이 바뀌면 이 페이지를 고치고 위의 시행일을 갱신합니다. 중요한 변경은 앱에서
+        알려 드립니다.
+      </p>
+
+      <h2>10. 문의</h2>
+      <p>개인정보 처리에 관한 문의는 <a href="mailto:kr.hs.jung@gmail.com">kr.hs.jung@gmail.com</a>으로 보내 주세요.</p>
+
+      <!-- ── English ───────────────────────────────────────────────────────── -->
+      <h1 id="en">Privacy Policy</h1>
+      <p class="meta">Effective 18 September 2026</p>
+      <p class="switch"><a href="#ko">한국어로 보기</a></p>
+
+      <p class="lede">
+        Prism is a personal portfolio app: one backend implemented across three clients
+        (web, iOS, Android) so the same feature can be compared on each platform. This
+        policy states plainly what Prism handles and what it does not.
+      </p>
+
+      <h2>1. What is stored</h2>
+      <p>
+        Prism does <strong>not store your name, email address or profile picture in its
+        database.</strong> The account record holds only which provider you signed in with
+        and the identifier that provider issued.
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Kind</th><th>Contents</th><th>Kept</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Account record</td>
+              <td>An internal identifier, the sign-in provider (Google, Apple, Kakao or demo), the user identifier that provider issued, and created/updated timestamps</td>
+              <td>Until the account is deleted</td>
+            </tr>
+            <tr>
+              <td>Session</td>
+              <td>Display name, sign-in provider, device kind (a coarse category such as web, iOS or Android), start and expiry times, display language, and a push registration token if notifications are on</td>
+              <td>Removed when you sign out, revoke it, or it goes idle; it ends after 7 days regardless of use</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        The display name lives <strong>only in the session</strong>. It comes from the
+        provider at sign-in, is used to render the screen, and disappears with the session.
+        It never reaches the database or its backups.
+      </p>
+      <p>
+        Device information is reduced to <strong>a coarse category</strong> rather than kept
+        verbatim. Detailed browser or device strings are not stored.
+      </p>
+
+      <h2>2. What is not collected</h2>
+      <ul>
+        <li>No analytics and no advertising identifiers. None of the three clients contain an analytics or crash-reporting SDK.</li>
+        <li>No location, contacts, photo library or file access.</li>
+        <li>No advertising, and nothing is ever sold.</li>
+      </ul>
+      <p>
+        The application server logs <strong>neither IP addresses nor detailed browser or
+        device strings.</strong> The web server in front of it and the call relay do keep
+        ordinary access logs (time, requested path, IP address) needed to operate them. These
+        are not analysed against user accounts.
+      </p>
+
+      <h2>3. Video calls</h2>
+      <p>
+        Call audio and video travel <strong>directly between the two devices</strong>
+        (peer-to-peer). The server exchanges only the signalling needed to set the call up;
+        call content does not pass through it and is <strong>never recorded or stored.</strong>
+      </p>
+      <p>
+        A relay server steps in only when a firewall prevents a direct connection. Even then
+        it forwards encrypted data without inspecting it, and keeps nothing it forwards.
+      </p>
+      <p>
+        Relaying does, however, mean standing between the two devices: the relay
+        <strong>sees both devices' IP addresses</strong> and records connection events in its
+        operational log. The credentials used to reach the relay are issued fresh for each
+        call and expire after a set period.
+      </p>
+
+      <h2>4. Notifications</h2>
+      <p>
+        Notifications are delivered through Google's Firebase Cloud Messaging. When you turn
+        notifications on, the device's push registration token is attached to your session;
+        sending a notification passes that token and the text to be displayed through Google's
+        servers. Turning notifications off or signing out removes the token with the session.
+      </p>
+
+      <h2>5. Other services</h2>
+      <p>Prism exchanges information with these services only. Each company's own policy governs what it does with it.</p>
+      <ul>
+        <li><strong>Google</strong> — sign-in and notification delivery (Firebase Cloud Messaging)</li>
+        <li><strong>Apple</strong> — sign-in</li>
+        <li><strong>Kakao</strong> — sign-in</li>
+      </ul>
+      <p>
+        What Prism receives from a provider at sign-in is the user identifier that provider
+        issued and a display name. <strong>Your email address is neither requested nor
+        received.</strong> Prism never sees or stores your password.
+      </p>
+      <p>
+        On the web, enabling notifications makes the browser fetch a notification script from
+        Google's content delivery network, which passes the browser's IP address to Google.
+      </p>
+
+      <h2>6. What stays on your device</h2>
+      <p>
+        The credentials that keep you signed in are held in each platform's secure storage:
+        the Keychain on iOS, encrypted storage on Android, and a server-set session cookie on
+        the web. Display preferences such as language and theme also stay on the device, along
+        with an internal identifier used to notice an account switch and fix the notification
+        registration. Signing out clears the credentials.
+      </p>
+
+      <h2>7. Your choices</h2>
+      <p>
+        You can revoke any session from the device list, and "sign out all" ends the session
+        on every device. To delete the account record itself, write to the address below; it
+        will be removed and you will be told when it is done.
+      </p>
+      <p>Demo sign-in uses a shared sample account, so there is nothing identifying to begin with.</p>
+
+      <h2>8. Children</h2>
+      <p>Prism is not directed at children and does not knowingly collect their personal information.</p>
+
+      <h2>9. Changes</h2>
+      <p>
+        If this policy changes, this page is updated and the effective date above is revised.
+        Significant changes are announced in the app.
+      </p>
+
+      <h2>10. Contact</h2>
+      <p>For questions about privacy, write to <a href="mailto:kr.hs.jung@gmail.com">kr.hs.jung@gmail.com</a>.</p>
+
+      <footer>Prism · 개인정보처리방침 / Privacy Policy</footer>
+    </main>
+  </body>
+</html>

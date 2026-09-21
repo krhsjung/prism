@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpException,
@@ -591,6 +592,31 @@ export class AuthController {
     @Res({ passthrough: true }) res: Response,
   ): Promise<void> {
     await this.auth.revokeAllSessions(req.user.id);
+    this.clearSessionCookies(res);
+  }
+
+  // 계정 삭제 — 계정과 그것이 가진 모든 세션이 함께 끝난다(plan/auth.md §8).
+  //
+  // ⚠️ 아래 `@Get(':provider')` 와일드카드보다 **먼저** 선언한다. 지금은 메서드가 달라
+  // 부딪히지 않지만, 경로 선언 순서에 기대는 이 컨트롤러의 규칙을 그대로 따른다.
+  //
+  // 현재 세션도 함께 사라지므로 쿠키를 정리한다 — 로그아웃과 같은 끝 상태다.
+  @Delete('account')
+  @HttpCode(204)
+  @UseGuards(WebOriginGuard, JwtAuthGuard)
+  async deleteAccount(
+    @Req() req: Request & { user: User },
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<void> {
+    // 데모는 모두가 함께 쓰는 시드 계정이라 한 사람이 지울 수 없다. 화면도 버튼을
+    // 감추지만 화면은 우회할 수 있으므로, 되돌릴 수 없는 이 일은 서버가 막는다.
+    if (req.user.provider === 'demo') {
+      throw new HttpException(
+        { error: AUTH_ERROR_CODES.ACCOUNT_DELETE_FORBIDDEN },
+        403,
+      );
+    }
+    await this.auth.deleteAccount(req.user.id);
     this.clearSessionCookies(res);
   }
 

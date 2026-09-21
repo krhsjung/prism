@@ -27,6 +27,8 @@ protocol AuthServicing: Sendable {
     ///   여기서 알리지 않으면 앱을 다시 연 것이 활동으로 계산되지 않는다.
     func refresh(refreshToken: String, activity: Bool) async throws -> AuthSession
     func logout(accessToken: String?) async throws
+    /// 계정을 삭제한다 — 계정과 그것이 가진 모든 세션이 함께 끝난다(plan/auth.md §8).
+    func deleteAccount(accessToken: String?) async throws
 }
 
 // 소셜 네이티브 로그인의 기본 구현 — 서버 경로가 없다고 가정하는 자리(주로 테스트 목).
@@ -128,6 +130,12 @@ final class AuthService: AuthServicing, Sendable {
     /// 서버 세션 폐기. 토큰이 이미 죽었어도 서버는 멱등하게 받아 준다.
     func logout(accessToken: String?) async throws {
         try await network.sendIgnoringResponse(.logout, accessToken: accessToken)
+    }
+
+    /// 계정 삭제(plan/auth.md §8) — 계정과 그것이 가진 모든 세션이 함께 끝난다.
+    /// 데모 계정이면 서버가 403(`ACCOUNT_DELETE_FORBIDDEN`)으로 거절한다.
+    func deleteAccount(accessToken: String?) async throws {
+        try await network.sendIgnoringResponse(.deleteAccount, accessToken: accessToken)
     }
 }
 

@@ -13,6 +13,7 @@ enum AuthErrorCode {
     static let pushUnavailable = "PUSH_UNAVAILABLE"
     static let conflict = "CONFLICT"
     static let invalidPushRequest = "INVALID_PUSH_REQUEST"
+    static let accountDeleteForbidden = "ACCOUNT_DELETE_FORBIDDEN"
 }
 
 /// 클라이언트(웹·모바일)가 로컬에서 만드는, 서버 계약에 등재된 코드.

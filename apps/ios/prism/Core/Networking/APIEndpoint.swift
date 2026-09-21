@@ -55,6 +55,13 @@ nonisolated enum APIConfiguration {
         return url
     }()
 
+    /// 개인정보처리방침 주소.
+    ///
+    /// **박지 않고 baseURL에서 유도한다.** 방침 페이지는 웹 앱과 같은 출처에서 서비스되므로
+    /// (`apps/web/public/privacy/index.html` → `/privacy`), 도메인이 바뀌면 이 값도 함께
+    /// 따라간다 — 세 클라이언트가 같은 규칙을 쓴다(plan/auth.md §3).
+    static let privacyPolicyURL: URL = baseURL.appending(path: "privacy")
+
     /// 요청 하나의 데드라인. 서버 무응답 시 로그인 화면이 무한 대기하지 않게 한다.
     static let requestTimeout: TimeInterval = 10
     /// 리소스 전체(재시도 포함)의 상한.
@@ -86,6 +93,9 @@ enum APIEndpoint {
     case revokeSession(id: String)
     /// 내 모든 세션을 폐기 — 현재 세션까지 포함한다.
     case revokeAllSessions
+    /// 계정 삭제(plan/auth.md §8) — 계정과 그것이 가진 모든 세션이 함께 끝난다.
+    /// 데모 계정이면 서버가 403(`ACCOUNT_DELETE_FORBIDDEN`)으로 거절한다.
+    case deleteAccount
     /// 내 기기**들**에 알림을 보낸다. **등록 토큰은 싣지 않는다** — 서버가 세션
     /// 레코드에서 꺼낸다(plan/push.md §5-3). 대상이 여럿이라 세션 하위 경로가 아니다.
     case sendPush
@@ -107,6 +117,7 @@ enum APIEndpoint {
         case .sessions: "/auth/sessions"
         case .revokeSession(let id): "/auth/sessions/\(id)/revoke"
         case .revokeAllSessions: "/auth/sessions/revoke-all"
+        case .deleteAccount: "/auth/account"
         case .sendPush: "/auth/push/send"
         case .registerPush: "/auth/push/register"
         case .unregisterPush: "/auth/push/unregister"
@@ -116,6 +127,7 @@ enum APIEndpoint {
     var method: String {
         switch self {
         case .me, .sessions: "GET"
+        case .deleteAccount: "DELETE"
         case .appleNative, .googleNative, .kakaoNative, .demoNative, .nativeExchange,
             .refresh, .logout, .revokeSession, .revokeAllSessions, .sendPush, .registerPush, .unregisterPush: "POST"
         }
@@ -126,7 +138,8 @@ enum APIEndpoint {
     /// 토큰을 실어야 한다.
     var requiresAuth: Bool {
         switch self {
-        case .me, .logout, .sessions, .revokeSession, .revokeAllSessions, .sendPush, .registerPush, .unregisterPush: true
+        case .me, .logout, .sessions, .revokeSession, .revokeAllSessions, .sendPush, .registerPush,
+            .unregisterPush, .deleteAccount: true
         case .appleNative, .googleNative, .kakaoNative, .demoNative, .nativeExchange,
             .refresh:
             false
@@ -140,7 +153,8 @@ enum APIEndpoint {
     /// 다시 들어가게 된다. 나머지는 토큰이 없어 되살릴 세션도 없다.
     var recoversSession: Bool {
         switch self {
-        case .sessions, .revokeSession, .revokeAllSessions, .sendPush, .registerPush, .unregisterPush: true
+        case .sessions, .revokeSession, .revokeAllSessions, .sendPush, .registerPush, .unregisterPush,
+            .deleteAccount: true
         case .me, .logout, .appleNative, .googleNative, .kakaoNative, .demoNative,
             .nativeExchange, .refresh:
             false

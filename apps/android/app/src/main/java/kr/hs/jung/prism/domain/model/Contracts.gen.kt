@@ -15,6 +15,7 @@ object AuthErrorCode {
     const val PUSH_UNAVAILABLE = "PUSH_UNAVAILABLE"
     const val CONFLICT = "CONFLICT"
     const val INVALID_PUSH_REQUEST = "INVALID_PUSH_REQUEST"
+    const val ACCOUNT_DELETE_FORBIDDEN = "ACCOUNT_DELETE_FORBIDDEN"
 }
 
 /** 클라이언트(웹·모바일)가 로컬에서 만드는, 서버 계약에 등재된 코드. */

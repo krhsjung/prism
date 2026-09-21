@@ -26,6 +26,10 @@ enum class PrismButtonVariant {
      *  인라인 액션이 쓴다 — 행마다 판이 깔리면 목록이 버튼밭이 된다. */
     GHOST,
     KAKAO,
+
+    /** 되돌릴 수 없는 동작(계정 삭제). SECONDARY와 **같은 무게**의 소프트 필이고 색으로만
+     *  가른다 — 빨간 덩어리가 카드를 지배하면 카드 전체가 경고처럼 읽힌다(plan/auth.md §8-1). */
+    DESTRUCTIVE,
 }
 
 /**
@@ -75,6 +79,10 @@ fun PrismButton(
         PrismButtonVariant.KAKAO -> {
             background = colors.kakao
             foreground = colors.kakaoForeground
+        }
+        PrismButtonVariant.DESTRUCTIVE -> {
+            background = colors.errorBackground
+            foreground = colors.error
         }
     }
 

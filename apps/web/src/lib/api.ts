@@ -371,6 +371,12 @@ export const api = {
   // 내 모든 세션 폐기(현재 세션 포함) — 이후 쿠키는 무효가 된다.
   revokeAllSessions: () =>
     requestEmpty('/auth/sessions/revoke-all', { method: 'POST' }),
+  // 계정 삭제(plan/auth.md §8) — 계정과 모든 세션이 함께 끝난다. 되돌릴 수 없다.
+  // 데모 계정이면 서버가 403(ACCOUNT_DELETE_FORBIDDEN)으로 거절한다.
+  deleteAccount: () =>
+    requestEmpty('/auth/account', { method: 'DELETE' }).finally(
+      forgetAccessToken,
+    ),
   // 이 세션을 대상에서 뺀다 — 푸시 화면의 `알림 끄기`(§5-15).
   // **권한을 되돌리는 것이 아니다**: 브라우저는 앱이 권한을 끄는 길을 주지 않는다.
   unregisterPush: () =>

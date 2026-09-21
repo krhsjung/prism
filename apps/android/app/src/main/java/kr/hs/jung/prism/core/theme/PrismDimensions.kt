@@ -30,6 +30,16 @@ object PrismDimensions {
     val fontTitle = 28.sp
     val fontBody = 14.sp
 
+    // 바닥에 떠서 스스로 사라지는 알림(시안 `Molecule/Toast`).
+    val toastHorizontalPadding = 18.dp
+    val toastVerticalPadding = 14.dp
+    val toastCornerRadius = 10.dp
+    val toastElevation = 8.dp
+    /** 화면 가장자리와의 간격 — 좁은 폭에서 글이 테두리에 붙지 않게 한다. */
+    val toastScreenInset = 16.dp
+    val toastBottomInset = 24.dp
+    val toastMaxWidth = 420.dp
+
     // 로그인 화면 껍데기.
     val cardMaxWidth = 440.dp
     val screenHorizontalPadding = 24.dp

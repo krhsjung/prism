@@ -18,6 +18,7 @@ auth,continue_with_kakao,Continue with Kakao,카카오로 계속하기,Kakao で
 auth,try_the_demo,Try the demo,데모 체험하기,デモを試す
 auth,connecting,Connecting…,연결하는 중…,接続しています…
 auth,no_personal_data,This portfolio stores no personal data.,이 포트폴리오는 개인정보를 저장하지 않습니다.,このポートフォリオは個人情報を保存しません。
+auth,privacy_policy,Privacy policy,개인정보처리방침,プライバシーポリシー
 auth,# 소셜 로그인 redirect 착지 화면,,,
 auth,signing_you_in,Signing you in…,로그인하는 중…,サインインしています…
 dashboard,# 대시보드,,,
@@ -37,6 +38,11 @@ dashboard,signing_out_all,Signing out…,로그아웃하는 중…,サインア�
 dashboard,# 전체 로그아웃은 되돌릴 수 없다 — 누르기 전에 무엇이 끊기는지 적는다,,,
 dashboard,sign_out_all_confirm_title,Sign out of all devices?,모든 기기에서 로그아웃할까요?,すべての端末からサインアウトしますか？
 dashboard,sign_out_all_confirm_body,"Every session ends, including this one. You’ll need to sign in again.",지금 이 세션을 포함해 모든 세션이 끊깁니다. 다시 로그인해야 합니다.,このセッションを含むすべてのセッションが終了します。もう一度サインインが必要です。
+dashboard,# 계정 삭제(plan/auth.md §8). 사이드바 바닥에 있고 확인 창이 무엇을 잃는지 적는다,,,
+dashboard,delete_account,Delete account,계정 삭제,アカウントを削除
+dashboard,deleting_account,Deleting…,삭제하는 중…,削除しています…
+dashboard,delete_account_confirm_title,Delete your account?,계정을 삭제할까요?,アカウントを削除しますか？
+dashboard,delete_account_confirm_body,Your account and every session end now. This cannot be undone. Signing in again creates a new account.,"계정과 모든 세션이 지금 사라집니다. 되돌릴 수 없고, 다시 로그인하면 새 계정이 만들어집니다.",アカウントとすべてのセッションが今すぐ消えます。元に戻せず、もう一度サインインすると新しいアカウントが作成されます。
 dashboard,col_device,Device,기기,デバイス
 dashboard,col_started,Started,시작,開始
 dashboard,col_expires,Expires,만료,有効期限
@@ -267,6 +273,7 @@ error,provider_unavailable,That sign-in method isn’t available in this app yet
 error,logout_failed,Couldn’t log you out. You’re still signed in — check your connection and try again.,로그아웃하지 못했습니다. 아직 로그인된 상태입니다 — 연결을 확인하고 다시 시도해 주세요.,ログアウトできませんでした。まだサインインしたままです — 接続を確認してもう一度お試しください。
 error,sessions_load_failed,Couldn’t load your sessions. Check your connection and try again.,세션을 불러오지 못했습니다. 연결을 확인하고 다시 시도해 주세요.,セッションを読み込めませんでした。接続を確認してもう一度お試しください。
 error,revoke_failed,Couldn’t sign out that session. Try again.,해당 세션을 로그아웃하지 못했습니다. 다시 시도해 주세요.,そのセッションをサインアウトできませんでした。もう一度お試しください。
+error,delete_account_failed,Couldn’t delete your account. Nothing was changed — check your connection and try again.,계정을 삭제하지 못했습니다. 아무것도 바뀌지 않았습니다 — 연결을 확인하고 다시 시도해 주세요.,アカウントを削除できませんでした。何も変更されていません — 接続を確認してもう一度お試しください。
 error,"# 스스로 로그아웃한 것이 아닌데 로그인 화면으로 온 경우. 서버는 폐기·만료·로그아웃을 한 코드(UNAUTHORIZED)로만 알려주므로 원인을 단정하지 않는다",,,
 error,session_ended,Your session has ended. Please sign in again.,세션이 종료되었습니다. 다시 로그인해 주세요.,セッションが終了しました。もう一度サインインしてください。
 error,# WebRTC — 계약의 오류 코드가 아니라 클라이언트가 만드는 문구,,,

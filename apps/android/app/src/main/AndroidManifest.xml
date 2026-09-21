@@ -45,13 +45,19 @@
         <!-- 알림을 눌러 들어오는 경로가 여기다. **singleTop**이라야 앱이 이미 떠 있을 때
              새 인스턴스를 쌓지 않고 `onNewIntent`로 배달된다 — 통화 알림은 앱이 열려
              있는 동안에도 온다(다른 화면을 보고 있을 때). -->
+        <!-- 세로 고정. 화면들이 세로 한 벌로만 설계돼 있어(Figma) 가로로 돌면 통화·대시보드
+             레이아웃이 깨진다. 투명한 WebAuthActivity에는 걸지 않는다 — Android 8.0은
+             불투명하지 않은 액티비티의 orientation 지정을 예외로 거부한다. Android 16+는
+             큰 화면(태블릿·펼친 폴더블)에서 이 값을 무시하므로 거기서는 회전이 남는다. -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
             android:label="@string/app_name"
             android:launchMode="singleTop"
+            android:screenOrientation="portrait"
             android:theme="@style/Theme.Android"
-            android:windowSoftInputMode="adjustResize">
+            android:windowSoftInputMode="adjustResize"
+            tools:ignore="LockedOrientationActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
 

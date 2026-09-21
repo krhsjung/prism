@@ -19,6 +19,12 @@
     <!-- 전체 로그아웃은 되돌릴 수 없다 — 누르기 전에 무엇이 끊기는지 적는다 -->
     <string name="dashboard_sign_out_all_confirm_title">모든 기기에서 로그아웃할까요?</string>
     <string name="dashboard_sign_out_all_confirm_body">지금 이 세션을 포함해 모든 세션이 끊깁니다. 다시 로그인해야 합니다.</string>
+
+    <!-- 계정 삭제(plan/auth.md §8). 사이드바 바닥에 있고 확인 창이 무엇을 잃는지 적는다 -->
+    <string name="dashboard_delete_account">계정 삭제</string>
+    <string name="dashboard_deleting_account">삭제하는 중…</string>
+    <string name="dashboard_delete_account_confirm_title">계정을 삭제할까요?</string>
+    <string name="dashboard_delete_account_confirm_body">계정과 모든 세션이 지금 사라집니다. 되돌릴 수 없고, 다시 로그인하면 새 계정이 만들어집니다.</string>
     <string name="dashboard_col_device">기기</string>
     <string name="dashboard_col_started">시작</string>
     <string name="dashboard_col_expires">만료</string>

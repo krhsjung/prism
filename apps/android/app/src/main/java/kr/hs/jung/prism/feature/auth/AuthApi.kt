@@ -49,6 +49,10 @@ interface NativeAuthApi {
     /** Bearer 세션 로그아웃(최선 노력). 이후 토큰은 로컬에서 폐기한다. */
     suspend fun logoutBearer(accessToken: String)
 
+    /** 계정 삭제(plan/auth.md §8) — 계정과 그것이 가진 모든 세션이 함께 끝난다.
+     *  데모 계정이면 서버가 403(`ACCOUNT_DELETE_FORBIDDEN`)으로 거절한다. */
+    suspend fun deleteAccount(accessToken: String)
+
     /** 미설정(SDK/서버 경로 없음)일 때의 기본 — 네이티브 경로를 막는다. */
     object Unavailable : NativeAuthApi {
         override suspend fun googleNative(idToken: String) =
@@ -62,6 +66,8 @@ interface NativeAuthApi {
         override suspend fun meBearer(accessToken: String) =
             throw kr.hs.jung.prism.core.network.ApiError.providerUnavailable
         override suspend fun refreshBearer(refreshToken: String, activity: Boolean) =
+            throw kr.hs.jung.prism.core.network.ApiError.providerUnavailable
+        override suspend fun deleteAccount(accessToken: String) =
             throw kr.hs.jung.prism.core.network.ApiError.providerUnavailable
         override suspend fun logoutBearer(accessToken: String) =
             throw kr.hs.jung.prism.core.network.ApiError.providerUnavailable
@@ -129,6 +135,10 @@ class HttpAuthApi(private val client: ApiClient) : NativeAuthApi {
             accessToken = accessToken,
             recoverSession = false,
         )
+    }
+
+    override suspend fun deleteAccount(accessToken: String) {
+        client.requestIgnoringBody("DELETE", "/auth/account", accessToken = accessToken)
     }
 
     /** 단일 필드 JSON body. org.json으로 안전하게 이스케이프한다(수동 문자열 조합 금지). */

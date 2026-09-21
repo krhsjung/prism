@@ -20,6 +20,8 @@ struct DashboardView: View {
 
     let user: User
     let onSignOut: () async -> Void
+    /// 계정 삭제(plan/auth.md §8). 셸의 드로어가 부른다.
+    let onDeleteAccount: () async -> Bool
     /// 세션 소켓. 여기서 쓰는 것은 **"붙어 있다"뿐이다** — 목록을 다시 가져오는 일은
     /// `RootView`가 세션 전체를 대신해 한 자리에서 한다.
     let socket: SessionSocket
@@ -39,9 +41,11 @@ struct DashboardView: View {
         socket: SessionSocket,
         onNavigate: @escaping (ShellPage) -> Void,
         onSignOut: @escaping () async -> Void,
+        onDeleteAccount: @escaping () async -> Bool,
     ) {
         self.user = user
         self.onSignOut = onSignOut
+        self.onDeleteAccount = onDeleteAccount
         self.socket = socket
         self.store = store
         self.onNavigate = onNavigate
@@ -88,6 +92,7 @@ struct DashboardView: View {
             user: user,
             onNavigate: onNavigate,
             onSignOut: onSignOut,
+            onDeleteAccount: onDeleteAccount,
         ) {
             ScrollView {
                 sessionsCard

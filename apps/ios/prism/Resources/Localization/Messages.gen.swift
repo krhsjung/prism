@@ -42,6 +42,7 @@ enum MessageKey: String, CaseIterable, Sendable {
     case authTryTheDemo = "auth.try_the_demo"
     case authConnecting = "auth.connecting"
     case authNoPersonalData = "auth.no_personal_data"
+    case authPrivacyPolicy = "auth.privacy_policy"
     case authSigningYouIn = "auth.signing_you_in"
     // Dashboard
     case dashboardTitle = "dashboard.title"
@@ -59,6 +60,10 @@ enum MessageKey: String, CaseIterable, Sendable {
     case dashboardSigningOutAll = "dashboard.signing_out_all"
     case dashboardSignOutAllConfirmTitle = "dashboard.sign_out_all_confirm_title"
     case dashboardSignOutAllConfirmBody = "dashboard.sign_out_all_confirm_body"
+    case dashboardDeleteAccount = "dashboard.delete_account"
+    case dashboardDeletingAccount = "dashboard.deleting_account"
+    case dashboardDeleteAccountConfirmTitle = "dashboard.delete_account_confirm_title"
+    case dashboardDeleteAccountConfirmBody = "dashboard.delete_account_confirm_body"
     case dashboardColDevice = "dashboard.col_device"
     case dashboardColStarted = "dashboard.col_started"
     case dashboardColExpires = "dashboard.col_expires"
@@ -234,6 +239,7 @@ enum MessageKey: String, CaseIterable, Sendable {
     case errorLogoutFailed = "error.logout_failed"
     case errorSessionsLoadFailed = "error.sessions_load_failed"
     case errorRevokeFailed = "error.revoke_failed"
+    case errorDeleteAccountFailed = "error.delete_account_failed"
     case errorSessionEnded = "error.session_ended"
     case errorCameraPermissionDenied = "error.camera_permission_denied"
     case errorCameraInUse = "error.camera_in_use"
@@ -267,6 +273,7 @@ enum MessageKey: String, CaseIterable, Sendable {
              .authTryTheDemo,
              .authConnecting,
              .authNoPersonalData,
+             .authPrivacyPolicy,
              .authSigningYouIn:
             "Auth"
         case .dashboardTitle,
@@ -284,6 +291,10 @@ enum MessageKey: String, CaseIterable, Sendable {
              .dashboardSigningOutAll,
              .dashboardSignOutAllConfirmTitle,
              .dashboardSignOutAllConfirmBody,
+             .dashboardDeleteAccount,
+             .dashboardDeletingAccount,
+             .dashboardDeleteAccountConfirmTitle,
+             .dashboardDeleteAccountConfirmBody,
              .dashboardColDevice,
              .dashboardColStarted,
              .dashboardColExpires,
@@ -459,6 +470,7 @@ enum MessageKey: String, CaseIterable, Sendable {
              .errorLogoutFailed,
              .errorSessionsLoadFailed,
              .errorRevokeFailed,
+             .errorDeleteAccountFailed,
              .errorSessionEnded,
              .errorCameraPermissionDenied,
              .errorCameraInUse,

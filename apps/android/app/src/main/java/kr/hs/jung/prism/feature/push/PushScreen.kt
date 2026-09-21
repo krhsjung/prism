@@ -29,6 +29,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -43,7 +44,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.core.app.ActivityCompat
-import androidx.compose.runtime.LaunchedEffect
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -70,6 +70,7 @@ import kr.hs.jung.prism.domain.model.SessionListItem
 import kr.hs.jung.prism.domain.model.User
 import kr.hs.jung.prism.feature.dashboard.deviceLabel
 import kr.hs.jung.prism.ui.AppShell
+import kr.hs.jung.prism.ui.DEMO_PROVIDER
 import kr.hs.jung.prism.ui.ShellPage
 import kr.hs.jung.prism.ui.component.DeviceRow
 import kr.hs.jung.prism.ui.component.PrismBadge
@@ -108,6 +109,8 @@ fun PushScreen(
     drawerState: DrawerState,
     onNavigate: (ShellPage) -> Unit,
     onSignOut: () -> Unit,
+    /** 계정 삭제(plan/auth.md §8). 셸의 드로어가 부른다. */
+    onDeleteAccount: suspend () -> Boolean,
 ) {
     val viewModel: PushViewModel = viewModel(
         factory = viewModelFactory {
@@ -158,6 +161,8 @@ fun PushScreen(
         drawerState = drawerState,
         onNavigate = onNavigate,
         onSignOut = onSignOut,
+        onDeleteAccount = onDeleteAccount,
+        canDeleteAccount = user.provider != DEMO_PROVIDER,
     ) {
         Column(
             modifier = Modifier

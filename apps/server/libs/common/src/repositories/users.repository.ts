@@ -42,4 +42,19 @@ export class UsersRepository {
       createdAt: row.created_at.toISOString(),
     };
   }
+
+  // 계정 삭제(plan/auth.md §8). 행을 통째로 지운다 — soft delete 컬럼을 두지 않는다:
+  // "지웠다"고 말하면서 어딘가 남겨 두는 것은 그 말과 어긋난다.
+  //
+  // 세션은 Redis에 있어 이 삭제가 연쇄하지 않는다(FK가 없다). 세션은 호출부가
+  // 먼저 지운다 — AuthService.deleteAccount가 순서를 쥔다.
+  //
+  // 이미 없는 id면 false. 같은 요청이 두 번 와도 두 번째는 조용히 false다.
+  async deleteById(userId: string): Promise<boolean> {
+    const { rowCount } = await this.db.query(
+      `DELETE FROM core.users WHERE id = $1`,
+      [userId],
+    );
+    return (rowCount ?? 0) > 0;
+  }
 }

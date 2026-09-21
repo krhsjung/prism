@@ -33,6 +33,8 @@ struct PushView: View {
     let accessToken: () -> String?
     let onNavigate: (ShellPage) -> Void
     let onSignOut: () async -> Void
+    /// 계정 삭제(plan/auth.md §8). 셸의 드로어가 부른다.
+    let onDeleteAccount: () async -> Bool
 
     /// 고른 대상들. **여럿 고를 수 있다**(plan/push.md §5-10).
     ///
@@ -116,7 +118,13 @@ struct PushView: View {
     }
 
     var body: some View {
-        AppShellView(page: .push, user: user, onNavigate: onNavigate, onSignOut: onSignOut) {
+        AppShellView(
+            page: .push,
+            user: user,
+            onNavigate: onNavigate,
+            onSignOut: onSignOut,
+            onDeleteAccount: onDeleteAccount,
+        ) {
             ScrollView {
                 pushCard
                     .padding(.horizontal, AppDimension.Dashboard.horizontalPadding)

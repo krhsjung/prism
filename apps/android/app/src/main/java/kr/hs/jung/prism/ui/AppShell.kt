@@ -24,7 +24,11 @@ import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -42,6 +46,8 @@ import kr.hs.jung.prism.ui.component.PreferenceControlsPlacement
 import kr.hs.jung.prism.ui.component.PrismAvatar
 import kr.hs.jung.prism.ui.component.PrismButton
 import kr.hs.jung.prism.ui.component.PrismButtonVariant
+import kr.hs.jung.prism.ui.component.PrismConfirmDialog
+import kr.hs.jung.prism.ui.component.PrismToast
 
 /** 셸이 아는 페이지. 라우트가 늘면 여기가 먼저 걸린다. */
 enum class ShellPage(@param:StringRes val title: Int) {
@@ -74,10 +80,25 @@ fun AppShell(
     drawerState: DrawerState,
     onNavigate: (ShellPage) -> Unit,
     onSignOut: () -> Unit,
+    /** 계정 삭제(plan/auth.md §8). 성공하면 세션이 끝나 이 셸이 사라진다.
+     *  false면 실패다 — 화면이 다시 시도할 수 있게 되살린다. */
+    onDeleteAccount: suspend () -> Boolean,
+    /** 데모 계정은 모두가 함께 쓰는 시드라 지울 수 없다 — 항목 자체를 감춘다. */
+    canDeleteAccount: Boolean,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val colors = PrismTheme.colors
     val scope = rememberCoroutineScope()
+
+    // 계정 삭제는 로그아웃보다 더 되돌릴 수 없다 — 드로어에서 바로 실행하지 않고 되묻는다.
+
+    var confirmingDelete by remember { mutableStateOf(false) }
+
+    var deletingAccount by remember { mutableStateOf(false) }
+    var deleteFailed by remember { mutableStateOf(false) }
+
+    val deleteScope = rememberCoroutineScope()
+
 
     ModalNavigationDrawer(
         drawerState = drawerState,
@@ -99,6 +120,9 @@ fun AppShell(
                     }
                 },
                 onSignOut = onSignOut,
+                onDeleteAccount = { confirmingDelete = true },
+                canDeleteAccount = canDeleteAccount,
+                deleting = deletingAccount,
             )
         },
     ) {
@@ -116,6 +140,34 @@ fun AppShell(
             )
             content()
         }
+    }
+
+    if (confirmingDelete) {
+        PrismConfirmDialog(
+            title = stringResource(R.string.dashboard_delete_account_confirm_title),
+            message = stringResource(R.string.dashboard_delete_account_confirm_body),
+            confirmText = stringResource(R.string.dashboard_delete_account),
+            cancelText = stringResource(R.string.common_cancel),
+            busy = deletingAccount,
+            onConfirm = {
+                confirmingDelete = false
+                deleteScope.launch {
+                    deletingAccount = true
+                    // 성공하면 세션이 끝나 이 셸이 사라진다. 실패는 바닥에 잠깐 떠서
+                    // 말한다 — 드로어에 펼치면 항목들이 밀려난다.
+                    deleteFailed = !onDeleteAccount()
+                    deletingAccount = false
+                }
+            },
+            onCancel = { confirmingDelete = false },
+        )
+    }
+
+    if (deleteFailed) {
+        PrismToast(
+            message = stringResource(R.string.error_delete_account_failed),
+            onDismiss = { deleteFailed = false },
+        )
     }
 }
 
@@ -154,6 +206,7 @@ private fun TopBar(userName: String, onOpenMenu: () -> Unit) {
         }
     }
     HorizontalDivider(color = colors.border)
+
 }
 
 /**
@@ -167,6 +220,9 @@ private fun DrawerContent(
     localeStore: LocaleStore,
     onNavigate: (ShellPage) -> Unit,
     onSignOut: () -> Unit,
+    onDeleteAccount: () -> Unit,
+    canDeleteAccount: Boolean,
+    deleting: Boolean,
 ) {
     val colors = PrismTheme.colors
     ModalDrawerSheet(
@@ -203,9 +259,27 @@ private fun DrawerContent(
                 onClick = onSignOut,
                 modifier = Modifier.fillMaxWidth(),
             )
+            // 계정 삭제는 **모든 것의 끝**이라 로그아웃 다음이다(plan/auth.md §8-1).
+            // 바로 실행하지 않고 확인 창이 한 번 더 묻는다.
+            if (canDeleteAccount) {
+                PrismButton(
+                    text = stringResource(
+                        if (deleting) R.string.dashboard_deleting_account
+                        else R.string.dashboard_delete_account,
+                    ),
+                    variant = PrismButtonVariant.DESTRUCTIVE,
+                    onClick = onDeleteAccount,
+                    enabled = !deleting,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
         }
     }
+
 }
+
+/** 데모 계정의 provider 값(서버 계약). `User.provider`는 도메인 enum이 아니라 와이어 문자열이다. */
+const val DEMO_PROVIDER = "demo"
 
 /** 시안 `Atom/NavItem` — 활성은 soft blue 배경. */
 @Composable

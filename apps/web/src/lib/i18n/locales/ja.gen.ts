@@ -29,6 +29,7 @@ export const messages: Messages = {
   'auth.try_the_demo': 'デモを試す',
   'auth.connecting': '接続しています…',
   'auth.no_personal_data': 'このポートフォリオは個人情報を保存しません。',
+  'auth.privacy_policy': 'プライバシーポリシー',
   // 소셜 로그인 redirect 착지 화면
   'auth.signing_you_in': 'サインインしています…',
 
@@ -50,6 +51,11 @@ export const messages: Messages = {
   // 전체 로그아웃은 되돌릴 수 없다 — 누르기 전에 무엇이 끊기는지 적는다
   'dashboard.sign_out_all_confirm_title': 'すべての端末からサインアウトしますか？',
   'dashboard.sign_out_all_confirm_body': 'このセッションを含むすべてのセッションが終了します。もう一度サインインが必要です。',
+  // 계정 삭제(plan/auth.md §8). 사이드바 바닥에 있고 확인 창이 무엇을 잃는지 적는다
+  'dashboard.delete_account': 'アカウントを削除',
+  'dashboard.deleting_account': '削除しています…',
+  'dashboard.delete_account_confirm_title': 'アカウントを削除しますか？',
+  'dashboard.delete_account_confirm_body': 'アカウントとすべてのセッションが今すぐ消えます。元に戻せず、もう一度サインインすると新しいアカウントが作成されます。',
   'dashboard.col_device': 'デバイス',
   'dashboard.col_started': '開始',
   'dashboard.col_expires': '有効期限',
@@ -286,6 +292,7 @@ export const messages: Messages = {
   'error.logout_failed': 'ログアウトできませんでした。まだサインインしたままです — 接続を確認してもう一度お試しください。',
   'error.sessions_load_failed': 'セッションを読み込めませんでした。接続を確認してもう一度お試しください。',
   'error.revoke_failed': 'そのセッションをサインアウトできませんでした。もう一度お試しください。',
+  'error.delete_account_failed': 'アカウントを削除できませんでした。何も変更されていません — 接続を確認してもう一度お試しください。',
   // 스스로 로그아웃한 것이 아닌데 로그인 화면으로 온 경우. 서버는 폐기·만료·로그아웃을 한 코드(UNAUTHORIZED)로만 알려주므로 원인을 단정하지 않는다
   'error.session_ended': 'セッションが終了しました。もう一度サインインしてください。',
   // WebRTC — 계약의 오류 코드가 아니라 클라이언트가 만드는 문구

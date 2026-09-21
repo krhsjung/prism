@@ -200,7 +200,20 @@ export function LoginPage() {
 
         {/* 알림 권한은 여기서 묻지 않는다 — 로그인은 로그인만 하고, 권한과 등록은 푸시
             화면의 `알림 켜기`가 함께 끝낸다(plan/push.md §5-2). */}
-        <p className="card__note">{t('auth.no_personal_data')}</p>
+        {/* 개인정보처리방침은 **로그인 전에** 닿아야 한다(plan/auth.md §3) — 스토어가
+            요구하는 항목이고, 계정을 만들기 전에 읽을 수 있어야 한다. 주소는 박지 않는다:
+            방침 페이지는 웹 앱과 같은 출처에 있으므로 상대 경로면 충분하다. */}
+        <p className="card__note">
+          {t('auth.no_personal_data')}
+          <a
+            className="card__note-link"
+            href="/privacy"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            {t('auth.privacy_policy')}
+          </a>
+        </p>
       </section>
 
       <div className="auth__prefs">

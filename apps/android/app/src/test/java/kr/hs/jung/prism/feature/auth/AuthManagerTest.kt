@@ -100,6 +100,13 @@ class AuthManagerTest {
             logoutGate?.await()
             logoutThrows?.let { throw it }
         }
+
+        var deleteAccountFails = false
+        var deleteAccountCalls = 0
+        override suspend fun deleteAccount(accessToken: String) {
+            deleteAccountCalls++
+            if (deleteAccountFails) throw ApiError.network
+        }
     }
 
     /** 미리 정한 코드/오류를 돌려주는 가짜 웹 인증(Activity 없이 redirect 로직을 검증). */

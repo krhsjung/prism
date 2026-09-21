@@ -42,10 +42,17 @@ struct AppShellView<Content: View>: View {
     let user: User
     let onNavigate: (ShellPage) -> Void
     let onSignOut: () async -> Void
+    /// 계정 삭제(plan/auth.md §8). 성공하면 세션이 끝나 이 뷰가 사라진다.
+    /// 반환값이 false면 실패다 — 화면이 다시 시도할 수 있게 되살린다.
+    let onDeleteAccount: () async -> Bool
+
     @ViewBuilder let content: Content
 
     @State private var isDrawerOpen = false
     @State private var isSigningOut = false
+    @State private var isConfirmingDelete = false
+    @State private var isDeletingAccount = false
+    @State private var deleteFailed = false
 
     var body: some View {
         ZStack(alignment: .leading) {
@@ -72,6 +79,34 @@ struct AppShellView<Content: View>: View {
             }
         }
         .animation(.easeOut(duration: 0.25), value: isDrawerOpen)
+        // 확인 창은 드로어 **위**에 뜬다 — 드로어 안에 두면 스크림이 창까지 덮는다.
+        .overlay {
+            if isConfirmingDelete {
+                PrismConfirmDialog(
+                    title: t(.dashboardDeleteAccountConfirmTitle),
+                    message: t(.dashboardDeleteAccountConfirmBody),
+                    confirmTitle: t(.dashboardDeleteAccount),
+                    cancelTitle: t(.commonCancel),
+                    isBusy: isDeletingAccount,
+                ) {
+                    isConfirmingDelete = false
+                    Task {
+                        isDeletingAccount = true
+                        // 성공하면 세션이 끝나 이 뷰가 사라진다. 실패면 돌아와 되살린다.
+                        // 실패는 바닥에 잠깐 떠서 말한다 — 드로어에 펼치면 항목들이 밀려난다.
+                        deleteFailed = await onDeleteAccount() == false
+                        isDeletingAccount = false
+                    }
+                } onCancel: {
+                    isConfirmingDelete = false
+                }
+            }
+        }
+        .overlay {
+            if deleteFailed {
+                PrismToast(message: t(.errorDeleteAccountFailed)) { deleteFailed = false }
+            }
+        }
     }
 
     /// 시안 `MobileTopBar` — 워드마크 · 아바타 · 햄버거. 페이지 이름은 드로어가 말한다.
@@ -144,6 +179,18 @@ struct AppShellView<Content: View>: View {
                     // 여기로 돌아와 버튼을 되살린다(재시도 가능).
                     await onSignOut()
                     isSigningOut = false
+                }
+            }
+            // 계정 삭제는 **모든 것의 끝**이라 로그아웃 다음이다(plan/auth.md §8-1).
+            // 바로 실행하지 않고 확인 창이 한 번 더 묻는다.
+            // 데모는 모두가 함께 쓰는 시드 계정이라 지울 수 없다 — 항목 자체를 감춘다.
+            if user.provider != .demo {
+                PrismButton(
+                    title: t(isDeletingAccount ? .dashboardDeletingAccount : .dashboardDeleteAccount),
+                    variant: .destructive,
+                    isEnabled: !isDeletingAccount,
+                ) {
+                    isConfirmingDelete = true
                 }
             }
         }

@@ -33,6 +33,7 @@ export function fakeApi() {
     sessions: vi.fn<Api['sessions']>(),
     revokeSession: vi.fn<Api['revokeSession']>(),
     revokeAllSessions: vi.fn<Api['revokeAllSessions']>(),
+    deleteAccount: vi.fn<Api['deleteAccount']>(),
     unregisterPush: vi.fn<Api['unregisterPush']>(),
     registerPush: vi.fn<Api['registerPush']>(),
     sendPush: vi.fn<Api['sendPush']>(),

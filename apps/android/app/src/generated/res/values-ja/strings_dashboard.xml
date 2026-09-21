@@ -19,6 +19,12 @@
     <!-- 전체 로그아웃은 되돌릴 수 없다 — 누르기 전에 무엇이 끊기는지 적는다 -->
     <string name="dashboard_sign_out_all_confirm_title">すべての端末からサインアウトしますか？</string>
     <string name="dashboard_sign_out_all_confirm_body">このセッションを含むすべてのセッションが終了します。もう一度サインインが必要です。</string>
+
+    <!-- 계정 삭제(plan/auth.md §8). 사이드바 바닥에 있고 확인 창이 무엇을 잃는지 적는다 -->
+    <string name="dashboard_delete_account">アカウントを削除</string>
+    <string name="dashboard_deleting_account">削除しています…</string>
+    <string name="dashboard_delete_account_confirm_title">アカウントを削除しますか？</string>
+    <string name="dashboard_delete_account_confirm_body">アカウントとすべてのセッションが今すぐ消えます。元に戻せず、もう一度サインインすると新しいアカウントが作成されます。</string>
     <string name="dashboard_col_device">デバイス</string>
     <string name="dashboard_col_started">開始</string>
     <string name="dashboard_col_expires">有効期限</string>

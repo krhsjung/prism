@@ -19,6 +19,12 @@
     <!-- 전체 로그아웃은 되돌릴 수 없다 — 누르기 전에 무엇이 끊기는지 적는다 -->
     <string name="dashboard_sign_out_all_confirm_title">Sign out of all devices?</string>
     <string name="dashboard_sign_out_all_confirm_body">Every session ends, including this one. You’ll need to sign in again.</string>
+
+    <!-- 계정 삭제(plan/auth.md §8). 사이드바 바닥에 있고 확인 창이 무엇을 잃는지 적는다 -->
+    <string name="dashboard_delete_account">Delete account</string>
+    <string name="dashboard_deleting_account">Deleting…</string>
+    <string name="dashboard_delete_account_confirm_title">Delete your account?</string>
+    <string name="dashboard_delete_account_confirm_body">Your account and every session end now. This cannot be undone. Signing in again creates a new account.</string>
     <string name="dashboard_col_device">Device</string>
     <string name="dashboard_col_started">Started</string>
     <string name="dashboard_col_expires">Expires</string>

@@ -185,6 +185,29 @@
         }
       }
     },
+    "error.delete_account_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn’t delete your account. Nothing was changed — check your connection and try again."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "계정을 삭제하지 못했습니다. 아무것도 바뀌지 않았습니다 — 연결을 확인하고 다시 시도해 주세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アカウントを削除できませんでした。何も変更されていません — 接続を確認してもう一度お試しください。"
+          }
+        }
+      }
+    },
     "error.session_ended": {
       "extractionState": "manual",
       "localizations": {

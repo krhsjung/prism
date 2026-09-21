@@ -102,9 +102,22 @@ struct LoginView: View {
 
             // 알림 권한은 여기서 묻지 않는다 — 로그인은 로그인만 하고, 권한과 등록은 푸시
             // 화면의 `알림 켜기`가 함께 끝낸다(plan/push.md §5-2).
-            Text(t(.authNoPersonalData))
-                .font(.system(size: AppDimension.FontSize.body))
-                .foregroundStyle(AppColor.muted)
+            //
+            // 방침 링크는 캡션 **다음 줄**에 둔다 — 폰 폭에서는 한 줄에 붙이면 라벨이
+            // 쪼개져 누를 곳이 두 줄로 갈려 보인다(plan/auth.md §3, Figma의 Login / Mobile).
+            VStack(alignment: .leading, spacing: AppDimension.Spacing.xs) {
+                Text(t(.authNoPersonalData))
+                    .font(.system(size: AppDimension.FontSize.body))
+                    .foregroundStyle(AppColor.muted)
+                // `Link`는 기본 처리기로 열어 **사파리로 나간다.** 앱 안에 웹뷰로 품지
+                // 않는 것은 방침이 앱의 화면이 아니라 공개 문서이고, 주소창이 보이는 편이
+                // 출처를 확인할 수 있어 정직하기 때문이다.
+                Link(t(.authPrivacyPolicy), destination: APIConfiguration.privacyPolicyURL)
+                    .font(.system(size: AppDimension.FontSize.body))
+                    .foregroundStyle(AppColor.accent)
+                    .underline()
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 

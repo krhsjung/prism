@@ -162,6 +162,18 @@ body {
   color: var(--color-muted);
 }
 
+/* 캡션 아래의 방침 링크.
+   - 색만으로 가르면 누를 수 있다는 것이 전해지지 않고 색각 이상에서는 구분되지 않는다 —
+     밑줄을 함께 준다.
+   - **항상 제 줄을 갖는다.** 캡션에 이어 붙이면 카드 폭(440)에서 한국어·일본어 라벨이
+     한 줄에 들어가지 않아 낱자로 쪼개진다(영문 시안만 보고 한 줄로 뒀다가 배포에서 드러났다).
+     폭이나 언어에 기대지 않는 배치가 낫다 — iOS·Android도 같은 규칙이다(plan/auth.md §3). */
+.card__note-link {
+  display: block;
+  color: var(--color-accent);
+  text-decoration: underline;
+}
+
 .card__head p {
   margin-top: 4px;
 }
@@ -374,6 +386,17 @@ body {
   filter: brightness(0.96);
 }
 
+/* 되돌릴 수 없는 동작(계정 삭제). Secondary와 같은 무게(소프트 필)로 두고 **색으로만**
+   가른다 — 빨간 덩어리가 화면을 지배하면 카드 전체가 경고처럼 읽힌다(plan/auth.md §8-1). */
+.btn--destructive {
+  background: var(--color-error-bg);
+  border-color: transparent;
+  color: var(--color-error);
+}
+.btn--destructive:not(:disabled):hover {
+  border-color: var(--color-error);
+}
+
 /* ---- Button: ghost + compact (대시보드 인라인 액션) ---- */
 .btn--ghost {
   background: transparent;
@@ -566,6 +589,38 @@ a.navitem:hover {
 
 /* 모바일 드로어 바닥 — 상단 바에서 내려온 컨트롤이 앉는 자리(데스크톱에선 렌더되지 않는다).
    `margin-top: auto`로 내비게이션과 떨어져 패널 아래에 고정된다. */
+/* 바닥에 잠깐 떠서 스스로 사라지는 한 줄 알림(시안 `Molecule/Toast`).
+   `position: fixed`라 **레이아웃을 건드리지 않는다** — 좁은 사이드바에 문구를 펼쳐
+   항목들을 밀어내지 않는 것이 이 컴포넌트의 이유다(plan/auth.md §8-1). */
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  z-index: 60;
+  max-width: min(420px, calc(100vw - 32px));
+  padding: 14px 18px;
+  border-radius: 10px;
+  background: var(--color-error-bg);
+  border: 1px solid var(--color-error);
+  color: var(--color-error);
+  font-size: 14px;
+  line-height: 1.45;
+  box-shadow: 0 8px 16px rgb(0 0 0 / 0.14);
+}
+
+/* 사이드바 바닥의 되돌릴 수 없는 동작(계정 삭제). 로그아웃 **다음**이고, 위쪽
+   내용과 떨어뜨려 같은 묶음으로 읽히지 않게 한다(plan/auth.md §8-1). */
+.sidebar__danger {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  /* 데스크톱에는 아래의 컨트롤 묶음(`.sidebar__footer`)이 없다 — 이 줄이 바닥으로
+     내려가는 일을 대신 맡는다. 모바일에서는 그 묶음이 이미 내려가 있어 바로 뒤에 붙는다. */
+  margin-top: auto;
+  padding-top: 16px;
+  border-top: 1px solid var(--color-border);
+}
 .sidebar__footer {
   margin-top: auto;
   padding-top: 16px;
@@ -843,6 +898,12 @@ a.navitem:hover {
 
 /* 모바일: 사이드바를 숨기고 표를 카드형으로 쌓는다. */
 @media (max-width: 720px) {
+  /* 컨트롤 묶음이 이미 바닥에 붙어 있다 — 삭제 줄까지 밀어내면 둘이 갈라진다. */
+  .sidebar__danger {
+    margin-top: 12px;
+  }
+
+
   /* 목록 안의 `해제`는 데스크톱에서 판 없는 ghost다 — 표가 가벼워지고, 눌리는 것이라는
      신호는 hover가 준다. **터치에는 hover가 없다.** 그 신호가 사라지면 남는 것은 그냥
      글자뿐이라, 좁은 폭에서는 판을 깐다(앱도 같은 이유로 채운 판을 쓴다). */

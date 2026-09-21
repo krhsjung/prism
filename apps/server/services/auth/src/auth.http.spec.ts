@@ -53,6 +53,7 @@ describe('auth HTTP 경계', () => {
     connectedSessionIds: jest.Mock;
     revokeOwnedSession: jest.Mock;
     revokeAllSessions: jest.Mock;
+    deleteAccount: jest.Mock;
   };
   let tokens: SessionTokenService;
 
@@ -92,6 +93,7 @@ describe('auth HTTP 경계', () => {
       ),
       revokeOwnedSession: jest.fn(() => Promise.resolve(true)),
       revokeAllSessions: jest.fn(() => Promise.resolve(2)),
+      deleteAccount: jest.fn(() => Promise.resolve()),
       refreshSession: jest.fn(() =>
         Promise.resolve({
           status: 'rotated',
@@ -701,6 +703,54 @@ describe('auth HTTP 경계', () => {
         c.includes('Expires=Thu, 01 Jan 1970'),
       ),
     ).toBe(true);
+  });
+
+  // 데모는 모두가 함께 쓰는 시드 계정이라 한 사람이 지울 수 없다. 화면도 버튼을 감추지만
+  // 화면은 우회할 수 있으므로, 되돌릴 수 없는 이 일은 **서버가** 막는 것이 본질이다.
+  it('account: 데모 계정은 403이고 삭제가 시작되지 않는다', async () => {
+    const token = tokens.signSession(user.id, 'sess-1');
+    const res = await server()
+      .delete('/auth/account')
+      .set('Origin', WEB)
+      .set('Cookie', `prism_session=${token}`)
+      .expect(403);
+
+    expect(res.body).toEqual({ error: 'ACCOUNT_DELETE_FORBIDDEN' });
+    expect(auth.deleteAccount).not.toHaveBeenCalled();
+  });
+
+  it('account: 일반 계정은 삭제하고 쿠키를 정리한다', async () => {
+    const real: User = { ...user, id: 'u-2', provider: 'google' };
+    sessions.findValidSession.mockResolvedValue({
+      user: real,
+      absoluteExpiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000,
+    });
+    sessions.findValid.mockResolvedValue(real);
+
+    const token = tokens.signSession(real.id, 'sess-2');
+    const res = await server()
+      .delete('/auth/account')
+      .set('Origin', WEB)
+      .set('Cookie', `prism_session=${token}`)
+      .expect(204);
+
+    expect(auth.deleteAccount).toHaveBeenCalledWith(real.id);
+    expect(
+      (res.get('Set-Cookie') ?? []).some((c) =>
+        c.includes('Expires=Thu, 01 Jan 1970'),
+      ),
+    ).toBe(true);
+  });
+
+  // 쿠키가 실리는 상태 변경이라 CSRF 대상이다 — 출처를 검증한다.
+  it('account: 허용되지 않은 출처는 403이고 삭제가 시작되지 않는다', async () => {
+    const token = tokens.signSession(user.id, 'sess-1');
+    await server()
+      .delete('/auth/account')
+      .set('Origin', 'https://evil.example')
+      .set('Cookie', `prism_session=${token}`)
+      .expect(403);
+    expect(auth.deleteAccount).not.toHaveBeenCalled();
   });
 
   // revoke-all은 정적 경로다 — :id에 먹히면 'revoke-all'이라는 세션을 지우려 든다.

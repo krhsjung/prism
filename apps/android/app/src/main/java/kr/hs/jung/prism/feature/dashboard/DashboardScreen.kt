@@ -7,8 +7,10 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -17,10 +19,10 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.DrawerState
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -52,6 +54,7 @@ import kr.hs.jung.prism.domain.model.DeviceKind
 import kr.hs.jung.prism.domain.model.SessionListItem
 import kr.hs.jung.prism.domain.model.User
 import kr.hs.jung.prism.ui.AppShell
+import kr.hs.jung.prism.ui.DEMO_PROVIDER
 import kr.hs.jung.prism.ui.ShellPage
 import kr.hs.jung.prism.ui.component.PrismBadge
 import kr.hs.jung.prism.ui.component.PrismBadgeVariant
@@ -88,6 +91,8 @@ fun DashboardScreen(
     /** 셸의 내비게이션 — 페이지 상태는 `RootScreen`이 쥔다(웹의 라우터 자리). */
     onNavigate: (ShellPage) -> Unit,
     onSignOut: () -> Unit,
+    /** 계정 삭제(plan/auth.md §8). 셸의 드로어가 부른다. */
+    onDeleteAccount: suspend () -> Boolean,
 ) {
     // 이 ViewModel의 수명은 **세션**이다 — 로그아웃하면 저장소째 비워지고, 다시 로그인하면
     // 새로 만들어진다(`ui/SessionScope.kt`). 기본 저장소(Activity)에 그냥 두면 앞 세션의
@@ -121,6 +126,8 @@ fun DashboardScreen(
         drawerState = drawerState,
         onNavigate = onNavigate,
         onSignOut = onSignOut,
+        onDeleteAccount = onDeleteAccount,
+        canDeleteAccount = user.provider != DEMO_PROVIDER,
     ) {
         // 세션 목록은 이 앱 밖에서도 바뀐다 — 다른 기기에서 로그인하거나 만료되면
         // 화면과 서버가 어긋난다. 당겨서 새로고침이 그것을 맞추는 사용자의 손잡이다.

@@ -17,13 +17,18 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import android.content.Intent
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.material3.Text
+import androidx.core.net.toUri
+import kr.hs.jung.prism.BuildConfig
 import kr.hs.jung.prism.R
 import kr.hs.jung.prism.core.i18n.LocaleStore
 import kr.hs.jung.prism.core.theme.PrismDimensions
@@ -109,7 +114,7 @@ fun LoginScreen(
             Column(verticalArrangement = Arrangement.spacedBy(PrismDimensions.spacingSm)) {
                 // 각 provider를 native(SDK)·redirect(웹) 두 방식으로 나눠 보여 준다(iOS와 동일).
                 // **Apple은 redirect뿐이다** — 안드로이드에는 공식 네이티브 Sign in with
-                // Apple SDK가 없어(plan/auth.md §8) native 버튼은 눌러도 "사용할 수 없다"만
+                // Apple SDK가 없어(plan/auth.md §9) native 버튼은 눌러도 "사용할 수 없다"만
                 // 뜬다. 누를 수 없는 버튼을 두는 대신 되는 경로 하나만 남긴다.
                 SignInButton(AuthProvider.GOOGLE, AuthMethod.NATIVE, PrismButtonVariant.OUTLINE, state, viewModel)
                 SignInButton(AuthProvider.GOOGLE, AuthMethod.REDIRECT, PrismButtonVariant.OUTLINE, state, viewModel)
@@ -122,11 +127,34 @@ fun LoginScreen(
 
             // 알림 권한은 여기서 묻지 않는다 — 로그인은 로그인만 하고, 권한과 등록은 푸시
             // 화면의 `알림 켜기`가 함께 끝낸다(plan/push.md §5-2).
-            Text(
-                text = stringResource(R.string.auth_no_personal_data),
-                color = colors.muted,
-                fontSize = PrismDimensions.fontBody,
-            )
+            //
+            // 방침 링크는 캡션 **다음 줄**에 둔다 — 폰 폭에서는 한 줄에 붙이면 라벨이
+            // 쪼개져 누를 곳이 두 줄로 갈려 보인다(plan/auth.md §3, Figma의 Login / Mobile).
+            Column(verticalArrangement = Arrangement.spacedBy(PrismDimensions.spacingXs)) {
+                Text(
+                    text = stringResource(R.string.auth_no_personal_data),
+                    color = colors.muted,
+                    fontSize = PrismDimensions.fontBody,
+                )
+                // 주소는 박지 않고 API 주소에서 유도한다 — 방침 페이지는 웹 앱과 같은
+                // 출처에 있어, 도메인이 바뀌면 함께 따라간다(iOS의 privacyPolicyURL과 같은 규칙).
+                //
+                // **브라우저로 내보낸다**(ACTION_VIEW). Custom Tab으로 앱 안에 품지 않는 것은
+                // 방침이 앱의 화면이 아니라 공개 문서이고, 주소창이 보이는 편이 출처를
+                // 확인할 수 있어 정직하기 때문이다.
+                val context = LocalContext.current
+                Text(
+                    text = stringResource(R.string.auth_privacy_policy),
+                    color = colors.accent,
+                    fontSize = PrismDimensions.fontBody,
+                    // 색만으로 가르면 누를 수 있다는 것이 전해지지 않는다.
+                    textDecoration = TextDecoration.Underline,
+                    modifier = Modifier.clickable {
+                        val url = BuildConfig.PRISM_API_URL.trimEnd('/') + "/privacy"
+                        context.startActivity(Intent(Intent.ACTION_VIEW, url.toUri()))
+                    },
+                )
+            }
         }
 
         PreferenceControls(themeStore, localeStore, PreferenceControlsPlacement.BAR)

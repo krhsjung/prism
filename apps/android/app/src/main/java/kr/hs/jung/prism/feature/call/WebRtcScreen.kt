@@ -1,5 +1,6 @@
 package kr.hs.jung.prism.feature.call
 
+import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.StringRes
@@ -30,16 +31,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
-import android.content.pm.PackageManager
-import org.webrtc.EglBase
-import org.webrtc.VideoTrack
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kr.hs.jung.prism.R
 import kr.hs.jung.prism.core.calling.CallMedia
@@ -47,17 +45,18 @@ import kr.hs.jung.prism.core.calling.MediaErrorKind
 import kr.hs.jung.prism.core.i18n.LocaleStore
 import kr.hs.jung.prism.core.i18n.withVars
 import kr.hs.jung.prism.core.network.SessionSocket
+import kr.hs.jung.prism.core.session.SessionStore
 import kr.hs.jung.prism.core.theme.PrismDimensions
 import kr.hs.jung.prism.core.theme.PrismTheme
 import kr.hs.jung.prism.core.theme.ThemeStore
 import kr.hs.jung.prism.domain.model.CallEndReason
 import kr.hs.jung.prism.domain.model.CallErrorCode
-import kr.hs.jung.prism.core.session.SessionStore
 import kr.hs.jung.prism.domain.model.SessionListItem
 import kr.hs.jung.prism.domain.model.SessionRef
 import kr.hs.jung.prism.domain.model.User
 import kr.hs.jung.prism.feature.dashboard.deviceLabel
 import kr.hs.jung.prism.ui.AppShell
+import kr.hs.jung.prism.ui.DEMO_PROVIDER
 import kr.hs.jung.prism.ui.ShellPage
 import kr.hs.jung.prism.ui.component.PrismBadge
 import kr.hs.jung.prism.ui.component.PrismBadgeVariant
@@ -66,6 +65,8 @@ import kr.hs.jung.prism.ui.component.PrismButtonVariant
 import kr.hs.jung.prism.ui.component.PrismCard
 import kr.hs.jung.prism.ui.component.PrismErrorAlert
 import kr.hs.jung.prism.ui.component.PrismInfoAlert
+import org.webrtc.EglBase
+import org.webrtc.VideoTrack
 
 /**
  * 1:1 통화 화면 — 시안 `WebRTC / Mobile / Lobby`·`Ringing`·`In call`·`In call (diagnostics open)`.
@@ -86,6 +87,8 @@ fun WebRtcScreen(
     store: SessionStore,
     onNavigate: (ShellPage) -> Unit,
     onSignOut: () -> Unit,
+    /** 계정 삭제(plan/auth.md §8). 셸의 드로어가 부른다. */
+    onDeleteAccount: suspend () -> Boolean,
 ) {
     val state by controller.state.collectAsStateWithLifecycle()
     val localTrack by controller.localTrack.collectAsStateWithLifecycle()
@@ -118,6 +121,8 @@ fun WebRtcScreen(
         drawerState = drawerState,
         onNavigate = onNavigate,
         onSignOut = onSignOut,
+        onDeleteAccount = onDeleteAccount,
+        canDeleteAccount = user.provider != DEMO_PROVIDER,
     ) {
         Column(
             modifier = Modifier

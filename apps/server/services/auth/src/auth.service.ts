@@ -320,4 +320,17 @@ export class AuthService {
   async revokeAllSessions(userId: string): Promise<number> {
     return this.sessions.deleteAllForUser(userId);
   }
+
+  // 계정 삭제 — 계정과 그것이 가진 모든 세션이 함께 끝난다(plan/auth.md §8).
+  //
+  // **세션을 먼저 지운다.** 순서가 반대면, 계정 행이 사라진 뒤 남은 세션이 잠깐
+  // "주인 없는 유효한 세션"이 된다 — 그 창에서 들어온 요청은 인증을 통과한다.
+  // 세션 저장소와 DB 사이에 트랜잭션이 없으므로(다른 엔진이다) 순서가 유일한 보호다.
+  //
+  // 중간에서 실패하면 세션만 사라진 상태로 남는다 — 전부 로그아웃된 멀쩡한 계정이고,
+  // 다시 로그인해 한 번 더 지울 수 있다. 반대 순서의 실패(주인 없는 세션)보다 낫다.
+  async deleteAccount(userId: string): Promise<void> {
+    await this.sessions.deleteAllForUser(userId);
+    await this.users.deleteById(userId);
+  }
 }

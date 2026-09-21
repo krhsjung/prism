@@ -257,6 +257,7 @@ private fun SignedIn(container: ServiceContainer, current: AuthManager.State.Sig
             drawerState = drawerState,
             onNavigate = navigate,
             onSignOut = { scope.launch { container.authManager.signOut() } },
+                    onDeleteAccount = { container.authManager.deleteAccount() },
         )
         ShellPage.PUSH -> PushScreen(
             user = current.user,
@@ -270,6 +271,7 @@ private fun SignedIn(container: ServiceContainer, current: AuthManager.State.Sig
             drawerState = drawerState,
             onNavigate = navigate,
             onSignOut = { scope.launch { container.authManager.signOut() } },
+                    onDeleteAccount = { container.authManager.deleteAccount() },
         )
         ShellPage.WEBRTC -> WebRtcScreen(
             user = current.user,
@@ -281,6 +283,7 @@ private fun SignedIn(container: ServiceContainer, current: AuthManager.State.Sig
             store = sessionStore,
             onNavigate = navigate,
             onSignOut = { scope.launch { container.authManager.signOut() } },
+                    onDeleteAccount = { container.authManager.deleteAccount() },
         )
     }
 

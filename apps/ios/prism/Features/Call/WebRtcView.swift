@@ -23,6 +23,8 @@ struct WebRtcView: View {
     let store: SessionStore
     let onNavigate: (ShellPage) -> Void
     let onSignOut: () async -> Void
+    /// 계정 삭제(plan/auth.md §8). 셸의 드로어가 부른다.
+    let onDeleteAccount: () async -> Bool
 
     private var inCall: Bool { call.call != nil }
 
@@ -32,6 +34,7 @@ struct WebRtcView: View {
             user: user,
             onNavigate: onNavigate,
             onSignOut: onSignOut,
+            onDeleteAccount: onDeleteAccount,
         ) {
             VStack(spacing: 0) {
                 ScrollView {

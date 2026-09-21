@@ -217,9 +217,9 @@ struct RootView: View {
                 accessToken: token,
                 socket: container.sessionSocket,
                 onNavigate: navigate,
-            ) {
-                await auth.signOut()
-            }
+                onSignOut: { await auth.signOut() },
+                onDeleteAccount: { await auth.deleteAccount() },
+            )
         case .push:
             PushView(
                 user: user,
@@ -229,9 +229,9 @@ struct RootView: View {
                 registration: container.pushRegistration,
                 accessToken: token,
                 onNavigate: navigate,
-            ) {
-                await auth.signOut()
-            }
+                onSignOut: { await auth.signOut() },
+                onDeleteAccount: { await auth.deleteAccount() },
+            )
         case .webrtc:
             WebRtcView(
                 user: user,
@@ -239,9 +239,9 @@ struct RootView: View {
                 socket: container.sessionSocket,
                 store: container.sessions,
                 onNavigate: navigate,
-            ) {
-                await auth.signOut()
-            }
+                onSignOut: { await auth.signOut() },
+                onDeleteAccount: { await auth.deleteAccount() },
+            )
         }
     }
 

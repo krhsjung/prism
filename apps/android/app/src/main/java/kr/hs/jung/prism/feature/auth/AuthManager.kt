@@ -221,6 +221,40 @@ class AuthManager(
     }
 
     /**
+     * 계정 삭제(plan/auth.md §8).
+     *
+     * 서버가 계정과 모든 세션을 지우면 **로그아웃과 끝 상태가 같다** — 성공한 뒤에는
+     * 로그아웃과 같은 정리([clearTokensAndSignOut])를 그대로 탄다.
+     *
+     * 로그아웃과 **다른 점 하나**: 여기서는 네트워크가 먼저다. 로그아웃은 실패해도 로컬을
+     * 비우는 것이 맞지만(서버 세션은 언젠가 만료된다), 삭제는 서버가 지웠다는 답을 받기
+     * 전에 로컬을 비우면 "지운 줄 알았는데 계정이 남아 있는" 상태가 된다. 실패하면 아무것도
+     * 건드리지 않고 화면이 다시 시도할 수 있게 둔다.
+     *
+     * `signOutRequested`를 세워 두는 이유는 로그아웃과 같다 — 정리가 이 세션을 끝낸 것이
+     * **놀라운 일이 아님**을 알려, 로그인 화면이 "세션이 종료되었습니다"를 띄우지 않게 한다.
+     *
+     * @return 지웠으면 true. false면 세션은 그대로다.
+     */
+    suspend fun deleteAccount(): Boolean = withContext(NonCancellable) {
+        val access = tokens.access() ?: return@withContext false
+        try {
+            nativeApi.deleteAccount(access)
+        } catch (e: ApiError) {
+            AppLog.d("delete account failed")
+            return@withContext false
+        }
+        signOutRequested = true
+        try {
+            // 서버에는 이미 아무것도 없다 — 로컬 정리만 남았고, 그것은 로그아웃과 같다.
+            mutex.withLock { clearTokensAndSignOut() }
+        } finally {
+            signOutRequested = false
+        }
+        true
+    }
+
+    /**
      * 소셜·데모 로그인. 모두 서버가 토큰을 body로 주는 네이티브(Bearer) 흐름으로 끝난다.
      *
      * 방식(method)이 둘이다(iOS와 동일):

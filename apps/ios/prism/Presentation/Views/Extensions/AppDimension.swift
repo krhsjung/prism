@@ -22,6 +22,16 @@ enum AppDimension {
     }
 
     /// design/tokens/spacing.json
+    /// 바닥에 떠서 스스로 사라지는 알림(시안 `Molecule/Toast`).
+    enum Toast {
+        static let horizontalPadding: CGFloat = 18
+        static let verticalPadding: CGFloat = 14
+        static let cornerRadius: CGFloat = 10
+        /// 화면 가장자리와의 간격 — 좁은 폭에서 글이 테두리에 붙지 않게 한다.
+        static let screenInset: CGFloat = 16
+        static let bottomInset: CGFloat = 24
+    }
+
     enum Spacing {
         static let xs: CGFloat = 4
         static let sm: CGFloat = 8

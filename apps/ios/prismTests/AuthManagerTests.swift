@@ -77,6 +77,8 @@ private final class FakeService: AuthServicing, @unchecked Sendable {
         return try refreshResult.get()
     }
     func logout(accessToken: String?) async throws {}
+    var deleteAccountResult: Result<Void, Error> = .success(())
+    func deleteAccount(accessToken: String?) async throws { try deleteAccountResult.get() }
     func loginDemo() async throws -> AuthSession { try loginDemoResult.get() }
     func loginWithApple(
         identityToken: String,
@@ -135,6 +137,10 @@ private final class GatedService: AuthServicing, @unchecked Sendable {
     }
 
     func logout(accessToken: String?) async throws {}
+
+    var deleteAccountResult: Result<Void, Error> = .success(())
+
+    func deleteAccount(accessToken: String?) async throws { try deleteAccountResult.get() }
     func loginWithApple(
         identityToken: String,
         nonce: String,
@@ -159,6 +165,8 @@ private final class FlakyRefreshService: AuthServicing, @unchecked Sendable {
         return rotated
     }
     func logout(accessToken: String?) async throws {}
+    var deleteAccountResult: Result<Void, Error> = .success(())
+    func deleteAccount(accessToken: String?) async throws { try deleteAccountResult.get() }
     func loginDemo() async throws -> AuthSession {
         AuthSession(
             accessToken: "a", refreshToken: "r",
@@ -199,6 +207,8 @@ private final class RotateDuringLoginService: AuthServicing, @unchecked Sendable
         return issued
     }
     func logout(accessToken: String?) async throws {}
+    var deleteAccountResult: Result<Void, Error> = .success(())
+    func deleteAccount(accessToken: String?) async throws { try deleteAccountResult.get() }
     func loginWithApple(
         identityToken: String,
         nonce: String,
@@ -216,6 +226,8 @@ private final class GatedLogoutService: AuthServicing, @unchecked Sendable {
     func me(accessToken: String) async throws -> SessionUser { throw APIError.network }
     func refresh(refreshToken: String, activity: Bool) async throws -> AuthSession { throw APIError.network }
     func logout(accessToken: String?) async throws { await gate.enterAndWait() }
+    var deleteAccountResult: Result<Void, Error> = .success(())
+    func deleteAccount(accessToken: String?) async throws { try deleteAccountResult.get() }
     func loginWithApple(
         identityToken: String,
         nonce: String,

@@ -18,6 +18,10 @@ struct PrismButton: View {
         case ghost
         /// Kakao 브랜드 고정색(노랑 배경·검정 85%). 라이트/다크 공통이다.
         case kakao
+        /// 되돌릴 수 없는 동작(계정 삭제). secondary와 **같은 무게**의 소프트 필이고
+        /// 색으로만 가른다 — 빨간 덩어리가 카드를 지배하면 카드 전체가 경고처럼
+        /// 읽힌다(plan/auth.md §8-1).
+        case destructive
 
         var background: Color {
             switch self {
@@ -26,6 +30,7 @@ struct PrismButton: View {
             case .secondary: AppColor.secondaryBackground
             case .ghost: .clear
             case .kakao: AppColor.kakao
+            case .destructive: AppColor.errorBackground
             }
         }
 
@@ -38,6 +43,7 @@ struct PrismButton: View {
             case .secondary: AppColor.secondaryForeground
             case .ghost: AppColor.text
             case .kakao: AppColor.kakaoForeground
+            case .destructive: AppColor.error
             }
         }
 
@@ -45,7 +51,7 @@ struct PrismButton: View {
         var border: Color? {
             switch self {
             case .outline: AppColor.border
-            case .primary, .secondary, .ghost, .kakao: nil
+            case .primary, .secondary, .ghost, .kakao, .destructive: nil
             }
         }
     }

@@ -226,6 +226,12 @@ export const AUTH_ERROR_CODES = {
   // 등록 토큰의 형식 오류(INVALID_TOKEN)와 갈라 둔다: 같은 코드로 접으면 로그가 "토큰이
   // 틀렸다"고 말한다.
   INVALID_PUSH_REQUEST: 'INVALID_PUSH_REQUEST',
+  // 이 계정은 지울 수 없다(403) — 데모 계정이다(plan/auth.md §8-3).
+  //
+  // 데모는 앱을 체험하는 모두가 함께 쓰는 시드 계정이라, 한 사람이 지우면 남들의
+  // 로그인까지 사라진다. 화면이 버튼을 감추는 것과 **별개로** 서버가 거절한다 —
+  // 화면은 우회할 수 있고, 되돌릴 수 없는 일에 그 가정을 두면 안 된다.
+  ACCOUNT_DELETE_FORBIDDEN: 'ACCOUNT_DELETE_FORBIDDEN',
 } as const;
 
 export type AuthErrorCode =

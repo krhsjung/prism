@@ -2,8 +2,11 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Avatar } from './Avatar';
 import { Button } from './Button';
+import { ConfirmDialog } from './ConfirmDialog';
+import { Toast } from './Toast';
 import { LocaleSwitcher } from './LocaleSwitcher';
 import { ThemeSwitcher } from './ThemeSwitcher';
+import { api } from '../lib/api';
 import { useAuth } from '../lib/auth-context';
 import { useI18n } from '../lib/i18n/i18n-context';
 import { useMediaQuery } from '../lib/useMediaQuery';
@@ -54,13 +57,17 @@ export function AppShell({
   headerExtra?: ReactNode;
 }) {
   const navigate = useNavigate();
-  const { state, signOut } = useAuth();
+  const { state, signOut, refresh: refreshAuth } = useAuth();
   const { t } = useI18n();
 
   // 로그아웃은 서버가 쿠키를 지워야 성립한다 — 실패하면 세션이 살아 있다는 사실을
   // 그대로 알린다("로그아웃됐다"고 속이면 새로고침에서 되살아나 더 혼란스럽다).
   const [logoutFailed, setLogoutFailed] = useState(false);
   const [leaving, setLeaving] = useState(false);
+  // 계정 삭제는 로그아웃보다 더 되돌릴 수 없다 — 사이드바에서 바로 실행하지 않고 되묻는다.
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteFailed, setDeleteFailed] = useState(false);
   // 모바일 네비 드로어(사이드바 슬라이드인) — 데스크톱은 CSS로 항상 열린 사이드바.
   const [navOpen, setNavOpen] = useState(false);
   const isMobile = useMediaQuery('(max-width: 720px)');
@@ -100,6 +107,23 @@ export function AppShell({
     }
     setLeaving(false);
     setLogoutFailed(true);
+  }
+
+  // 계정 삭제(plan/auth.md §8). 로그아웃과 **같은 끝**을 탄다 — 세션이 서버에서 통째로
+  // 사라지므로 인증 상태를 다시 물어 익명으로 떨어뜨리고 로그인 화면으로 보낸다.
+  async function handleDeleteAccount() {
+    setDeleteFailed(false);
+    setDeleting(true);
+    setConfirmingDelete(false);
+    try {
+      await api.deleteAccount();
+    } catch {
+      setDeleting(false);
+      setDeleteFailed(true);
+      return;
+    }
+    await refreshAuth();
+    navigate('/login', { replace: true });
   }
 
   const controls = (
@@ -171,6 +195,23 @@ export function AppShell({
         {/* 시안의 드로어는 내비게이션만 그리지만, 모바일 상단 바에서 밀려난 컨트롤이
             갈 곳이 여기뿐이다 — 로그아웃을 잃어버리지 않도록 바닥에 붙인다. */}
         {isMobile && <div className="sidebar__footer">{controls}</div>}
+        {/* 계정 삭제는 **모든 것의 끝**이라 로그아웃 다음이다(plan/auth.md §8-1).
+            데스크톱에서는 로그아웃이 상단 바에 있어 이 줄만 바닥에 남는다 — 평소 눈이
+            가지 않는 자리라 오탭이 어렵고, 찾으려는 사람에게는 계정 메뉴다.
+            데모는 모두가 함께 쓰는 계정이라 지울 수 없어 항목 자체를 감춘다. */}
+        {user.provider !== 'demo' && (
+          <div className="sidebar__danger">
+            <Button
+              variant="destructive"
+              disabled={deleting}
+              onClick={() => setConfirmingDelete(true)}
+            >
+              {deleting
+                ? t('dashboard.deleting_account')
+                : t('dashboard.delete_account')}
+            </Button>
+          </div>
+        )}
       </aside>
       {/* 스크림 — 모바일 드로어 열림 시에만 렌더. 탭하면 닫힌다. */}
       {navOpen && (
@@ -214,6 +255,26 @@ export function AppShell({
           {children}
         </main>
       </div>
+
+      {/* 실패는 바닥에 잠깐 떠서 말한다 — 사이드바에 펼치면 항목들이 밀려난다. */}
+      {deleteFailed && (
+        <Toast
+          message={t('error.delete_account_failed')}
+          onDismiss={() => setDeleteFailed(false)}
+        />
+      )}
+
+      {confirmingDelete && (
+        <ConfirmDialog
+          title={t('dashboard.delete_account_confirm_title')}
+          body={t('dashboard.delete_account_confirm_body')}
+          confirmLabel={t('dashboard.delete_account')}
+          cancelLabel={t('common.cancel')}
+          isBusy={deleting}
+          onConfirm={() => void handleDeleteAccount()}
+          onCancel={() => setConfirmingDelete(false)}
+        />
+      )}
     </div>
   );
 }
