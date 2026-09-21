@@ -291,7 +291,7 @@ id_token과 달리) 서명이 없는 불투명 문자열이라 로컬 검증이 
 **Response 401**: `{ error: 'SESSION_EXPIRED' | 'INVALID_TOKEN' | 'UNAUTHORIZED' }`
 
 > `accessTokenTtlMs`는 액세스 토큰 서명 수명(비밀·PII 아님)으로, 클라이언트가 요청을
-> **보내기 직전에** "곧 만료인가"를 판단하는 데 쓴다(§6의 (2); 타이머 예약은 2026-08-24에
+> **보내기 직전에** "곧 만료인가"를 판단하는 데 쓴다(§6의 (2); 타이머 예약은 에
 > 걷어냈다). 웹은 HttpOnly라 exp를 못 읽고, **네이티브는 토큰을 열어 보지 않는다** — 앱이
 > 토큰을 파싱하기 시작하면 서명 검증 없이 클레임을 믿는 경로가 생긴다. 그래서 쿠키 흐름의
 > `SessionUser`와 네이티브의 `AuthSession` **둘 다** 이 필드를 싣는다. 로그인·복원·회전
@@ -352,7 +352,7 @@ type User = {
 > 한 번만 나간다([api.ts](../apps/web/src/lib/api.ts) · 네이티브는 `refreshForRetry`).
 > (2)는 정확성이 아니라 최적화다 — 없어도 (1)이 받아 낸다.
 >
-> ### 결정 번복(2026-08-24): 타이머 선제 갱신을 걷어냈다
+> ### 결정 번복: 타이머 선제 갱신을 걷어냈다
 >
 > 이전에는 `accessTokenTtlMs`의 75% 지점마다 **타이머로** 회전을 예약해, 요청이 없어도
 > 탭만 열려 있으면 세션이 absolute 상한까지 밀렸다. 그것을 되돌린다.
@@ -369,7 +369,7 @@ type User = {
 > 정직하게 만료돼 로그인 화면으로 간다(아래 §8). 세션이 정말 끝났다는 사실은 세션
 > 소켓이 재연결에 실패하며 끌고 온다([dashboard.md](./dashboard.md)).
 
-> ### 결정(2026-08-27): **미는 것은 회전이 아니라 활동이다**
+> ### 결정: **미는 것은 회전이 아니라 활동이다**
 >
 > 타이머를 걷어내고도 같은 구멍이 남아 있었다. 세션 소켓이 `sessionsChanged`를 뿌리면
 > 화면이 목록을 다시 부르는데, 액세스 수명이 짧으면 그 재조회는 거의 매번 회전을 태우고
@@ -380,13 +380,13 @@ type User = {
 > 처음에는 회전에 성격을 달아(`background`) "배경 회전은 밀지 않는다"로 막았다. **그것은
 > 틀렸다.** 회전과 활동은 1:1이 아니기 때문이다 — 회전은 single-flight라 하나로 합쳐지는데,
 > 배경 회전에 사용자 요청이 합류하면 그 사용자의 활동이 통째로 사라진다. 유휴 창 끝자락에서
-> "방금 눌렀는데 몇 초 뒤 로그아웃"이 되는 자리다(코드 리뷰에서 드러났다).
+> "방금 눌렀는데 몇 초 뒤 로그아웃"이 되는 자리다.
 >
 > → **회전은 자격증명 교체만 한다. 창을 미는 것은 활동이고, 활동은 "인증된 요청이 서버에
 > 닿는 것"이다.** 그래서 미는 일을 `JwtAuthGuard`로 옮겼다.
 >
 > - **회전은 이제 절대 밀지 않는다**(`rotate`는 남은 수명을 그대로 두고 값만 교체한다 —
->   Redis의 `SET ... KEEPTTL`). 누가 왜 회전시켰는지 그 자리에서는 알 수 없기 때문이다.
+>   Redis의 `SET... KEEPTTL`). 누가 왜 회전시켰는지 그 자리에서는 알 수 없기 때문이다.
 > - **미는 것은 `SessionsRepository.touch`뿐이다.** 세션 본체·리프레시 자격증명·사용자
 >   인덱스 score를 **한 원자 구간에서 함께** 민다. 셋이 갈리면 살아 있는데 목록에 없거나
 >   (전체 폐기가 놓친다) 목록에는 있는데 죽은 세션이 된다. score는 **Redis 시계**로 찍고
@@ -465,12 +465,12 @@ auth 서비스가 세션을 **발급**하고, 모든 서비스가 그 세션을 
 
 | 위치            | 담는 것                                                                           |
 | --------------- | --------------------------------------------------------------------------------- |
-| `@app/session`  | 세션 토큰 서명/검증 · 세션·리프레시 쿠키 이름/속성 · `JwtAuthGuard` · `@Public()` |
+| `@app/session`  | 세션 토큰 서명/검증 · 세션·리프레시 쿠키 이름/속성 · `JwtAuthGuard` · `@Public` |
 | `services/auth` | 로그인·세션 발급 · OAuth 흐름(state 토큰 · nonce 쿠키) · 갱신 · 폐기              |
 | `services/api`  | 도메인 기능. 세션은 검증만 한다                                                   |
 
 **api 서비스는 기본이 보호다(protected-by-default).** 전역 가드(`APP_GUARD`)가 걸려 있어
-새로 추가한 엔드포인트는 아무것도 하지 않아도 인증을 요구하고, 공개 경로만 `@Public()`로
+새로 추가한 엔드포인트는 아무것도 하지 않아도 인증을 요구하고, 공개 경로만 `@Public`로
 표시한다(현재는 `/healthz`뿐).
 
 라우트마다 가드를 붙이는 반대 방향이었다면 **빠뜨린 라우트가 조용히 공개**되고,
@@ -595,7 +595,7 @@ Bearer/Keychain, Android 데모는 쿠키/EncryptedSharedPreferences) 구현은 
     끝났다"가 아니다 — 자격증명을 지우거나 로그인 화면으로 보내지 않고 그대로 둔다. 다음
     요청이 다시 회전을 시도하고(§6의 (1)·(2)), 소켓은 백오프로 다시 붙는다. 타이머로
     예약해 두고 그 타이머가 소모되는 구조였다면 여기서 재예약이 필요했지만, 그 타이머는
-    2026-08-24에 걷어냈다.
+    에 걷어냈다.
 
 **플랫폼 매핑 (같은 규칙, 다른 기전):**
 
@@ -609,7 +609,7 @@ Bearer/Keychain, Android 데모는 쿠키/EncryptedSharedPreferences) 구현은 
 | #7 세션 표식        | `generation` + `supersededTokens`. `@MainActor`라 한 호출 안의 읽기가 원자적이다      | `@Volatile SessionStamp(mark, issued)` — 참조 하나를 한 번 읽어 표식과 토큰을 같이 얻는다   |
 | #8 갱신 결과 분기   | `RotateOutcome { rotated, rejected, inconclusive, superseded }`                       | `RotateOutcome { ROTATED, REJECTED, INCONCLUSIVE }`                                          |
 | #10 회전 single-flight | `sharedRotate` — 세대별 `rotateTask`                                              | `Mutex` 하나가 복원·재시도를 같은 문으로 모은다                                              |
-| #11 안내 판정       | `publishSignedOut()` — `state`가 `.signedIn`이었을 때만(로그아웃은 `authActionInFlight`가 막는다) | `clearTokensAndSignOut()` — 직전 상태가 `SignedIn`이고 `signOutRequested`가 아닐 때만        |
+| #11 안내 판정       | `publishSignedOut` — `state`가 `.signedIn`이었을 때만(로그아웃은 `authActionInFlight`가 막는다) | `clearTokensAndSignOut` — 직전 상태가 `SignedIn`이고 `signOutRequested`가 아닐 때만        |
 | #12 재시도 간격     | `RefreshSchedule.retryDelayMs`(테스트가 주입)                                        | `RETRY_REFRESH_DELAY_MS`(가상 시계로 검증)                                                   |
 
 > **웹의 #12**는 `rotateNow`가 `RefreshResult.rejected`를 보고 갈린다: 확정 거부만
