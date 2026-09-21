@@ -40,7 +40,12 @@ pnpm build
 ## 컴포넌트
 
 Figma 파일은 `Assets`(섹션: `Foundations` · `Atoms` · `Molecules` · `Organisms`)와
-화면 페이지(`Auth` · `Dashboard` · `WebRTC` · `Push`)로 나뉩니다.
+화면 페이지(`Auth` · `Dashboard` · `WebRTC` · `Push` · `Download`)로 나뉩니다.
+
+`Download`는 앱 안이 아니라 **웹 루트의 정적 안내 페이지**(`/download`)의 시안입니다 —
+`Desktop / Default` · `Mobile / Default` · `Desktop / Dark` 세 프레임이고, 구현은
+[../apps/web/public/download/index.html](../apps/web/public/download/index.html)입니다.
+앱 화면이 아니므로 SPA의 컴포넌트를 쓰지 않지만, 색·반경·서체는 같은 토큰에서 옵니다.
 
 선택 메뉴는 `Atom/SelectOption`(메뉴 한 줄) → `Molecule/SelectMenu`(팝오버) →
 `Molecule/Select`(트리거)로 조합합니다. 언어 선택은 `Auth`의 로그인 프레임이 배치를

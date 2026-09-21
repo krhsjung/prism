@@ -7,14 +7,18 @@ Prism의 세 번째 수직 슬라이스 **후보**. 인증이 "로그인 → 세
 개인정보 미저장 원칙([auth.md](./auth.md))은 여기서도 유지된다: **등록 토큰은 세션 안에서만
 살고 세션과 함께 사라진다.** 별도 테이블도, 정리 잡도 두지 않는다.
 
-> **상태: 4플랫폼 구현 · 미배포.** 서버(전송기 · 세션에 담기는 토큰 · `pushRegistered` ·
+> **상태: 4플랫폼 구현 · 배포됨(2026-09-21).** 서버(전송기 · 세션에 담기는 토큰 · `pushRegistered` ·
 > 전송 경로)와 네 클라이언트(푸시 화면 · 로그인 화면의 권한 줄 · 알림 수신)가 섰고,
 > **소켓 없는 기기를 통화로 깨우는 경로**도 함께 붙었다([webrtc.md](./webrtc.md) §8-9).
 >
-> 남은 것은 **Firebase 프로젝트와 자격증명**이다 — 서비스 계정 · `google-services.json` ·
-> `GoogleService-Info.plist` · APNs 인증 키 · 웹 VAPID 키. 없으면 서버는 그대로 뜨고
-> `pushRegistered`가 전부 false로 접혀 화면이 `Notifications off`를 말한다.
-> 실제 알림 도착 · APNs 경로 · Doze 지연은 **실기기 없이는 확인할 수 없다**(§7).
+> **자격증명이 들어갔다** — Helm 차트가 `PRISM_FCM_PROJECT_ID` · `_CLIENT_EMAIL` ·
+> `_PRIVATE_KEY`를 auth·socket 두 서비스에 주입하고(`charts/prism-{auth,socket}`), 네 클라이언트는
+> 배포된 빌드에 실려 나갔다([distribution.md](./distribution.md)). 실기기에서 알림이 도착하고
+> 눌렀을 때 옮겨 가는 것까지 확인했다(§33).
+>
+> 자격증명 **없이 클론하면** 서버는 그대로 뜨고 `pushRegistered`가 전부 false로 접혀 화면이
+> `Notifications off`를 말한다 — 그 성질은 그대로다. 남은 것은 딥링크 수정본의 실기기
+> 재확인과, Doze 지연처럼 **실기기에서만 드러나는 동작**이다(§7).
 
 ---
 

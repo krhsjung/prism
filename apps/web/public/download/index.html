@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Prism 앱 받기 · Get the Prism app</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="description" content="Prism을 Android·iOS에 설치하는 방법 — Install Prism on Android or iOS." />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700&display=swap"
+    />
+    <style>
+      /* 시안: Figma ▸ Prism ▸ Download 페이지(Desktop / Mobile / Dark).
+         privacy·account-deletion과 같은 정적 페이지라 자바스크립트가 없다. 다른 점은
+         본문 서체가 앱과 같은 Manrope라는 것 — 이 페이지는 심사자가 아니라 **앱을 받으러
+         온 사람**이 보는 첫 화면이므로 앱과 같은 얼굴이어야 한다. 웹폰트가 늦거나 막히면
+         시스템 서체로 떨어진다. 색·반경 값은 design/tokens에서 온다. */
+      :root{--surface:#f5f8fc;--card:#fff;--border:#d4deec;--heading:#162338;--text:#3b4e68;
+        --muted:#5f6f85;--soft:#edf3fb;--primary:#1d3557;--primary-fg:#fff;--accent:#4a78b8}
+      @media (prefers-color-scheme:dark){:root{--surface:#1a2436;--card:#243044;--border:#30425e;
+        --heading:#fff;--text:#e5ecf7;--muted:#aab8cc;--soft:#30425e;--primary:#5f92d8;
+        --primary-fg:#fff;--accent:#7fa9de}}
+      *{box-sizing:border-box}
+      body{margin:0;background:var(--surface);color:var(--text);
+        font-family:'Manrope',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,
+          'Apple SD Gothic Neo','Noto Sans KR',sans-serif;
+        line-height:1.6;font-size:16px;-webkit-text-size-adjust:100%}
+      main{max-width:940px;margin:0 auto;padding:56px 20px 72px;text-align:center}
+      .wordmark{font-size:32px;font-weight:700;color:var(--heading);letter-spacing:-.01em}
+      h1{font-size:28px;font-weight:700;color:var(--heading);margin:32px 0 6px}
+      .sub{margin:0;color:var(--muted);font-size:14px}
+
+      /* 데스크톱은 두 카드가 나란히, 좁은 폭에서는 쌓인다 — 시안의 Desktop / Mobile 두 프레임. */
+      .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));
+        gap:20px;margin:32px 0 0;text-align:left}
+      .card{background:var(--card);border:1px solid var(--border);border-radius:16px;
+        padding:40px;display:flex;flex-direction:column;gap:20px}
+      @media (max-width:640px){.card{padding:28px 24px;gap:16px}}
+      .card h2{margin:0;font-size:20px;font-weight:700;color:var(--heading);
+        display:flex;align-items:center;gap:12px}
+      .card h2 svg{flex:none;color:var(--heading)}
+      .meta{margin:0;color:var(--muted);font-size:13px}
+
+      .btn{display:block;border-radius:8px;padding:10px 20px;font-size:14px;font-weight:600;
+        text-decoration:none;border:1px solid transparent;line-height:24px}
+      .btn--primary{background:var(--primary);color:var(--primary-fg)}
+      .btn--outline{background:transparent;color:var(--text);border-color:var(--border)}
+      .btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+      .steps{background:var(--soft);border-radius:8px;padding:16px;margin:0;
+        display:flex;flex-direction:column;gap:10px}
+      .steps strong{font-size:13px;font-weight:600;color:var(--heading)}
+      .steps li{font-size:13px;line-height:20px;list-style:none}
+      .steps ol{margin:0;padding:0;display:flex;flex-direction:column;gap:10px;counter-reset:s}
+      .steps li::before{counter-increment:s;content:counter(s);color:var(--muted);
+        margin-right:8px;font-variant-numeric:tabular-nums}
+
+      .browser{margin:32px 0 0;font-size:14px;font-weight:600}
+      .browser a{color:var(--text);text-decoration:none}
+      .browser a:hover{text-decoration:underline}
+      footer{margin:32px 0 0;color:var(--muted);font-size:13px}
+      footer a{color:var(--muted)}
+      .switch{margin:24px 0 0;font-size:13px}
+      .switch a{color:var(--accent)}
+
+      /* 언어 전환 — 자바스크립트 없이 :target으로 가른다. :has()를 모르는 브라우저에서는
+         두 언어가 그대로 쌓여 보인다(privacy 페이지와 같은 모양). 링크가 죽지는 않는다. */
+      #en{display:none}
+      body:has(#en:target) #ko{display:none}
+      body:has(#en:target) #en{display:block}
+    </style>
+  </head>
+  <body>
+    <!-- ── 한국어 ──────────────────────────────────────────────────────────── -->
+    <main id="ko">
+      <div class="wordmark">Prism</div>
+      <h1>앱 받기</h1>
+      <p class="sub">서버 하나를 웹·iOS·Android 세 클라이언트로 만든 프로젝트입니다. 쓰시는 기기에 맞춰 설치하세요.</p>
+
+      <div class="cards">
+        <section class="card">
+          <h2>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="2" width="14" height="20" rx="2"/><path d="M12 18h.01"/></svg>
+            Android
+          </h2>
+          <p class="meta">APK · Android 7.0 이상 · 이 페이지에서 바로 설치</p>
+          <a class="btn btn--primary" href="/dl/prism.apk">APK 다운로드</a>
+          <div class="steps">
+            <strong>내려받은 다음</strong>
+            <ol>
+              <li>알림에서 받은 파일을 엽니다.</li>
+              <li>브라우저에서 앱을 설치해도 되는지 Android가 물어보면 허용합니다.</li>
+              <li>설치를 누릅니다.</li>
+            </ol>
+          </div>
+        </section>
+
+        <section class="card">
+          <h2>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="2" width="14" height="20" rx="2"/><path d="M12 18h.01"/></svg>
+            iOS
+          </h2>
+          <p class="meta">TestFlight · iOS 26.5 이상</p>
+          <a class="btn btn--outline" href="https://testflight.apple.com/join/TWNfu5md">TestFlight에서 열기</a>
+          <div class="steps">
+            <strong>시작하기 전에</strong>
+            <ol>
+              <li>App Store에서 TestFlight를 설치합니다.</li>
+              <li>위 초대 링크를 열어 수락합니다.</li>
+              <li>TestFlight 안에서 Prism을 설치합니다.</li>
+            </ol>
+          </div>
+        </section>
+      </div>
+
+      <p class="browser"><a href="/">브라우저에서 바로 쓰기</a></p>
+      <footer>개인 포트폴리오 프로젝트 · 개인정보를 저장하지 않습니다 · <a href="/privacy">개인정보처리방침</a></footer>
+      <p class="switch"><a href="#en">Read this in English</a></p>
+    </main>
+
+    <!-- ── English ─────────────────────────────────────────────────────────── -->
+    <main id="en" lang="en">
+      <div class="wordmark">Prism</div>
+      <h1>Get the app</h1>
+      <p class="sub">One backend, three clients. Install Prism on your phone.</p>
+
+      <div class="cards">
+        <section class="card">
+          <h2>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="2" width="14" height="20" rx="2"/><path d="M12 18h.01"/></svg>
+            Android
+          </h2>
+          <p class="meta">APK · Android 7.0 and later · installs straight from this page</p>
+          <a class="btn btn--primary" href="/dl/prism.apk">Download APK</a>
+          <div class="steps">
+            <strong>After it downloads</strong>
+            <ol>
+              <li>Open the file from your notifications.</li>
+              <li>Android asks whether to allow installs from your browser — allow it.</li>
+              <li>Tap Install.</li>
+            </ol>
+          </div>
+        </section>
+
+        <section class="card">
+          <h2>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="2" width="14" height="20" rx="2"/><path d="M12 18h.01"/></svg>
+            iOS
+          </h2>
+          <p class="meta">TestFlight · iOS 26.5 and later</p>
+          <a class="btn btn--outline" href="https://testflight.apple.com/join/TWNfu5md">Open in TestFlight</a>
+          <div class="steps">
+            <strong>Before you start</strong>
+            <ol>
+              <li>Install TestFlight from the App Store.</li>
+              <li>Open the invite above and accept it.</li>
+              <li>Install Prism inside TestFlight.</li>
+            </ol>
+          </div>
+        </section>
+      </div>
+
+      <p class="browser"><a href="/">Or use Prism in your browser</a></p>
+      <footer>A personal portfolio project · Prism stores no personal data · <a href="/privacy">Privacy</a></footer>
+      <p class="switch"><a href="#ko">한국어로 보기</a></p>
+    </main>
+  </body>
+</html>

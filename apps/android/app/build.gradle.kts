@@ -31,6 +31,19 @@ val secrets = Properties().apply {
     if (text.isNotBlank()) load(text.reader())
 }
 
+// 릴리스(Play 업로드) 서명 키. 키스토어 경로와 비밀번호는 커밋되지 않는 keystore.properties에서
+// 읽는다(템플릿은 keystore.example.properties). 파일이 없으면 릴리스는 **서명 없이** 빌드된다 —
+// Play Console에는 못 올리지만 빌드는 깨지지 않는다(secrets.properties · google-services.json과
+// 같은 규칙). 읽는 방식이 secrets와 같은 이유도 같다: 설정 캐시가 파일을 입력으로 추적해야 한다.
+val keystoreProps = Properties().apply {
+    val text = providers
+        .fileContents(rootProject.layout.projectDirectory.file("keystore.properties"))
+        .asText.getOrElse("")
+    if (text.isNotBlank()) load(text.reader())
+}
+val uploadKeystoreConfigured: Boolean =
+    keystoreProps.getProperty("storeFile").orEmpty().isNotBlank()
+
 /**
  * 설정값 한 개를 정해진 우선순위로 고른다:
  * gradle 프로퍼티(-P…) > 환경변수 > secrets.properties > 빈 문자열.
@@ -114,7 +127,7 @@ android {
         applicationId = "kr.hs.jung.prism"
         minSdk = 24
         targetSdk = 37
-        versionCode = 1
+        versionCode = 2
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -133,6 +146,17 @@ android {
     // 섞이지 않아 잔재 정리가 안전하다 — i18n/README.md 참고.
     sourceSets["main"].res.srcDir("src/generated/res")
 
+    signingConfigs {
+        if (uploadKeystoreConfigured) {
+            create("upload") {
+                storeFile = file(keystoreProps.getProperty("storeFile"))
+                storePassword = keystoreProps.getProperty("storePassword")
+                keyAlias = keystoreProps.getProperty("keyAlias")
+                keyPassword = keystoreProps.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         debug {
             buildConfigField("String", "PRISM_API_URL", "\"$debugApiUrl\"")
@@ -141,6 +165,7 @@ android {
         release {
             buildConfigField("String", "PRISM_API_URL", "\"$releaseApiUrl\"")
             buildConfigField("String", "PRISM_SOCKET_URL", "\"$releaseSocketUrl\"")
+            if (uploadKeystoreConfigured) signingConfig = signingConfigs.getByName("upload")
             optimization {
                 enable = false
             }

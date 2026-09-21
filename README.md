@@ -2,6 +2,22 @@
 
 한 도메인, 네 플랫폼 — 서버 · 웹 · iOS · Android 구현을 한 저장소에 모은 풀스택 포트폴리오.
 
+## 직접 써 보기
+
+| 플랫폼 | 주소 | 받는 법 |
+| --- | --- | --- |
+| 웹 | **[hsjung.asuscomm.com](https://hsjung.asuscomm.com)** | 설치 없이 바로 |
+| Android · iOS | **[/download](https://hsjung.asuscomm.com/download)** | 한 페이지가 둘을 안내합니다 — Android는 APK 직접 설치(약 52MB), iOS는 TestFlight |
+
+**계정을 만들지 않아도 됩니다.** 로그인 화면의 **데모 로그인**이 공용 체험 계정으로 바로
+들어갑니다 — 소셜 로그인은 선택이고, 어느 쪽으로 들어와도 대시보드 · 통화 · 푸시가 같습니다.
+기기를 둘 이상 붙이면(웹 + 앱) 세션 목록이 서로를 알아보고, 그 목록에서 상대를 골라
+통화를 걸거나 알림을 보낼 수 있습니다 — 이 프로젝트가 보여주려는 것이 그 지점입니다.
+
+Android가 Play 스토어가 아니라 APK인 이유는 [plan/distribution.md](plan/distribution.md)에
+적어 두었습니다 — 개인 개발자 계정의 프로덕션 접근 요건(비공개 테스트 12명 · 14일)을 아직
+채우지 못했기 때문이고, 그때까지의 경로로 APK를 고른 이유도 함께 있습니다.
+
 ## 이름의 의미
 
 프리즘은 하나의 빛을 여러 갈래로 펼쳐 보여줍니다. 이 프로젝트도 **하나의 백엔드(도메인)** 를
@@ -14,7 +30,7 @@
 
 **인증 vertical slice가 네 플랫폼 모두에서 동작합니다** — 로그인부터 세션 관리·배포까지
 한 기능을 끝까지 관통했습니다. 그 위에 [WebRTC 1:1 통화](plan/webrtc.md)와
-[FCM 푸시](plan/push.md)가 네 플랫폼에 구현돼 있습니다(미배포).
+[FCM 푸시](plan/push.md)가 네 플랫폼에 구현돼 **배포까지 나가 있습니다**.
 
 셋은 **같은 세션 목록**을 씁니다: 대시보드가 그것을 관리하고, 통화는 그 목록에서 상대를
 고르고, 푸시는 그 목록으로 알림을 보냅니다 — 인증 슬라이스가 만들어 둔 세션과 presence
@@ -29,15 +45,19 @@
 | Kakao 로그인 | ✅ | ✅ | ✅ 네이티브 SDK | ✅ 네이티브 SDK |
 | 세션 유지·갱신 | ✅ | ✅ 쿠키 | ✅ Bearer | ✅ Bearer |
 | 활성 세션 관리 | ✅ | ✅ | ✅ | ✅ |
+| 계정 삭제(데모 계정 제외) | ✅ | ✅ | ✅ | ✅ |
 | 1:1 화상 통화(P2P) | ✅ | ✅ | ✅ | ✅ |
+| 루프백 시험 · 통화 진단 | — | ✅ | ✅ | ✅ |
 | 푸시 알림(FCM)<sup>2</sup> | ✅ | ✅ | ✅ | ✅ |
+| 토스트 · 오류 피드백 | — | ✅ | ✅ | ✅ |
 | 다국어(en · ko · ja) | ✅ | ✅ | ✅ | ✅ |
 | 라이트 / 다크 테마 | — | ✅ | ✅ | ✅ |
 
 <sup>1</sup> Android에는 공식 Sign in with Apple 네이티브 SDK가 없어 웹 redirect 경로만 둡니다([plan/auth.md](plan/auth.md) §8).
 
-<sup>2</sup> 코드는 네 플랫폼에 모두 있습니다. 실제 발송에는 Firebase 프로젝트와 자격증명이
-필요하고, 없으면 **푸시만 꺼진 채로** 나머지가 그대로 동작합니다([plan/push.md](plan/push.md)).
+<sup>2</sup> 배포된 인스턴스에는 FCM 자격증명이 들어가 있습니다(Helm 차트가 주입).
+**자격증명 없이 클론하면** 서버는 그대로 뜨고 **푸시만 꺼진 채로** 나머지가 동작합니다
+([plan/push.md](plan/push.md)).
 
 ## 기능
 
@@ -63,11 +83,13 @@
   그 enum 하나로 접고 버리며, IP는 읽지 않습니다. 기기명·브라우저·위치를 담으려면 그것을
   저장해야 하고, 그러면 개인정보 미저장 원칙이 깨집니다([plan/dashboard.md](plan/dashboard.md)).
 - **실시간 세션 presence**: 별도 WebSocket 서비스(`services/socket`)가 "지금 붙어 있는
-  세션"을 관리합니다. 연결이 곧 presence(60초 TTL을 20초마다 갱신)이고, 서버가 보내는 것은
-  `sessionsChanged` **신호 하나**뿐 — 목록은 클라이언트가 기존 `GET /auth/sessions`로 다시
-  가져옵니다(회전·401 처리가 전부 그 경로에 있어 소켓이 우회하면 안 됩니다). 같은 20초
-  스윕이 세션을 재검증해, 다른 기기에서 해제하면 **아무 조작 없이** 로그인 화면으로
-  돌아갑니다. 이 재조회는 활동으로 세지 않으므로 화면을 열어 둔 것만으로 세션이 연장되지
+  세션"을 관리하고, **통화 시그널링도 같은 서비스**가 나릅니다. 연결이 곧 presence(60초 TTL을
+  20초마다 갱신)이고, **목록 갱신을 위해** 서버가 보내는 것은 `sessionsChanged` **신호 하나**뿐
+  입니다 — 목록 자체는 싣지 않고 클라이언트가 기존 `GET /auth/sessions`로 다시 가져옵니다
+  (회전·401 처리가 전부 그 경로에 있어 소켓이 우회하면 안 됩니다). 소켓이 나르는 나머지는
+  제어(`ready` · `heartbeat` · `error`)와 통화 시그널링입니다. 세션이 사라진 것은 Redis
+  **키 만료 이벤트**(`notify-keyspace-events Kx`)가 즉시 알리고, 같은 20초 스윕이 그 뒤를
+  받칩니다 — 다른 기기에서 해제하면 **아무 조작 없이** 로그인 화면으로 돌아갑니다. 이 재조회는 활동으로 세지 않으므로 화면을 열어 둔 것만으로 세션이 연장되지
   않습니다.
 - **보안**: 리프레시 **재사용 탐지**(유예 창 밖의 재제시는 탈취로 보고 세션 폐기) ·
   login-CSRF 방어(흐름별 nonce 쿠키 ↔ 서명된 state 바인딩, 콜백에서 일회 소진) ·
@@ -95,16 +117,34 @@
   세 클라이언트로 생성 배포합니다 — 웹(`contracts.gen.ts`) · iOS(`Contracts.gen.swift`) ·
   Android(`Contracts.gen.kt`). `pnpm sync:contracts`로 재생성하고, drift는
   `pnpm check:contracts`와 테스트가 차단합니다.
+- **공개 페이지**: 개인정보처리방침(`/privacy`) · 계정 삭제 안내(`/account-deletion`) ·
+  앱 설치 안내(`/download`)를 웹 루트의 정적 페이지로 둡니다. 스토어 콘솔과 세 클라이언트의
+  로그인 화면이 이 주소를 가리키므로 **확장자도 끝의 `/`도 없는 주소**로 서빙합니다
+  (nginx exact match — [infra/deploy/README.md](infra/deploy/README.md)).
 - **운영**: `/healthz`(liveness) · `/readyz`(DB·세션 저장소 인지 readiness),
   Docker + Helm(kind) 배포, nginx 경로 라우팅.
 - **품질**: TypeScript `unknown`/`any` 키워드 금지(lint 강제) · strict +
-  `noUncheckedIndexedAccess` · 자동 테스트 **서버 458 · 웹 235 · iOS 116 · Android 127**.
+  `noUncheckedIndexedAccess` · 자동 테스트 **서버 509 · 웹 302 · iOS 156 · Android 169**.
   그 밖에 환경을 요구하는 것들은 있을 때만 실행됩니다 — 실제 Redis를 쓰는 서버 통합 스펙
-  26개(`PRISM_REDIS_URL`), 실제 서버에 붙는 iOS UI 테스트와 Android 라이브 프로브
+  28개(`PRISM_REDIS_URL`), 실제 서버에 붙는 iOS UI 테스트와 Android 라이브 프로브
   (`PRISM_API_URL` · `PRISM_LIVE_API_URL`). 유휴 창처럼 **프록시·서버까지 함께 있어야
   드러나는 동작**은 가짜 서버로는 확인되지 않기 때문입니다.
 
+## 아키텍처
+
+![Prism 아키텍처](infra/architecture.png)
+
+클라이언트 셋이 한 도메인으로 들어오고, nginx가 **정적 자산은 직접 내보내고** 나머지는 경로별로
+세 서비스에 넘깁니다(`/auth` · `/api` · `/socket`). 세션과 presence는 Redis에, 계정은 PostgreSQL에
+있고, 푸시와 소셜 로그인만 우리 밖으로 나갑니다. **통화 미디어는 이 그림을 지나지 않습니다** —
+클라이언트끼리 직접 오가고, 막힐 때만 coturn이 중계합니다.
+
+원본은 Figma의 [Prism architecture](https://www.figma.com/design/APYl8ItHqxKabHaO7F4iCi/Prism-architecture)입니다(위 이미지는 그 프레임을 내보낸 것).
+색·서체는 화면 시안과 같은 [design/](design/README.md) 토큰에서 옵니다.
+
 ## 구조
+
+버전 관리되는 디렉터리만 적습니다(`working/`처럼 gitignore된 로컬 작업 폴더는 제외).
 
 ```
 prism/
@@ -136,21 +176,27 @@ prism/
 
 가장 빠른 경로는 **서버 + 웹**입니다. 데모 로그인은 소셜 크리덴셜 없이 동작합니다.
 
+모든 명령은 **저장소 루트**에서 시작합니다. 자격증명은 파일이 아니라 셸 env로 넘깁니다 —
+저장소 기동에 `PRISM_POSTGRES_USER` · `_PASSWORD` · `_DB`와 `PRISM_REDIS_USER` · `_PASSWORD`가,
+서버에 `PRISM_DATABASE_URL` · `PRISM_REDIS_URL` · `PRISM_JWT_SECRET_KEY`가 필요합니다
+(서버는 `.env`를 읽지 않습니다 — [infra/](infra/README.md) 참고).
+
 ```bash
-# 1) 저장소(PostgreSQL · Redis) 기동
-cd infra/docker/postgres && docker compose up -d
-cd ../redis && docker compose up -d
+# 1) 저장소(PostgreSQL · Redis) 기동 — 서브셸이라 루트를 잃지 않습니다
+(cd infra/docker/postgres && docker compose up -d)
+(cd infra/docker/redis    && docker compose up -d)
 
 # 2) 스키마 마이그레이션 (infra/postgres/README.md 참고)
 ./infra/postgres/migrate.sh
 
-# 3) 서버(auth) · 웹
-cd apps/server && pnpm install && pnpm start:auth:dev
-cd apps/web && pnpm install && pnpm dev
+# 3) 서버(auth) · 웹 — 둘 다 포그라운드로 붙어 있으므로 **터미널을 따로** 엽니다
+pnpm -C apps/server install && pnpm -C apps/server start:auth:dev   # 터미널 1
+pnpm -C apps/web    install && pnpm -C apps/web    dev              # 터미널 2
 
-# 4) (선택) 세션 presence 소켓 — 없어도 로그인·목록은 동작하고, "연결됨" 배지와
-#     실시간 갱신만 빠집니다.
-cd apps/server && pnpm start:socket:dev
+# 4) (선택) 세션 presence · 통화 시그널링 소켓 — 터미널 3
+#     없으면 로그인·목록은 그대로 동작하지만 "연결됨" 배지·실시간 갱신과
+#     **기기 간 통화**가 빠집니다(통화 시그널링이 이 서비스에 있습니다).
+pnpm -C apps/server start:socket:dev
 ```
 
 iOS·Android는 각각 [apps/ios/README.md](apps/ios/README.md) ·
@@ -161,7 +207,7 @@ iOS·Android는 각각 [apps/ios/README.md](apps/ios/README.md) ·
 
 | 문서 | 내용 |
 | --- | --- |
-| [plan/](plan/) | 기획·설계 — [auth](plan/auth.md) · [dashboard](plan/dashboard.md) · [webrtc](plan/webrtc.md) · [push](plan/push.md) |
+| [plan/](plan/) | 기획·설계 — [auth](plan/auth.md) · [dashboard](plan/dashboard.md) · [webrtc](plan/webrtc.md) · [push](plan/push.md) · [distribution](plan/distribution.md) |
 | [apps/server/](apps/server/README.md) | 서비스 경계, 세션, 서버 다국어 |
 | [apps/web/](apps/web/README.md) | 웹 인증·세션 관리, 다국어, 테마 |
 | [apps/ios/](apps/ios/README.md) · [apps/android/](apps/android/README.md) | 앱 구조, 네이티브 로그인 설정 |
@@ -172,3 +218,8 @@ iOS·Android는 각각 [apps/ios/README.md](apps/ios/README.md) ·
 ## 배포
 
 web(정적) · auth · api · socket 빌드/배포 방법은 [infra/deploy/README.md](infra/deploy/README.md)를 참고하세요.
+
+앱 배포는 경로가 둘입니다 — iOS는 TestFlight(`ios-testflight.sh`), Android는 Play 내부 테스트용
+AAB(`android-bundle.sh`)와 **직접 설치용 APK**(`android-apk.sh`, 웹 루트의 `/dl/`로 나갑니다).
+어느 경로로 받았는지에 따라 앱의 서명 키가 달라지므로, 소셜 로그인 지문도 경로마다 등록이
+필요합니다([apps/android/README.md](apps/android/README.md)).

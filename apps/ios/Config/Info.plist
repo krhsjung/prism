@@ -62,5 +62,10 @@
 		<string>kakaokompassauth</string>
 		<string>kakaolink</string>
 	</array>
+	<!-- 수출 규정(암호화) 자진 신고. 이 앱은 HTTPS·WSS·WebRTC(DTLS-SRTP) 같은 표준 암호화만
+	     쓰므로 면제 대상이다. 이 키가 없으면 TestFlight 빌드가 업로드마다 "Missing
+	     Compliance"에 걸려 App Store Connect에서 손으로 답해야 테스터에게 풀린다. -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 </dict>
 </plist>

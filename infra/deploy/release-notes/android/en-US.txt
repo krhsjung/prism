@@ -1,0 +1,7 @@
+First internal test build.
+• Sign in: tap Demo, no account needed (Google, Kakao, Apple also work)
+• Dashboard: your signed-in devices, their status, remote sign-out
+• Push: send a notification to one of your devices
+• Call: 1:1 video call to another device on your account (P2P)
+• English, 한국어, 日本語; light and dark themes
+For a second device, sign in with Demo on the web.

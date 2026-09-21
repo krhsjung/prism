@@ -6,7 +6,6 @@
 
 ```text
 infra/
-├── architecture.drawio     # 인프라 구조도 (draw.io) — 단일 소스 오브 트루스
 ├── deploy/                 # web·services 빌드/배포 자동화 (Docker + Helm + 스크립트)
 ├── docker/                 # 로컬 개발용 컨테이너 환경
 │   ├── postgres/           # PostgreSQL primary/standby (스트리밍 복제) docker-compose
@@ -18,10 +17,10 @@ infra/
 
 ## 아키텍처
 
-전체 구조는 [architecture.drawio](architecture.drawio)에서 관리한다
-(draw.io / diagrams.net 또는 VS Code drawio 확장으로 열기).
+전체 구조는 **Figma의 [Prism architecture](https://www.figma.com/design/APYl8ItHqxKabHaO7F4iCi/Prism-architecture)** 에서 관리한다 — 화면 시안과 같은
+토큰·서체를 쓰므로 저장소의 다른 그림과 한 벌로 보인다([../design/README.md](../design/README.md)).
 
-- 외부 도메인 **`<your-domain>`** → **nginx**(reverse proxy)가 경로별 라우팅
+- 외부 도메인 **`hsjung.asuscomm.com`** → **nginx**(reverse proxy)가 경로별 라우팅
   - `/` → **web** (정적 SPA 빌드)
   - `/auth` → **auth** 서비스 (NestJS)
   - `/api` → **api** 서비스 (NestJS)

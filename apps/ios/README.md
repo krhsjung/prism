@@ -28,6 +28,14 @@ xcodebuild test -project prism.xcodeproj -scheme prism \
 프로젝트는 **파일 시스템 동기화 그룹**(objectVersion 77)을 씁니다 — `prism/` 아래에
 파일을 놓으면 `.xcodeproj`를 건드리지 않아도 타깃에 들어갑니다.
 
+## TestFlight 배포
+
+절차와 스크립트는 [infra/deploy](../../infra/deploy/README.md)의 "모바일 스토어 배포"에 있다
+(`./infra/deploy/ios-testflight.sh`). 이 앱에 남는 것은 그 스크립트가 읽는 설정뿐이다:
+[Config/ExportOptions.plist](Config/ExportOptions.plist)(App Store Connect 업로드 옵션)와
+[Config/Info.plist](Config/Info.plist)의 `ITSAppUsesNonExemptEncryption`(표준 암호화만 쓰므로
+`false` — 없으면 올라간 빌드가 "Missing Compliance"에 멈춘다).
+
 ## 구조
 
 피처-우선(feature-first): **인증 피처**는 `Features/Auth/` 한 곳에 오케스트레이션 + 화면이

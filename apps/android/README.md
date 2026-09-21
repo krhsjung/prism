@@ -12,6 +12,14 @@ Android Studio로 열거나 명령줄로:
 ./gradlew :app:installDebug           # 실행 중인 기기/에뮬레이터에 설치
 ```
 
+## Play 배포
+
+절차와 스크립트는 [infra/deploy](../../infra/deploy/README.md)의 "모바일 스토어 배포"에 있다
+(`./infra/deploy/android-bundle.sh`). 이 앱에 남는 것은 릴리스 서명 설정뿐이다:
+`app/build.gradle.kts`가 gitignore되는 `keystore.properties`(템플릿
+[keystore.example.properties](keystore.example.properties))가 있을 때만 release에 업로드 키
+서명을 붙인다. 릴리스 키 지문의 콘솔 등록은 아래 [네이티브 로그인 설정](#네이티브-로그인-설정빌드-전).
+
 ## 구조
 
 피처-우선(feature-first): **인증 피처**는 `feature/auth/` 한 곳에 오케스트레이션 + 화면이
@@ -224,7 +232,7 @@ PRISM_LIVE_API_URL=https://<서버> ./gradlew testDebugUnitTest --tests '*Sessio
 담고 `Authorization: Bearer`로 쓴다.
 
 **Apple에는 native 버튼을 두지 않는다** — 안드로이드에는 공식 네이티브 Sign in with Apple
-SDK가 없어(plan/auth.md §8) 눌러도 "사용할 수 없다"만 뜨는 버튼이 된다. 대신 redirect
+SDK가 없어(plan/auth.md §9) 눌러도 "사용할 수 없다"만 뜨는 버튼이 된다. 대신 redirect
 경로 하나만 남긴다(`AuthManager.signIn`의 native/APPLE 분기는 방어용으로 남아 있다).
 
 ### 네이티브 로그인 설정(빌드 전)
@@ -256,17 +264,59 @@ cp apps/android/secrets.example.properties apps/android/secrets.properties
 | Google Cloud ▸ 사용자 인증 정보 | **Android** 유형 OAuth 클라이언트 — 패키지 `kr.hs.jung.prism` + 서명 SHA-1. 서버 검증 대상은 그대로 웹 클라이언트 ID이므로, 앱에 넣는 값(`prismGoogleServerClientId`)은 여전히 **웹** 쪽이다 |
 | Kakao developers ▸ 플랫폼 ▸ Android | 패키지 `kr.hs.jung.prism` + 키 해시(SHA-1을 base64로 옮긴 값) |
 
-디버그 키스토어(`~/.android/debug.keystore`)의 지문은 이렇게 뽑는다:
+**서명 키가 셋이고 지문이 전부 다르다.** 배포 경로마다 다른 키로 서명되므로 **셋을 모두**
+등록해야 한다 — 하나가 빠지면 그 경로에서만 소셜 로그인이 죽는다.
+
+| 키 | 이 키로 서명되는 것 | 지문 얻는 법 |
+| -- | -- | -- |
+| **디버그** | `assembleDebug`로 만들어 기기에 꽂는 빌드 | 아래 `keytool` — **사람·기기마다 다르다** |
+| **업로드 키** | `/dl/`로 직접 주는 APK ([android-apk.sh](../../infra/deploy/android-apk.sh)) | 빌드할 때마다 스크립트가 찍어 준다 |
+| **Play 앱 서명 키** | Play가 배포하는 APK (내부·비공개 테스트 포함) | Play Console ▸ Google Play로 보호됨 ▸ Play 스토어 배포 ▸ Play 앱 서명 |
+
+Google Cloud의 Android OAuth 클라이언트는 **패키지 + 지문 한 쌍**만 담는다. 그래서 키마다
+클라이언트를 따로 만들고, 어느 것인지 **이름으로** 구분한다:
+
+| 키 | OAuth 클라이언트 이름 |
+| -- | -- |
+| 디버그 | `Prism Android — debug (<기기 이름>)` |
+| 업로드 키 | `Prism Android — upload key (direct APK)` |
+| Play 앱 서명 키 | `Prism Android — Play app signing` |
+
+디버그 지문은 기기마다 다르므로 **이름에 기기를 적는다.** 그러지 않으면 목록에 똑같이 생긴
+`Prism Android`가 쌓이고, 나중에 어느 것이 어느 기기 것인지 알 수 없어 지우지도 못한다.
+
+Kakao는 사정이 다르다 — **키 해시 목록에는 이름을 달 수 없고** 값만 줄로 쌓인다. 어느 해시가
+어느 키인지는 이 표로만 알 수 있으므로 **지우지 말고 추가만 한다.**
+
+지문 뽑는 법:
 
 ```bash
+# 디버그 — 이 기기의 값
 keytool -list -v -alias androiddebugkey -keystore ~/.android/debug.keystore \
-  -storepass android -keypass android | grep SHA1        # Google Cloud에 넣을 값
-# 위 SHA-1을 Kakao 키 해시로 변환
-echo "<SHA1>" | tr -d ':' | xxd -r -p | openssl base64    # Kakao에 넣을 값
+  -storepass android -keypass android | grep SHA1
+
+# 업로드 키 — SHA-1 · SHA-256 · Kakao 키 해시가 함께 나온다
+./infra/deploy/android-apk.sh --no-publish
+
+# Play 앱 서명 키 — 콘솔에서 복사한다. **API로는 읽을 수 없다**
+# (androidpublisher의 appSigning에는 등록·회전만 있고 인증서 조회가 없다).
+#   Play Console ▸ Google Play로 보호됨 ▸ Play 스토어 배포 ▸ Play 앱 서명 ▸ 앱 서명 키
+#   (예전 이름: 테스트 및 출시 ▸ 앱 무결성 ▸ Play 앱 서명 / 그 전: 설정 ▸ 앱 서명 —
+#    메뉴 이름이 자주 바뀐다. 못 찾으면 기기에 깔린 Play 배포본에서 직접 읽는다:
+#      adb shell pm path kr.hs.jung.prism && adb pull <경로> /tmp/play.apk
+#      apksigner verify --print-certs /tmp/play.apk)
+
+# SHA-1 → Kakao 키 해시 (Kakao가 받는 것은 16진수가 아니라 **원본 바이트의 base64**다)
+echo "<SHA1>" | tr -d ':' | xxd -r -p | openssl base64
 ```
 
-> 릴리스 서명 키로 빌드하면 지문이 달라진다 — 그때는 릴리스 키의 SHA-1/키 해시도 같은
-> 자리에 **추가로** 등록한다.
+> `android-apk.sh`가 `apksigner`로 읽는 이유: minSdk가 24라 AGP는 v1(JAR) 서명을 끄고 APK
+> Signature Scheme v2로만 서명한다. 그래서 `jarsigner`·`keytool -printcert -jarfile`은 제대로
+> 서명된 APK도 "unsigned"라고 말한다 — AAB는 v1이라 `android-bundle.sh`의 jarsigner는 맞다.
+
+> **Firebase에 SHA를 등록해도 OAuth 클라이언트는 생기지 않는다.** 예전에는 자동 생성됐지만
+> 지금은 아니다(2026-09 확인). Firebase 콘솔의 지문 목록과 Google Cloud의 OAuth 클라이언트는
+> **별개**이고, Credential Manager가 보는 것은 뒤쪽이다.
 
 #### 네이티브 로그인이 안 될 때
 

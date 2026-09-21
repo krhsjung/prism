@@ -1,0 +1,21 @@
+Prism treats "the devices signed in to your account" as a single list. From that list you sign devices out, send them notifications, and call them.
+
+■ Sign in
+No account needed. Tap Demo on the sign-in screen to enter with a sample account. Google, Apple and Kakao sign-in also work.
+
+■ Dashboard
+See every device currently signed in to your account, which ones are online, and when each was last used. Sign any of them out from here. Changes made on another device show up without a refresh.
+
+■ Notifications
+Pick a device from the list and send it a notification. Tapping the notification opens the screen it refers to.
+
+■ 1:1 video calls
+Call another device signed in to the same account. Audio and video travel directly between the two devices (peer-to-peer); nothing is recorded or stored on a server. If the other device is offline, a notification wakes it.
+
+■ Also
+• English, 한국어, 日本語
+• Light and dark themes
+• Session credentials live only in Android's secure storage
+
+■ About this app
+Prism is a personal portfolio project: one backend implemented across three clients (web, iOS, Android). It exists to show how the same feature is built on each platform, so the feature set is deliberately small.
