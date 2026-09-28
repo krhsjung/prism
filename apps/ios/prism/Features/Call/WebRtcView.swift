@@ -276,6 +276,9 @@ struct WebRtcView: View {
                     mirrored: true,
                     muted: !call.micOn,
                     message: selfTileMessage,
+                    // 컨트롤을 이 타일 위에 얹으므로 그 띠를 비워 달라고 넘긴다(§4).
+                    contentBottomInset: AppDimension.Call.controlSize
+                        + AppDimension.Call.bodySpacing,
                 ) {
                     // 미리 켜 보는 길. **자동으로는 켜지지 않는다** — 누르는 것이 곧
                     // 제스처다(§7). 아직 허용한 적이 없으면 이 버튼이 장치 이름을 얻는
@@ -295,7 +298,10 @@ struct WebRtcView: View {
                         )
                     }
                 }
-                .frame(height: AppDimension.Call.previewHeight)
+                // **높이는 고정이 아니라 최소다**(§4). 글꼴을 키우면 안내 문구가 두세
+                // 줄로 늘어 타일이 그만큼 자란다 — 고정이면 자랄 곳이 없어 문구가 아래
+                // 컨트롤을 덮는다(Android에서 실제로 그랬다).
+                .frame(minHeight: AppDimension.Call.previewHeight)
 
                 // 로비에서는 컨트롤이 프리뷰 위에 얹힌다(시안 Preview).
                 controls
@@ -324,6 +330,23 @@ struct WebRtcView: View {
                         onSelect: call.selectMicrophone,
                     )
                 }
+            }
+
+            // **거는 경로를 여기서 고른다**(§4). 진단 패널의 같은 컨트롤과 값을 나눠
+            // 쓰지만, 그쪽은 통화 중에만 서므로 여기가 없으면 벨이 울린 **뒤에야** 경로를
+            // 고를 수 있다. 문구는 갈린다 — 로비에는 되돌릴 통화가 없다.
+            CallField(label: t(.webrtcIcePolicy)) {
+                IcePolicyChoice(
+                    value: call.icePolicy,
+                    onChange: call.setIcePolicy,
+                    // 카메라를 얻는 중에는 잠근다 — 곧 설 연결이 어느 값을 쓸지 모호해진다.
+                    isDisabled: call.starting,
+                )
+                // 시안의 12px 힌트 — 기기 목록 부제와 같은 크기다(웹 `.setup__hint`).
+                Text(t(.webrtcIcePolicyLobbyNote))
+                    .font(.system(size: AppDimension.Call.fontCaption))
+                    .foregroundStyle(AppColor.muted)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             if let list = store.sessions {
@@ -485,6 +508,9 @@ struct WebRtcView: View {
             )
         case let .error(code):
             return (t(Self.callErrorKey(code)), true)
+        // 회선이 끊긴 것은 사용자가 만든 실패가 아니다 — 소켓이 사라진 것과 같은 Info다.
+        case .lost:
+            return (t(.webrtcConnectionLost), false)
         }
     }
 

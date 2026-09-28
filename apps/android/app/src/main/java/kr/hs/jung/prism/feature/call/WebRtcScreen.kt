@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -465,16 +466,27 @@ private fun LobbyBody(
         verticalArrangement = Arrangement.spacedBy(PrismDimensions.callBodySpacing),
         modifier = Modifier.padding(PrismDimensions.callBodyPadding),
     ) {
-        Box(modifier = Modifier.fillMaxWidth().height(PrismDimensions.callPreviewHeight)) {
+        // ⚠️ **최소 높이는 타일이 갖고 Box는 그것을 감싼다.** Box에 주면 타일이 제
+        // 내용만큼만 커져(무한 최대 제약에서 `fillMaxSize`가 풀리지 않는다) 어두운 판이
+        // Box보다 짧아지고, 바닥에 붙은 컨트롤이 판 밖으로 삐져 나온다.
+        Box(modifier = Modifier.fillMaxWidth()) {
             CallVideoTile(
                 track = localTrack,
                 state = selfTileState(state),
                 eglBaseContext = eglBaseContext,
+                // 컨트롤을 이 타일 위에 얹으므로 그 띠를 비워 달라고 넘긴다(§4).
+                contentBottomInset = PrismDimensions.callControlSize +
+                    PrismDimensions.callBodySpacing,
                 name = stringResource(R.string.webrtc_you),
                 mirrored = true,
                 muted = !state.micOn,
                 message = selfTileMessage(state),
-                modifier = Modifier.fillMaxSize(),
+                // **높이는 고정이 아니라 최소다**(§4). 글꼴 배율을 올리면 안내 문구가 두세
+                // 줄로 늘어 타일이 그만큼 자란다 — 고정이면 자랄 곳이 없어 문구가 아래
+                // 컨트롤을 덮었다.
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = PrismDimensions.callPreviewHeight),
                 action = if (!state.hasMedia) {
                     {
                         // 미리 켜 보는 길. **자동으로는 켜지지 않는다** — 누르는 것이 곧
@@ -534,6 +546,24 @@ private fun LobbyBody(
                     onSelect = controller::selectMicrophone,
                 )
             }
+        }
+
+        // **거는 경로를 여기서 고른다**(§4). 진단 패널의 같은 컨트롤과 값을 나눠 쓰지만,
+        // 그쪽은 통화 중에만 서므로 여기가 없으면 벨이 울린 **뒤에야** 경로를 고를 수 있다.
+        // 문구는 갈린다 — 로비에는 되돌릴 통화가 없다.
+        CallField(label = stringResource(R.string.webrtc_ice_policy)) {
+            IcePolicyChoice(
+                value = state.icePolicy,
+                onChange = controller::setIcePolicy,
+                // 카메라를 얻는 중에는 잠근다 — 곧 설 연결이 어느 값을 쓸지 모호해진다.
+                enabled = !state.starting,
+            )
+            // 시안의 12px 힌트 — 기기 목록 부제와 같은 크기다(웹 `.setup__hint`).
+            Text(
+                text = stringResource(R.string.webrtc_ice_policy_lobby_note),
+                color = PrismTheme.colors.muted,
+                fontSize = PrismDimensions.fontCaption,
+            )
         }
 
         when {
@@ -752,4 +782,6 @@ private fun describe(notice: CallNotice): Pair<String, Boolean> = when (notice) 
             .withVars("device" to stringResource(deviceLabel(notice.from.device))) to false
     }
     is CallNotice.Error -> stringResource(callErrorLabel(notice.code)) to true
+    // 회선이 끊긴 것은 사용자가 만든 실패가 아니다 — 소켓이 사라진 것과 같은 Info다.
+    is CallNotice.Lost -> stringResource(R.string.webrtc_connection_lost) to false
 }

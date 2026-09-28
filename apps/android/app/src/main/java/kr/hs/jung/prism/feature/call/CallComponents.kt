@@ -10,9 +10,11 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.HorizontalDivider
@@ -31,6 +33,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -105,6 +108,14 @@ fun CallVideoTile(
     pip: Boolean = false,
     /** 상태 줄 아래의 단 하나의 행동(호출 중의 `Cancel`, 로비의 `카메라 켜기`). */
     action: @Composable (() -> Unit)? = null,
+    /**
+     * 바닥에서 **비워 둘 띠**의 높이 — 문구는 그 위 영역의 중앙에 앉는다(§4).
+     *
+     * 컨트롤을 타일 위에 얹는 쪽(로비 프리뷰)이 컨트롤 높이 + 바닥 여백을 넘긴다. 타일이
+     * 스스로 갖지 않는 이유는 **통화 중 스테이지에는 컨트롤이 얹히지 않기** 때문이다 —
+     * 거기까지 문구를 올리면 큰 타일에서 버튼이 이유 없이 높아 보인다.
+     */
+    contentBottomInset: Dp = 0.dp,
 ) {
     val colors = PrismTheme.colors
     val shape = RoundedCornerShape(PrismDimensions.radiusMd)
@@ -129,8 +140,12 @@ fun CallVideoTile(
                 // 갖기 때문에 Compose의 그리기 순서를 따르지 않는다 — 이 표시가 없으면
                 // 나중에 그린 PiP가 아래 표면에 구멍을 내고 투명하게 비친다.
                 zOrderOnTop = pip,
+                // ⚠️ `matchParentSize`다 — `fillMaxSize`가 아니다. 타일의 높이는 이제
+                // 고정이 아니라 최소라(로비 프리뷰의 `heightIn`), 자식이 높이를 정하는
+                // 자리가 됐다. 영상이 `fillMaxSize`로 그 계산에 끼면 최대 제약이 무한인
+                // 구간에서 터진다. 영상은 타일이 정한 크기를 **따라가는** 쪽이다.
                 modifier = Modifier
-                    .fillMaxSize()
+                    .matchParentSize()
                     // 재연결 중에는 마지막 프레임이 멈춰 있다 — 흐리게 해서 "지금 것이
                     // 아니다"를 말한다(시안 `State=Reconnecting`).
                     .alpha(if (state == TileState.RECONNECTING) 0.5f else 1f),
@@ -143,8 +158,14 @@ fun CallVideoTile(
                     Alignment.CenterVertically,
                 ),
                 modifier = Modifier
-                    .fillMaxSize()
-                    .padding(PrismDimensions.callStagePadding),
+                    // 가운데 정렬은 Box가 하고 높이는 내용이 정한다 — `fillMaxSize`로
+                    // 타일을 다 먹으면 아래 여백이 밀어낼 자리가 없어 띠를 비울 수 없다.
+                    .align(Alignment.Center)
+                    .fillMaxWidth()
+                    .padding(PrismDimensions.callStagePadding)
+                    // 비워 둘 띠. 여백이 열 안쪽에 있으므로 Box의 가운데 정렬이 문구를
+                    // 그만큼 위로 올린다 — 곧 "띠를 제외한 영역의 중앙"이다(§4).
+                    .padding(bottom = contentBottomInset),
             ) {
                 if (message != null) {
                     Text(
@@ -195,7 +216,9 @@ private fun NameChip(name: String, modifier: Modifier = Modifier) {
     Box(
         contentAlignment = Alignment.Center,
         modifier = modifier
-            .height(PrismDimensions.callChipHeight)
+            // 칩도 **최소 높이**다(§4의 같은 규칙). 23으로 고정하면 글꼴 배율을 크게 올린
+            // 기기에서 이름이 칩 안에서 잘린다 — 시안의 23은 기본 배율의 값이다.
+            .heightIn(min = PrismDimensions.callChipHeight)
             .clip(RoundedCornerShape(percent = 50))
             .background(Color.Black.copy(alpha = 0.45f))
             .padding(horizontal = PrismDimensions.callChipHorizontalPadding),
@@ -582,5 +605,85 @@ fun CallDeviceSelect(
                 }
             }
         }
+    }
+}
+
+/**
+ * 경로를 고르는 라디오 한 벌 — **로비와 진단 패널이 같은 것을 쓴다**(plan/webrtc.md §4,
+ * 웹 `components/webrtc/IcePolicyChoice.tsx`).
+ *
+ * 두 자리에 두는 이유는 묻는 것이 다르기 때문이다: 로비에서는 "이번 통화를 어느 경로로
+ * 걸까"이고, 통화 중에는 "지금 경로를 바꿔 보자"다. 뒤쪽을 없애면 `TURN만 사용`이 `Path`를
+ * 즉시 Relayed로 바꾸는 것을 보여 줄 자리가 사라지고, 앞쪽이 없으면 벨이 울린 **뒤에야**
+ * 경로를 고를 수 있다.
+ *
+ * 값은 한 벌이다([CallController]가 들고 있다) — 어느 쪽에서 바꾸든 다음 연결이 그 값으로 선다.
+ */
+@Composable
+fun IcePolicyChoice(
+    value: IcePolicy,
+    onChange: (IcePolicy) -> Unit,
+    modifier: Modifier = Modifier,
+    /** 통화가 서는 중에는 잠근다 — 협상 도중의 전환은 되돌릴 자리가 애매하다. */
+    enabled: Boolean = true,
+) {
+    Column(
+        verticalArrangement = Arrangement.spacedBy(PrismDimensions.spacingSm),
+        modifier = modifier
+            .selectableGroup()
+            .alpha(if (enabled) 1f else 0.5f),
+    ) {
+        IcePolicyRadio(
+            label = stringResource(R.string.webrtc_ice_policy_all),
+            selected = value == IcePolicy.ALL,
+            enabled = enabled,
+        ) { onChange(IcePolicy.ALL) }
+        IcePolicyRadio(
+            label = stringResource(R.string.webrtc_ice_policy_relay),
+            selected = value == IcePolicy.RELAY,
+            enabled = enabled,
+        ) { onChange(IcePolicy.RELAY) }
+    }
+}
+
+/** 시안 `Atom/Radio` — 18 원. 줄 전체가 표적이다. */
+@Composable
+private fun IcePolicyRadio(
+    label: String,
+    selected: Boolean,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    val colors = PrismTheme.colors
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(PrismDimensions.spacingSm),
+        modifier = Modifier
+            .fillMaxWidth()
+            .selectable(
+                selected = selected,
+                enabled = enabled,
+                role = Role.RadioButton,
+                onClick = onClick,
+            ),
+    ) {
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier
+                .size(PrismDimensions.callRadioSize)
+                .clip(CircleShape)
+                .background(colors.card)
+                .border(1.dp, if (selected) colors.primary else colors.border, CircleShape),
+        ) {
+            if (selected) {
+                Box(
+                    modifier = Modifier
+                        .size(PrismDimensions.spacingSm)
+                        .clip(CircleShape)
+                        .background(colors.primary),
+                )
+            }
+        }
+        Text(text = label, color = colors.text, fontSize = PrismDimensions.fontBody)
     }
 }

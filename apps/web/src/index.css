@@ -1108,6 +1108,13 @@ a.navitem:hover {
   left: 50%;
   transform: translateX(-50%);
 }
+/* 컨트롤을 얹은 타일은 **그 띠를 비워 두고** 문구를 앉힌다(plan/webrtc.md §4).
+   비우지 않으면 타일 전체의 중앙에 앉은 문구가 자랄 때 아래 컨트롤을 덮는다 — 시안에서
+   둘 사이가 7뿐이었다. 띠는 컨트롤 높이(48)와 바닥 여백(24)의 합이고, 오버레이가 이미
+   가진 16 위에 더한다. 타일 안쪽 여백이라 flex의 가운데 정렬이 문구를 그만큼 올린다. */
+.preview .tile__overlay {
+  padding-bottom: calc(16px + 48px + 24px);
+}
 
 .setup {
   display: flex;
@@ -1495,12 +1502,14 @@ a.navitem:hover {
   line-height: 1.45;
   color: var(--color-muted);
 }
-.diag__radios {
+/* 로비와 진단 패널이 나눠 쓴다 — `Atom/Radio`는 한 블록의 부품이 아니라 아톰이다
+   (plan/webrtc.md §4: 경로는 걸기 전에도 통화 중에도 고른다). */
+.radios {
   display: flex;
   align-items: center;
   gap: 24px;
 }
-.diag__radio {
+.radio {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1511,7 +1520,7 @@ a.navitem:hover {
 /* Figma `Atom/Radio` — 18×18 원. 꺼짐은 Card + Border, 켜짐은 Primary 테두리 + 지름 8 점.
    `.check__box`와 같은 이유로 브라우저 기본을 걷는다. 점은 Primary 판 위에 Card 색 4px 고리를
    안쪽으로 둘러 만든다 — 테두리 안 16px에서 고리 4px씩을 빼면 Figma의 점(r=4)이 남는다. */
-.diag__radio input {
+.radio input {
   appearance: none;
   -webkit-appearance: none;
   flex: none;
@@ -1523,16 +1532,16 @@ a.navitem:hover {
   background: var(--color-card);
   cursor: pointer;
 }
-.diag__radio input:checked {
+.radio input:checked {
   border-color: var(--color-primary);
   background: var(--color-primary);
   box-shadow: inset 0 0 0 4px var(--color-card);
 }
-.diag__radio input:focus-visible {
+.radio input:focus-visible {
   outline: 2px solid var(--color-accent);
   outline-offset: 1px;
 }
-.diag__radio input:disabled {
+.radio input:disabled {
   opacity: 0.5;
   cursor: default;
 }

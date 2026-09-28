@@ -83,6 +83,12 @@ struct CallVideoTile<Action: View>: View {
     var message: String?
     /// 화면 안에 겹쳐 놓는 작은 타일(모바일의 셀프 PiP).
     var pip = false
+    /// 바닥에서 **비워 둘 띠**의 높이 — 문구는 그 위 영역의 중앙에 앉는다(§4).
+    ///
+    /// 컨트롤을 타일 위에 얹는 쪽(로비 프리뷰)이 컨트롤 높이 + 바닥 여백을 넘긴다. 타일이
+    /// 스스로 갖지 않는 이유는 **통화 중 스테이지에는 컨트롤이 얹히지 않기** 때문이다 —
+    /// 거기까지 문구를 올리면 큰 타일에서 버튼이 이유 없이 높아 보인다.
+    var contentBottomInset: CGFloat = 0
     /// 상태 줄 아래의 단 하나의 행동(호출 중의 `Cancel`, 로비의 `카메라 켜기`).
     @ViewBuilder var action: () -> Action
 
@@ -107,6 +113,9 @@ struct CallVideoTile<Action: View>: View {
                     action()
                 }
                 .padding(AppDimension.Call.stagePadding)
+                // 비워 둘 띠. 여백이 묶음 안쪽에 있으므로 ZStack의 가운데 정렬이 문구를
+                // 그만큼 위로 올린다 — 곧 "띠를 제외한 영역의 중앙"이다(§4).
+                .padding(.bottom, contentBottomInset)
             }
 
             // 이름표는 **좌하단**이다. 우상단은 PiP 자리이고, 우하단은 컨트롤과 겹친다.
@@ -161,7 +170,9 @@ struct CallVideoTile<Action: View>: View {
             .font(.system(size: AppDimension.Dashboard.badgeFontSize, weight: .semibold))
             .foregroundStyle(AppColor.stageForeground)
             .padding(.horizontal, AppDimension.Call.chipHorizontalPadding)
-            .frame(height: AppDimension.Call.chipHeight)
+            // 칩도 **최소 높이**다(§4의 같은 규칙) — 시안의 23은 기본 글꼴의 값이고,
+            // 고정해 두면 글자를 키운 기기에서 이름이 칩 안에서 잘린다.
+            .frame(minHeight: AppDimension.Call.chipHeight)
             .background(.black.opacity(0.45), in: .capsule)
     }
 }
