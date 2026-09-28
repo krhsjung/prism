@@ -41,6 +41,9 @@ enum CallNotice: Equatable, Sendable {
     /// 알림을 늦게 열었다. `from`은 없을 수 있다 — 서버가 그 통화를 더는 기억하지
     /// 못하거나 애초에 내 통화가 아니었으면 기기 종류를 지어내지 않는다(§6).
     case expired(from: SessionRef?)
+    /// 내 소켓이 끊긴 채 창(`REJOIN_WINDOW_MS`)이 지났다 — 상대가 끊은 것이 아니라 회선이
+    /// 끊긴 것이고, 화면도 그렇게 말한다(§8-12).
+    case lost
 }
 
 struct ActiveCall: Equatable, Sendable {
@@ -84,6 +87,23 @@ final class CallController {
     /// 답이 영영 오지 않는다. 그동안 다음 통화를 막아 두므로(`starting`), 풀어 주는
     /// 시계가 없으면 화면이 걸린 채로 남는다.
     private static let answerTimeout: Duration = .seconds(10)
+
+    /// 붙었던 통화의 길이 끊긴 뒤, **같은 연결에서** 길을 다시 찾는 시계들(plan/webrtc.md §8).
+    ///
+    /// `disconnected`는 스스로 돌아오는 경우가 흔해서 잠깐 두고 본 뒤 첫 ICE restart를 낸다.
+    /// 그래도 안 붙으면 일정 간격으로 다시 내고, **처음 끊긴 시점부터** 상한이 지나면
+    /// `연결 실패`로 접는다 — 그 뒤에 남는 것이 타일의 `Try again`(같은 상대에게 새로 걸기)이다.
+    /// 상한을 첫 연결(`connectTimeout`)보다 짧게 두는 이유: 사람이 대화 중에 기다리는 시간이다.
+    private static let reconnectGrace: Duration = .seconds(2)
+    private static let reconnectRetry: Duration = .seconds(5)
+    private static let reconnectTimeout: Duration = .seconds(15)
+    /// `rejoin`을 보낸 뒤 답을 기다리는 시간(§8-12).
+    ///
+    /// 창(`REJOIN_WINDOW_MS`)은 **소켓이 돌아오기까지**를 재고 이 시계는 **답이
+    /// 오기까지**를 잰다. 둘을 한 시계로 묶으면 창 끝에 보낸 `rejoin`은 서버가 받아 줘도
+    /// 답이 닿기 전에 시계가 울어 진다. 결말은 서버가 정하므로(`accepted`·`expired`)
+    /// 이 시계는 답이 아예 오지 않는 경우의 안전망일 뿐이다.
+    private static let rejoinAnswer: Duration = .seconds(10)
 
     // ── 로비(장치) ──
     private(set) var localVideoTrack: RTCVideoTrack?
@@ -129,6 +149,17 @@ final class CallController {
     @ObservationIgnored private var offering = false
     /// `연결 중`에 상한을 두는 시계.
     @ObservationIgnored private var connectTimer: Task<Void, Never>?
+    /// 다음 ICE restart를 내는 시계(거는 쪽만)와, 재연결을 포기하는 시계(양쪽).
+    /// 포기 시계가 걸려 있는 동안이 곧 `재연결 중`이다 — 처음 끊긴 시점부터 잰다.
+    @ObservationIgnored private var restartTimer: Task<Void, Never>?
+    @ObservationIgnored private var reconnectTimer: Task<Void, Never>?
+    /// restart offer를 만드는 중이다 — 겹쳐 내면 두 offer가 한 답을 두고 다툰다.
+    @ObservationIgnored private var restarting = false
+    /// 원격 기술을 붙이는 중이다 — 그동안 온 후보는 붙들어 둔다(`setRemote`).
+    @ObservationIgnored private var applyingRemote = false
+    /// 붙은 뒤 시그널링 소켓을 잃었다 — 다시 붙어 `rejoin`의 답을 받을 때까지 기다리는 시계.
+    /// 걸려 있는 동안은 ICE의 소식을 듣지 않는다(길을 다시 찾는 일은 소켓이 먼저다).
+    @ObservationIgnored private var rejoinTimer: Task<Void, Never>?
     /// `ringing`을 기다리는 사이에 취소했다. id를 알게 되는 순간 서버에도 알려야 한다.
     @ObservationIgnored private var cancelPending = false
     /// 보낸 `call`이 아직 답을 못 받았다 — 두 번째 누름을 막는 문.
@@ -157,9 +188,10 @@ final class CallController {
             guard let self else { return }
             Task { await self.handle(message) }
         }
-        // 소켓이 끊기면 서버는 이미 통화를 끝냈다 — 이쪽도 접지 않으면 카메라를 쥔 채
-        // `연결됨`을 그리고 있는데 상대는 로비로 돌아간 화면이 된다. 루프백은 소켓을
-        // 쓰지 않으므로 건드리지 않는다.
+        // 소켓이 끊겼다. **붙은 뒤의 통화는 접지 않고 소켓을 기다린다** — 서버가 창구만
+        // 비우고 유예 창을 걸어 두므로(§8-12), 다시 붙어 `rejoin`을 보내면 되찾는다. 벨
+        // 단계·실패한 통화는 붙들 것이 없어 지금까지처럼 접는다(서버도 벨 단계의 단절은
+        // 바로 끝으로 본다). 루프백은 소켓을 쓰지 않으므로 건드리지 않는다.
         socket.onDisconnected = { [weak self] in
             guard let self else { return }
             // 기다리던 `call`의 답도 오지 않는다 — 소켓이 없으면 서버는 답할 길이 없다.
@@ -167,8 +199,67 @@ final class CallController {
             settleAttempt()
             cancelPending = false
             guard let call, !call.isLoopback else { return }
-            finish(.ended(reason: .peerGone))
+            let held = call.callId != nil
+                && [.connecting, .connected, .reconnecting].contains(call.status)
+            if held { loseSocket() } else { finish(.ended(reason: .peerGone)) }
         }
+        // 소켓이 (다시) 붙었다 — 잃었던 통화의 창구를 되찾는다.
+        socket.onReady = { [weak self] in
+            guard let self, rejoinTimer != nil, let callId = call?.callId else { return }
+            send(.rejoin(callId: callId))
+            // **보낸 순간 창을 끈다.** 답을 기다리는 왕복까지 같은 창에서 빼면 창 끝에
+            // 보낸 `rejoin`은 서버가 받아 줘도 진다(§8-12). 여기서부터 재는 것은
+            // "소켓이 돌아오기까지"가 아니라 "답이 오기까지"다.
+            awaitRejoinAnswer()
+        }
+    }
+
+    /// 붙은 뒤 시그널링 소켓을 잃었다 — **통화를 접지 않고 소켓을 기다린다**(§8-12).
+    ///
+    /// 회선이 바뀌면(Wi-Fi↔LTE) 소켓이 먼저 죽는다. 서버는 창구만 비우고 유예 창을 걸어
+    /// 두므로, 다시 붙어 `rejoin`을 보내면 창구를 되찾고 양쪽이 처음처럼 다시 협상한다.
+    /// 그동안 ICE는 어차피 길을 잃고 restart offer는 갈 곳이 없으니 그 시계는 멈추고,
+    /// 배지만 `재연결 중`을 그린다. 창(`REJOIN_WINDOW_MS`) 안에 소켓이 돌아오지 않으면
+    /// 여기서 접는다 — 서버가 알려 줄 길이 없는 유일한 시간이라 클라이언트가 스스로 잰다.
+    private func loseSocket() {
+        connectTimer?.cancel()
+        connectTimer = nil
+        stopReconnecting()
+        patch { $0.status = .reconnecting }
+        rejoinTimer?.cancel()
+        rejoinTimer = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(REJOIN_WINDOW_MS))
+            guard !Task.isCancelled, let self else { return }
+            giveUpLost()
+        }
+    }
+
+    /// `rejoin`을 보냈다 — 이제부터는 **답이 오지 않는 경우**만 잰다(§8-12).
+    private func awaitRejoinAnswer() {
+        rejoinTimer?.cancel()
+        rejoinTimer = Task { [weak self] in
+            try? await Task.sleep(for: Self.rejoinAnswer)
+            guard !Task.isCancelled, let self else { return }
+            giveUpLost()
+        }
+    }
+
+    /// 회선이 끊겨 접는다 — **접기 전에 상대에게 알린다**(§8-12).
+    ///
+    /// 여기 닿는 길은 둘이다: 소켓이 창 안에 돌아오지 않았거나(소켓이 죽어 있다), 보낸
+    /// `rejoin`의 답이 오지 않았거나(소켓은 살아 있다). 뒤쪽에서 말없이 화면만 접으면
+    /// 상대는 `통화 중` 안에 `연결 실패`로 남고, 되찾힌 창구 때문에 서버도 통화를 살아
+    /// 있는 것으로 본다. 소켓이 죽어 있으면 이 `hangup`은 나가지 않고, 그때는 서버의
+    /// 창이 `peer-gone`으로 끝내므로 상대는 어느 쪽이든 소식을 듣는다.
+    private func giveUpLost() {
+        rejoinTimer = nil
+        if let callId = call?.callId { _ = send(.hangup(callId: callId)) }
+        finish(.lost)
+    }
+
+    private func clearRejoinWait() {
+        rejoinTimer?.cancel()
+        rejoinTimer = nil
     }
 
     // MARK: - 미디어
@@ -282,6 +373,9 @@ final class CallController {
     private func teardownPeer() {
         connectTimer?.cancel()
         connectTimer = nil
+        stopReconnecting()
+        clearRejoinWait()
+        applyingRemote = false
         offering = false
         peer?.close()
         peer = nil
@@ -301,6 +395,8 @@ final class CallController {
     /// 새로 만드는 것이 재협상(ICE 정책 전환)까지 한 규칙으로 덮는 가장 단순한 길이다.
     private func buildPeer(callId: String) -> RTCPeerConnection? {
         self.peer?.close()
+        // 새 연결은 새 협상이다 — 옛 연결의 재연결 시계는 여기서 끝난다.
+        stopReconnecting()
         pendingRemote = []
         sampler.reset()
 
@@ -335,8 +431,9 @@ final class CallController {
         delegate.onRemoteTrack = { [weak self] track in
             self?.remoteVideoTrack = track
         }
-        delegate.onConnectionState = { [weak self] state in
-            self?.apply(connectionState: state)
+        delegate.onConnectionState = { [weak self, weak peer] state in
+            guard let peer else { return }
+            self?.apply(connectionState: state, of: peer)
         }
 
         attachLocalTracks(to: peer)
@@ -354,21 +451,115 @@ final class CallController {
         }
     }
 
-    private func apply(connectionState state: RTCPeerConnectionState) {
-        guard var current = call else { return }
+    /// 연결 상태를 배지로 옮긴다. **루프백과 릴레이가 같은 표를 쓴다** — 갈라 두면 한쪽만
+    /// `재연결 중`을 그리게 되고, 세 플랫폼의 대칭도 거기서 깨진다.
+    ///
+    /// 끊김은 **실패가 아니다.** 붙었던 통화의 `disconnected`·`failed`는 길을 잃은 것이고
+    /// 같은 연결에서 다시 찾을 수 있다(ICE restart). `연결 실패`가 되는 것은 그 시도가
+    /// 상한에 닿았을 때뿐이다. 붙기 **전**의 `failed`는 다르다 — 애초에 길이 없던 것이라
+    /// restart로 살릴 것이 없고, 지금까지처럼 바로 `연결 실패`다.
+    private func apply(connectionState state: RTCPeerConnectionState, of connection: RTCPeerConnection) {
+        // 버린 연결의 늦은 소식은 지금 통화의 것이 아니다.
+        guard connection === peer, let current = call else { return }
+        // 소켓을 잃은 동안은 ICE의 소식을 듣지 않는다 — restart offer가 갈 길이 없고,
+        // 결말은 다시 붙은 소켓의 `rejoin`이 정한다(§8-12).
+        guard rejoinTimer == nil else { return }
         switch state {
         case .connected:
-            current.status = .connected
-            current.connectedAt = current.connectedAt ?? Date()
-        // 끊김은 **실패가 아니다** — ICE가 스스로 되찾는 경우가 흔하다.
-        case .disconnected:
-            current.status = .reconnecting
-        case .failed:
-            current.status = .failed
+            connectTimer?.cancel()
+            connectTimer = nil
+            stopReconnecting()
+            patch {
+                $0.status = .connected
+                $0.connectedAt = $0.connectedAt ?? Date()
+            }
+        case .disconnected, .failed:
+            let wasUp = current.status == .connected || current.status == .reconnecting
+            guard wasUp else {
+                if state == .failed { failCall() }
+                return
+            }
+            markReconnecting()
+            // restart는 거는 쪽이 낸다. `disconnected`는 스스로 돌아오는 경우가 흔해
+            // 잠깐 두고 보고, `failed`는 지금 후보로는 길이 없다는 뜻이라 바로 낸다.
+            guard current.isCaller else { return }
+            if state == .failed {
+                scheduleRestart(after: .zero)
+            } else if restartTimer == nil {
+                scheduleRestart(after: Self.reconnectGrace)
+            }
         default:
             return
         }
-        call = current
+    }
+
+    /// 재연결을 접는다 — 붙었든, 포기했든, 연결을 새로 세우든 시계는 여기서 멈춘다.
+    private func stopReconnecting() {
+        restarting = false
+        restartTimer?.cancel()
+        restartTimer = nil
+        reconnectTimer?.cancel()
+        reconnectTimer = nil
+    }
+
+    /// 길이 끊겼다 — 배지를 `재연결 중`으로 옮기고 포기 시계를 건다. 이미 걸려 있으면 그대로다.
+    ///
+    /// 상한은 **처음 끊긴 시점부터** 잰다 — restart를 몇 번 냈는지가 아니라 사람이
+    /// `재연결 중`을 얼마나 봤는지가 기다림의 크기다. 양쪽이 같은 값을 쓰므로 거는 쪽과
+    /// 받는 쪽이 대체로 같은 때에 포기한다.
+    private func markReconnecting() {
+        guard reconnectTimer == nil else { return }
+        // connectedAt은 지우지 않는다 — 통화는 이어지는 중이고 시간도 계속 흐른다.
+        patch { $0.status = .reconnecting }
+        reconnectTimer = Task { [weak self] in
+            try? await Task.sleep(for: Self.reconnectTimeout)
+            guard !Task.isCancelled, let self else { return }
+            reconnectTimer = nil
+            if call?.status == .reconnecting { failCall() }
+        }
+    }
+
+    /// 다음 restart를 내는 시계.
+    private func scheduleRestart(after delay: Duration) {
+        restartTimer?.cancel()
+        restartTimer = Task { [weak self] in
+            try? await Task.sleep(for: delay)
+            guard !Task.isCancelled, let self else { return }
+            // 자기 자신을 취소하지 않게 먼저 놓는다 — `restartIce`가 다음 시계를 걸며 이것을 끈다.
+            restartTimer = nil
+            await restartIce()
+        }
+    }
+
+    /// ICE restart — **같은 연결에서** 새 후보로 길을 다시 찾는다(plan/webrtc.md §8).
+    ///
+    /// 통화 시작·정책 전환의 `offerNow`와 달리 연결을 새로 세우지 않는다. DTLS·트랜시버는
+    /// 그대로 두고 ICE 자격증명만 바꾸는 것이라, 붙는 순간 미디어가 그 자리에서 이어진다.
+    /// 받는 쪽은 지문이 같은 offer를 보고 같은 연결에 이어 붙인다(`SdpFingerprint`).
+    ///
+    /// **거는 쪽만 낸다.** 역할이 방향에서 나오는 §6의 규칙 그대로라 glare가 없다.
+    /// 루프백은 같은 길을 타되 offer가 소켓 대신 화면 안의 받는 연결로 간다.
+    private func restartIce() async {
+        guard let current = call, let peer, current.status == .reconnecting else { return }
+        // 내가 낸 offer의 답이 아직 안 왔다 — 그 답이 ICE를 다시 돌린다. 다음 차례에 본다.
+        if offering || restarting { return scheduleRestart(after: Self.reconnectRetry) }
+        restarting = true
+        defer { restarting = false }
+        guard let offer = await createOffer(peer, iceRestart: true) else { return failCall() }
+        // 만드는 사이에 통화가 끝났거나 연결이 바뀌었을 수 있다.
+        guard self.peer === peer else { return }
+        if current.isLoopback {
+            guard loopback.count == 2 else { return }
+            let callee = loopback[1]
+            try? await callee.setRemoteDescription(offer)
+            guard let answer = await createAnswer(callee) else { return failCall() }
+            guard self.peer === peer else { return }
+            try? await peer.setRemoteDescription(answer)
+        } else if let callId = current.callId {
+            offering = true
+            send(.offer(callId: callId, sdp: offer.sdp))
+        }
+        scheduleRestart(after: Self.reconnectRetry)
     }
 
     private func drainRemoteCandidates(_ peer: RTCPeerConnection) async {
@@ -378,6 +569,24 @@ final class CallController {
             // 한 후보가 못 들어가도 통화는 다른 후보로 붙는다.
             try? await peer.add(candidate)
         }
+    }
+
+    /// 원격 기술을 붙이고, 그동안 온 후보를 넣는다.
+    ///
+    /// ⚠️ **붙이는 동안의 후보는 붙들어 둔다.** 같은 연결에 재-offer·answer를 붙일 때는
+    /// remoteDescription이 이미 있어서, 새 세대의 후보가 먼저 닿으면 옛 자격증명에 대고
+    /// 넣다가 버려진다(시그널링 핸들러는 메시지마다 따로 돌아 순서를 지켜 주지 않는다).
+    /// 첫 offer 때 remoteDescription이 없어 큐에 두는 것과 **같은 길**로 보낸다.
+    private func setRemote(_ description: RTCSessionDescription, on peer: RTCPeerConnection) async throws {
+        applyingRemote = true
+        do {
+            try await peer.setRemoteDescription(description)
+        } catch {
+            applyingRemote = false
+            throw error
+        }
+        applyingRemote = false
+        await drainRemoteCandidates(peer)
     }
 
     // MARK: - 통화 끝내기
@@ -438,6 +647,10 @@ final class CallController {
             guard let current = call, current.callId == callId else { return }
             iceServers = servers
             incoming = nil
+            // `rejoin`의 답으로도 온다 — 창구를 되찾았으니 처음처럼 다시 협상한다. 소켓을
+            // 기다리던 시계도, 옛 연결의 재연결 시계도 여기서 끝난다(§8-12).
+            clearRejoinWait()
+            stopReconnecting()
             patch { $0.status = .connecting }
             armConnectTimeout()
             // **`accepted`를 받은 거는 쪽이 offer를 낸다** — 첫 협상의 방향은 여기서
@@ -460,21 +673,32 @@ final class CallController {
                 return
             }
             offering = false
-            // offer가 올 때마다 연결을 새로 세운다 — 통화 시작과 ICE 정책 전환에 따른
-            // 재협상을 **한 규칙**으로 덮는다.
-            guard let peer = buildPeer(callId: callId) else { return failCall() }
+            // **같은 연결의 재-offer는 그 연결에 이어 붙인다** — ICE restart다. 지문이
+            // 다르면 상대가 연결을 새로 세운 것(ICE 정책 전환)이라 이쪽도 새로 세운다.
+            // 통화 시작과 정책 전환은 그대로 한 규칙이고, restart만 그 위에 얹힌다.
+            let resumes: Bool
+            let peer: RTCPeerConnection
+            if let held = self.peer, let remote = held.remoteDescription,
+               SdpFingerprint.sameConnection(remote.sdp, sdp) {
+                resumes = true
+                peer = held
+            } else {
+                guard let built = buildPeer(callId: callId) else { return failCall() }
+                resumes = false
+                peer = built
+            }
             do {
-                try await peer.setRemoteDescription(
-                    RTCSessionDescription(type: .offer, sdp: sdp),
-                )
+                try await setRemote(RTCSessionDescription(type: .offer, sdp: sdp), on: peer)
             } catch {
                 // 그냥 돌아서면 화면이 `연결 중`에 갇힌다 — 벨 상한은 붙기 전에만 돈다.
                 Log.error("set_remote_offer_failed")
                 return failCall()
             }
-            await drainRemoteCandidates(peer)
             guard let answer = await createAnswer(peer) else { return failCall() }
             send(.answer(callId: callId, sdp: answer.sdp))
+            // 이어 붙인 쪽은 배지를 건드리지 않는다 — 이쪽 ICE가 실제로 길을 잃었는지는
+            // 이 연결의 상태 변화가 말하고, 그것이 `재연결 중`과 `연결됨`을 그린다.
+            if resumes { return }
             patch { $0.status = .connecting }
             armConnectTimeout()
             startStatsLoop()
@@ -489,14 +713,11 @@ final class CallController {
             }
             offering = false
             do {
-                try await peer.setRemoteDescription(
-                    RTCSessionDescription(type: .answer, sdp: sdp),
-                )
+                try await setRemote(RTCSessionDescription(type: .answer, sdp: sdp), on: peer)
             } catch {
                 Log.error("set_remote_answer_failed")
                 return failCall()
             }
-            await drainRemoteCandidates(peer)
 
         case let .ice(callId, payload):
             guard let current = call, current.callId == callId else { return }
@@ -505,8 +726,8 @@ final class CallController {
                 sdpMLineIndex: payload.sdpMLineIndex ?? 0,
                 sdpMid: payload.sdpMid,
             )
-            // 원격 기술이 아직 없으면 넣을 수 없다 — 붙들고 있다가 넣는다.
-            guard let peer, peer.remoteDescription != nil else {
+            // 원격 기술이 아직 없거나 붙이는 중이면 넣을 수 없다 — 붙들고 있다가 넣는다.
+            guard let peer, peer.remoteDescription != nil, !applyingRemote else {
                 pendingRemote.append(candidate)
                 return
             }
@@ -534,7 +755,9 @@ final class CallController {
             // 늦은 답 하나가 지금 붙어 있는 통화를 끊는다.
             if incoming?.callId == callId { incoming = nil }
             guard call == nil || call?.callId == callId else { return }
-            finish(.expired(from: from))
+            // 들고 있던 통화의 `rejoin`에 온 답이면 창이 지난 것이다 — "늦게 연 알림"이
+            // 아니라 **회선이 끊겨 끝난 통화**이고, 화면도 그렇게 말한다.
+            finish(call == nil ? .expired(from: from) : .lost)
 
         case let .callError(code):
             // 화면 전환 없이 알림 한 줄로 받는다 — 아직 통화가 아니었다(§3.2).
@@ -561,6 +784,7 @@ final class CallController {
     private func failCall() {
         connectTimer?.cancel()
         connectTimer = nil
+        stopReconnecting()
         offering = false
         patch { $0.status = .failed }
     }
@@ -817,8 +1041,9 @@ final class CallController {
             calleeDelegate.onRemoteTrack = { [weak self] track in
                 self?.remoteVideoTrack = track
             }
-            callerDelegate.onConnectionState = { [weak self] state in
-                self?.apply(connectionState: state)
+            callerDelegate.onConnectionState = { [weak self, weak caller] state in
+                guard let caller else { return }
+                self?.apply(connectionState: state, of: caller)
             }
             attachLocalTracks(to: caller)
 
@@ -917,8 +1142,17 @@ final class CallController {
 
     // MARK: - SDP (콜백을 async로 접는다)
 
-    private func createOffer(_ peer: RTCPeerConnection) async -> RTCSessionDescription? {
-        let constraints = RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
+    private func createOffer(
+        _ peer: RTCPeerConnection,
+        iceRestart: Bool = false
+    ) async -> RTCSessionDescription? {
+        // ICE restart는 같은 연결에 새 자격증명을 요구하는 것이다 — 제약 하나가 그 요청이다.
+        let constraints = RTCMediaConstraints(
+            mandatoryConstraints: iceRestart
+                ? [kRTCMediaConstraintsIceRestart: kRTCMediaConstraintsValueTrue]
+                : nil,
+            optionalConstraints: nil,
+        )
         guard let offer = try? await peer.offer(for: constraints) else {
             Log.error("create_offer_failed")
             return nil

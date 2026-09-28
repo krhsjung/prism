@@ -1450,6 +1450,29 @@
         }
       }
     },
+    "webrtc.connection_lost": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The connection was lost and the call ended."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "연결이 끊겨 통화가 끝났습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続が切れたため通話は終了しました。"
+          }
+        }
+      }
+    },
     "webrtc.diagnostics": {
       "extractionState": "manual",
       "localizations": {
@@ -2090,6 +2113,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "切り替えると通話が再接続されます。「TURN のみ」はメディアをリレー経由に強制するため、経路の変化を確認できます。"
+          }
+        }
+      }
+    },
+    "webrtc.ice_policy_lobby_note": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The next call uses this path. “TURN only” forces media through the relay."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다음 통화가 이 경로를 씁니다. “TURN만 사용”은 미디어를 릴레이로 강제합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "次の通話でこの経路を使います。「TURN のみ」はメディアをリレー経由に強制します。"
           }
         }
       }

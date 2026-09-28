@@ -148,6 +148,7 @@ enum MessageKey: String, CaseIterable, Sendable {
     case webrtcTileCameraIdle = "webrtc.tile_camera_idle"
     case webrtcPreviewStart = "webrtc.preview_start"
     case webrtcPeerLeft = "webrtc.peer_left"
+    case webrtcConnectionLost = "webrtc.connection_lost"
     case webrtcDiagnostics = "webrtc.diagnostics"
     case webrtcDiagShow = "webrtc.diag_show"
     case webrtcDiagHide = "webrtc.diag_hide"
@@ -176,6 +177,7 @@ enum MessageKey: String, CaseIterable, Sendable {
     case webrtcIcePolicyAll = "webrtc.ice_policy_all"
     case webrtcIcePolicyRelay = "webrtc.ice_policy_relay"
     case webrtcIcePolicyNote = "webrtc.ice_policy_note"
+    case webrtcIcePolicyLobbyNote = "webrtc.ice_policy_lobby_note"
     case webrtcDiagSignaling = "webrtc.diag_signaling"
     case webrtcLogSent = "webrtc.log_sent"
     case webrtcLogReceived = "webrtc.log_received"
@@ -379,6 +381,7 @@ enum MessageKey: String, CaseIterable, Sendable {
              .webrtcTileCameraIdle,
              .webrtcPreviewStart,
              .webrtcPeerLeft,
+             .webrtcConnectionLost,
              .webrtcDiagnostics,
              .webrtcDiagShow,
              .webrtcDiagHide,
@@ -407,6 +410,7 @@ enum MessageKey: String, CaseIterable, Sendable {
              .webrtcIcePolicyAll,
              .webrtcIcePolicyRelay,
              .webrtcIcePolicyNote,
+             .webrtcIcePolicyLobbyNote,
              .webrtcDiagSignaling,
              .webrtcLogSent,
              .webrtcLogReceived,

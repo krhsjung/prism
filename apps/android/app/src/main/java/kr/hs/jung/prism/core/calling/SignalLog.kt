@@ -111,6 +111,7 @@ val CallClientMessage.logType: String
         is CallClientMessage.Ice -> "ice"
         is CallClientMessage.Hangup -> "hangup"
         is CallClientMessage.Resume -> "resume"
+        is CallClientMessage.Rejoin -> "rejoin"
     }
 
 val CallClientMessage.logDetail: String?

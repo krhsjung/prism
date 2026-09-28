@@ -138,6 +138,7 @@ fun encodeCallClientMessage(message: CallClientMessage): String {
         is CallClientMessage.Cancel -> json.put("type", "cancel").put("callId", message.callId)
         is CallClientMessage.Hangup -> json.put("type", "hangup").put("callId", message.callId)
         is CallClientMessage.Resume -> json.put("type", "resume").put("callId", message.callId)
+        is CallClientMessage.Rejoin -> json.put("type", "rejoin").put("callId", message.callId)
         is CallClientMessage.Offer ->
             json.put("type", "offer").put("callId", message.callId).put("sdp", message.sdp)
         is CallClientMessage.Answer ->

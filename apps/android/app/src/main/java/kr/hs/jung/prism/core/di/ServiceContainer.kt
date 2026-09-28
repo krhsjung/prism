@@ -1,6 +1,7 @@
 package kr.hs.jung.prism.core.di
 
 import android.content.Context
+import android.net.ConnectivityManager
 import kr.hs.jung.prism.BuildConfig
 import kr.hs.jung.prism.core.i18n.LocaleStore
 import kr.hs.jung.prism.core.network.ApiClient
@@ -31,6 +32,8 @@ import kr.hs.jung.prism.core.session.HttpSessionsApi
  * ```
  */
 class ServiceContainer(context: Context) {
+    private val connectivity =
+        context.getSystemService(ConnectivityManager::class.java)
     private val secureStore = SecureStore(context)
     // 대시보드도 같은 Bearer 토큰으로 세션 API를 부르므로 밖에서 읽을 수 있어야 한다.
     val sessionTokens = SecureSessionTokens(secureStore)
@@ -86,7 +89,12 @@ class ServiceContainer(context: Context) {
      * 컨테이너가 쥔 것은 그 교체에 영향을 받지 않는다).
      */
     fun createSessionSocket(): SessionSocket =
-        SessionSocket(tokens = sessionTokens, authority = authManager)
+        SessionSocket(
+            tokens = sessionTokens,
+            authority = authManager,
+            // 회선이 돌아오면 소켓이 백오프를 버리고 곧바로 다시 붙는다(plan/webrtc.md §8-12).
+            connectivity = connectivity,
+        )
 
     init {
         // 401의 뒷일을 맡을 고리를 **만든 뒤에** 꽂는다 — 생성 시점에 이으면

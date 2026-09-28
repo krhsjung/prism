@@ -6,7 +6,9 @@ import {
   SessionsRepository,
   type AuthErrorCode,
 } from '@app/common';
+import { PrismConfigService } from '@app/config';
 import { REDIS, type RedisClient } from '@app/redis';
+import { CallGateway } from './call.gateway';
 import type { SocketConnection } from './connection';
 import { ConnectionRegistry } from './connection-registry';
 
@@ -60,8 +62,17 @@ export class SessionPresenceGateway implements OnModuleDestroy {
     private readonly registry: ConnectionRegistry,
     private readonly presence: PresenceRepository,
     private readonly sessions: SessionsRepository,
+    // 통화 중인 세션만 유휴 창을 밀어 주려고 본다(plan/auth.md §6). **의존은 한 방향이다** —
+    // 통화 게이트웨이는 presence를 만지지 않는다(그쪽 파일의 ⚠️ 주석이 그 규칙이다).
+    private readonly calls: CallGateway,
+    private readonly config: PrismConfigService,
     @Inject(REDIS) private readonly redis: RedisClient,
   ) {}
+
+  // 세션의 유휴 창 — 인증 가드가 미는 것과 **같은 값**이어야 한다(auth.service의 `touch`).
+  private get idleTtlMs(): number {
+    return this.config.refreshTokenTtlMs;
+  }
 
   // 인증을 통과한 연결이 들어왔다.
   async open(connection: SocketConnection): Promise<void> {
@@ -241,6 +252,9 @@ export class SessionPresenceGateway implements OnModuleDestroy {
   async tick(): Promise<void> {
     // 이 틱에 연결을 가진 사용자들 — 아래에서 목록 변화를 한 번씩만 확인한다.
     const users = new Set<string>();
+    // 통화 중인 세션은 **한 번만** 읽는다(메모리 조회다). 연결마다 물으면 탭이 셋인
+    // 사람에게 조회가 셋이 된다 — 아래 `noticeExpiries`와 같은 이유다.
+    const inCall = this.calls.activeCallSessionIds();
 
     for (const connection of this.registry.all()) {
       users.add(connection.userId);
@@ -249,21 +263,35 @@ export class SessionPresenceGateway implements OnModuleDestroy {
       connection.send({ type: 'heartbeat' });
       connection.probe();
 
-      const user = await this.sessions.findValid(connection.sessionId);
-      if (!user) {
+      // `findValid`가 아니라 `findValidSession`이다 — 읽기는 같고 상한(`absoluteExpiresAt`)이
+      // 딸려 와, 통화 중인 세션의 유휴 창을 밀 때 재조회가 필요 없다.
+      const session = await this.sessions.findValidSession(connection.sessionId);
+      if (!session) {
         // 로그아웃·만료·다른 기기에서 폐기됨. 셋을 구분할 방법이 없고 구분할 이유도 없다.
         this.reject(connection, AUTH_ERROR_CODES.UNAUTHORIZED);
         await this.close(connection);
         continue;
       }
 
-      // findValid를 기다리는 사이에 소켓이 닫혔을 수 있다. 확인하지 않고 touch하면
+      // findValidSession을 기다리는 사이에 소켓이 닫혔을 수 있다. 확인하지 않고 touch하면
       // close가 방금 지운 presence를 되살려, 끊긴 기기가 최대 1분간 Active로 남는다.
       if (!this.registry.has(connection)) continue;
       await this.presence.touch(
         connection.userId,
         connection.sessionId,
         connection.id,
+      );
+
+      // **통화 중인 세션은 활동이다**(plan/auth.md §6). 통화는 요청을 만들지 않아 유휴
+      // 창을 밀 길이 없었고, 그대로 두면 통화 중인 사용자가 방치로 판정돼 이 스윕이
+      // 바로 위에서 제 소켓을 닫았다. 밀기는 `TOUCH_MIN_INTERVAL_MS`로 스스로 잦은 쓰기를
+      // 접으므로 20초마다 불러도 쓰기가 그만큼 늘지 않는다.
+      if (!inCall.has(connection.sessionId)) continue;
+      await this.sessions.touch(
+        connection.sessionId,
+        connection.userId,
+        session.absoluteExpiresAt,
+        this.idleTtlMs,
       );
     }
 

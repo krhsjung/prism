@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import Network
 import Observation
 
 /// 서버가 보낸 오류 코드에 대한 소켓의 대응.
@@ -60,6 +61,8 @@ final class SessionSocket {
     @ObservationIgnored private var silence: Task<Void, Never>?
     @ObservationIgnored private var attempt = 0
     @ObservationIgnored private var stopped = false
+    /// 회선을 지켜보는 눈. 한 번 취소하면 되살릴 수 없어 시작할 때마다 새로 만든다.
+    @ObservationIgnored private var pathMonitor: NWPathMonitor?
     /// 한 번이라도 붙은 적이 있는가 — 다음 `ready`가 "첫 연결"인지 "재연결"인지 가른다.
     @ObservationIgnored private var everReady = false
 
@@ -70,13 +73,16 @@ final class SessionSocket {
     /// 렌더에서 만난다. 듣는 쪽에 그대로 넘기고 잊는다.
     @ObservationIgnored var onCallMessage: ((CallServerMessage) -> Void)?
 
-    /// 소켓이 끊겼다 — **서버는 이미 진행 중이던 통화를 끝냈다.**
+    /// 소켓이 끊겼다.
     ///
-    /// 창구의 소켓이 사라지면 서버가 `ended{peer-gone}`으로 접고 상대에게만 알린다.
-    /// 그 메시지는 없어진 소켓으로 오므로 이쪽은 영영 받지 못하고, 재연결해도 통화
-    /// 상태를 되물을 길이 없다(`resume`은 벨 전용이다). 듣는 쪽이 스스로 접으라고
-    /// 알려 주는 자리다.
+    /// 붙은 뒤의 통화는 여기서 끝나지 않는다 — 서버가 창구만 비우고 유예 창을 걸어 두므로
+    /// (plan/webrtc.md §8-12), 듣는 쪽은 통화를 붙든 채 `onReady`를 기다렸다가 `rejoin`으로
+    /// 창구를 되찾는다. 벨 단계의 통화는 서버가 바로 끝으로 보므로 듣는 쪽이 스스로 접는다.
     @ObservationIgnored var onDisconnected: (() -> Void)?
+
+    /// 소켓이 (다시) 붙었다 — `ready`를 받아 보낼 수 있게 된 순간이다. 잃었던 통화의
+    /// `rejoin`이 나가는 자리다.
+    @ObservationIgnored var onReady: (() -> Void)?
 
     /// 서버 하트비트는 20초 간격이다. 두 번을 놓칠 때까지 기다린 뒤 죽었다고 본다 —
     /// 한 번의 지연으로 끊으면 느린 회선에서 재연결만 반복한다.
@@ -99,7 +105,35 @@ final class SessionSocket {
         guard task == nil, loop == nil else { return }
         stopped = false
         attempt = 0
+        watchPath()
         connect()
+    }
+
+    /// 회선이 돌아왔다 — **예약된 기다림을 버리고 곧바로 다시 붙는다**(plan/webrtc.md §8-12).
+    ///
+    /// 사다리(1·2·4·8·15초)는 회선이 언제 돌아오는지 모른다. 복귀 **직전에** 한 번 헛돌면
+    /// 다음 시도가 15초 뒤이고, 통화 중이라면 그것만으로 `rejoin` 유예 창의 절반이
+    /// 사라진다. 웹 `socket.ts`의 `wake()`와 같은 규칙이다.
+    ///
+    /// 이미 붙어 있으면 아무것도 하지 않는다 — 멀쩡한 소켓을 끊고 다시 세울 이유가 없다.
+    func wake() {
+        guard !stopped, task == nil else { return }
+        loop?.cancel()
+        loop = nil
+        attempt = 0
+        connect()
+    }
+
+    /// 기본 회선이 바뀌는 것(Wi-Fi↔LTE)도 `pathUpdateHandler`로 온다.
+    private func watchPath() {
+        guard pathMonitor == nil else { return }
+        let monitor = NWPathMonitor()
+        monitor.pathUpdateHandler = { [weak self] path in
+            guard path.status == .satisfied else { return }
+            Task { @MainActor in self?.wake() }
+        }
+        monitor.start(queue: DispatchQueue(label: "prism.socket.path"))
+        pathMonitor = monitor
     }
 
     /// 소켓을 닫는다.
@@ -118,6 +152,8 @@ final class SessionSocket {
     /// 재조회가 한 번 나간다(Android는 세션 스코프라 이 문제가 없다).
     func stop(endingSession: Bool = false) {
         stopped = true
+        pathMonitor?.cancel()
+        pathMonitor = nil
         teardown()
         let wasReady = isReady
         isReady = false
@@ -261,6 +297,7 @@ final class SessionSocket {
             // 붙었다 = 소켓 서비스가 살아 있다 = presence를 믿어도 된다.
             attempt = 0
             isReady = true
+            onReady?()
             // **첫 연결에서는 가져오지 않는다.** 화면이 이미 가져왔고 그 데이터는 정확하다 —
             // 다른 기기의 presence는 각자의 소켓이 쓴 값이라 우리가 붙는 것과 무관하고,
             // 우리 자신의 행은 `isCurrent`로 그려져 isConnected를 읽지도 않는다.

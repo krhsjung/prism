@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import {
+  REJOIN_WINDOW_MS,
   RING_TIMEOUT_MS,
   SessionsRepository,
   translate,
@@ -69,7 +70,8 @@ interface Call {
   caller: CallParty;
   callee: CallParty;
   phase: CallPhase;
-  // 벨이 울리는 동안은 상한(RING_TIMEOUT_MS), 끝난 뒤에는 보존 창이다.
+  // 벨이 울리는 동안은 상한(RING_TIMEOUT_MS), 붙은 뒤 창구가 비면 유예 창
+  // (REJOIN_WINDOW_MS), 끝난 뒤에는 보존 창이다.
   timer: NodeJS.Timeout | null;
 }
 
@@ -132,25 +134,103 @@ export class CallGateway implements OnModuleDestroy {
       case 'resume':
         this.resume(connection, message.callId);
         return;
+      case 'rejoin':
+        this.rejoin(connection, message.callId);
+        return;
     }
   }
 
-  // 소켓이 사라졌다. **창구였던 연결만** 통화를 끝낸다.
+  // 소켓이 사라졌다. **창구였던 연결만** 본다.
   //
   // 벨이 울리는 중인 받는 쪽의 소켓이 끊기는 것은 끝이 아니다 — 앱이 다시 붙어
   // `resume`으로 돌아올 수 있는 자리이고, 그 창을 재는 것이 45초 타이머다.
   // 여기서 끊어 버리면 `resume`이 존재할 이유가 없어진다.
   //
+  // **붙은 뒤의 단절도 끝이 아니다**(plan/webrtc.md §8-12). 회선이 바뀌면 소켓이 먼저
+  // 죽는데, 그 순간 통화를 접으면 미디어 경로를 다시 찾을 자리가 없다. 창구만 비우고
+  // 유예 창을 건다 — 창 안에 `rejoin`이 오면 되찾고, 지나면 `ended{'peer-gone'}`이다.
+  // 그동안 상대가 보낸 SDP·ICE는 갈 곳이 없어 버려진다(`relay`) — 되찾는 순간 양쪽이
+  // 처음처럼 다시 협상하므로 잃을 것이 없다. 벨 단계의 거는 쪽은 예외다 — 아직 미디어가
+  // 없고 새로 거는 것이 더 싸다.
+  //
   // **세션 폐기도 같은 문으로 들어온다** — 스윕이 폐기된 세션의 소켓을 닫으면
-  // (SessionPresenceGateway.tick) 그 close가 여기로 온다. 두 경로가 한 결말이다.
+  // (SessionPresenceGateway.tick) 그 close가 여기로 온다. 폐기된 세션은 `rejoin`할
+  // 소켓을 다시 열 수 없으므로 창이 지나 같은 결말에 이른다.
   close(connection: SocketConnection): void {
     for (const call of [...this.calls.values()]) {
       if (call.phase === 'ended') continue;
       const bound =
         call.caller.connection === connection ||
         call.callee.connection === connection;
-      if (bound) this.end(call, 'peer-gone');
+      if (!bound) continue;
+      if (call.phase === 'ringing') {
+        this.end(call, 'peer-gone');
+        continue;
+      }
+      if (call.caller.connection === connection) call.caller.connection = null;
+      if (call.callee.connection === connection) call.callee.connection = null;
+      // 창은 한 번만 건다 — 둘 다 비어도 먼저 비운 쪽의 창이 통화의 창이다.
+      if (!call.timer) {
+        call.timer = this.arm(REJOIN_WINDOW_MS, () =>
+          this.end(call, 'peer-gone'),
+        );
+      }
     }
+  }
+
+  // 붙은 뒤 소켓을 잃었던 당사자가 다시 붙었다 — 창구를 이 연결로 되찾는다.
+  //
+  // **살아 있는 내 통화가 아니면 `expired`다.** 창이 지났는지, 벨 단계인지, 애초에 남의
+  // 통화였는지를 구별해 주지 않는다(`resume`과 같은 이유). 누가 걸었는지도 싣지 않는다 —
+  // 묻는 쪽이 들고 있던 통화라 이미 아는 사실이다.
+  //
+  // 옛 소켓의 죽음을 서버가 **아직 모를 수도 있다**(반쯤 죽은 TCP는 pong 스윕이 잡는다).
+  // 그래서 창구가 비어 있는지는 보지 않는다 — 같은 세션의 새 연결이 곧 새 창구이고, 옛
+  // 연결의 close는 그때 아무것도 끝내지 않는다(`close`의 `bound`가 거짓이 된다).
+  // 같은 세션의 다른 탭이 이것으로 창구를 빼앗지 못하는 것은 클라이언트가 **통화를 들고
+  // 있을 때만** 보내기 때문이다 — 통화가 없는 탭은 `resume`을 보낸다.
+  //
+  // 되찾으면 양쪽에 `accepted`를 다시 보낸다 — 처음 붙을 때와 같은 메시지, 같은 흐름이다.
+  // 거는 쪽이 새 offer를 내고 받는 쪽이 답한다. 자격증명도 이때 새로 발급된다.
+  private rejoin(connection: SocketConnection, callId: string): void {
+    const call = this.calls.get(callId);
+    const party =
+      call?.phase === 'active' ? this.partyOf(call, connection) : null;
+    if (!call || !party) {
+      connection.send({ type: 'expired', callId });
+      return;
+    }
+    party.connection = connection;
+    if (call.caller.connection && call.callee.connection) this.disarm(call);
+    const accepted: CallServerMessage = {
+      type: 'accepted',
+      callId: call.id,
+      iceServers: this.config.iceServersFor(call.userId),
+    };
+    call.caller.connection?.send(accepted);
+    call.callee.connection?.send(accepted);
+  }
+
+  // **지금 통화 중인 세션들.** presence 스윕이 세션의 유휴 창을 밀어 줄 대상을 고를 때
+  // 쓴다(plan/auth.md §6 "통화 중인 세션도 활동이다").
+  //
+  // 통화는 요청을 만들지 않는다 — 시그널링은 이미 붙어 있는 소켓으로, 미디어는 P2P로
+  // 흐른다. 그래서 창을 미는 것이 하나도 없고, 그냥 두면 **통화 중인 사용자가 방치로
+  // 판정돼** 세션이 만료되고 스윕이 제 소켓을 닫는다.
+  //
+  // **붙은 통화만 센다.** 벨은 45초가 상한이라 유휴 창에 견줄 길이가 아니고, 걸어 놓고
+  // 자리를 뜬 기기가 제 세션을 늘리는 길도 열지 않는다.
+  //
+  // 메모리만 읽는다 — 이 판단은 클라이언트가 나르지 않으므로 활동 표시의 fail-closed
+  // 규칙을 어기지 않는다(남의 사이트가 유발한 요청으로는 만들 수 없는 사실이다).
+  activeCallSessionIds(): ReadonlySet<string> {
+    const ids = new Set<string>();
+    for (const call of this.calls.values()) {
+      if (call.phase !== 'active') continue;
+      ids.add(call.caller.sessionId);
+      ids.add(call.callee.sessionId);
+    }
+    return ids;
   }
 
   // 소켓이 붙었다. **알림을 열지 않고 앱을 그냥 연 경우가 여기다** — 그때는 `resume`이
@@ -449,7 +529,8 @@ export class CallGateway implements OnModuleDestroy {
   //
   // 방향(누가 offer를 내는가)은 강제하지 않는다. 역할은 프로토콜의 모양에서 나오고
   // (`accepted`를 받은 쪽이 낸다), 두 창구가 **같은 사용자의 기기**라 서버가 순서를
-  // 감시해서 얻을 것이 없다. ICE restart의 재-offer(§8-9)도 이 자리를 그대로 쓴다.
+  // 감시해서 얻을 것이 없다. ICE restart의 재-offer(§8-11)도 이 자리를 그대로 쓴다 —
+  // 같은 `offer`이고, 이어 붙일지는 받는 클라이언트가 SDP의 지문으로 가른다(§6).
   private relay(
     connection: SocketConnection,
     message: Extract<CallClientMessage, { type: 'offer' | 'answer' | 'ice' }>,

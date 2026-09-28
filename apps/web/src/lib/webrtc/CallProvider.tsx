@@ -34,12 +34,14 @@ import {
   signalEntry,
   type SignalLogEntry,
 } from './signal-log';
+import { sameConnection } from './sdp';
 import { StatsSampler, type CallStats } from './stats';
-import type {
-  CallClientMessage,
-  CallServerMessage,
-  IceServer,
-  SessionRef,
+import {
+  REJOIN_WINDOW_MS,
+  type CallClientMessage,
+  type CallServerMessage,
+  type IceServer,
+  type SessionRef,
 } from '../contracts.gen';
 
 // 지표를 읽는 간격. 1초보다 촘촘하면 숫자가 읽기 전에 바뀌고, 느리면 통화 품질이
@@ -59,6 +61,25 @@ const ANSWER_TIMEOUT_MS = 10_000;
 // 아무도 끝내 주지 않는다. TURN까지 도는 ICE는 느려도 십수 초면 끝나므로 30초는
 // 넉넉하고, 그보다 오래 걸리는 통화는 어차피 쓸 수 없다.
 const CONNECT_TIMEOUT_MS = 30_000;
+
+// 붙었던 통화의 길이 끊긴 뒤, **같은 연결에서** 길을 다시 찾는 시계들(plan/webrtc.md §8).
+//
+// `disconnected`는 스스로 돌아오는 경우가 흔해서 잠깐 두고 본 뒤 첫 ICE restart를 낸다.
+// 그래도 안 붙으면 일정 간격으로 다시 내고, **처음 끊긴 시점부터** 상한이 지나면
+// `연결 실패`로 접는다 — 그 뒤에 남는 것이 타일의 `Try again`(같은 상대에게 새로 걸기)이다.
+// 상한을 첫 연결(CONNECT_TIMEOUT_MS)보다 짧게 두는 이유: 사람이 대화 중에 기다리는 시간이다.
+const RECONNECT_GRACE_MS = 2_000;
+const RECONNECT_RETRY_MS = 5_000;
+const RECONNECT_TIMEOUT_MS = 15_000;
+/**
+ * `rejoin`을 보낸 뒤 답을 기다리는 시간(§8-12).
+ *
+ * 창(`REJOIN_WINDOW_MS`)은 **소켓이 돌아오기까지**를 재고, 이 시계는 **답이 오기까지**를
+ * 잰다. 둘을 한 시계로 묶으면 창 끝에 보낸 `rejoin`은 서버가 받아 줘도 답이 닿기 전에
+ * 시계가 울어 진다. 결말은 서버가 정하므로(`accepted`·`expired`) 이 시계는 답이 아예
+ * 오지 않는 경우의 안전망일 뿐이라 넉넉해도 된다.
+ */
+const REJOIN_ANSWER_MS = 10_000;
 
 function nameOf(error: DOMException | Error): string {
   return error instanceof DOMException || error instanceof Error
@@ -145,6 +166,17 @@ export function CallProvider({ children }: { children: ReactNode }) {
   // `연결 중`이 끝나기를 기다리는 시계. 서버의 45초는 붙기 **전에만** 도므로,
   // 협상이 조용히 멈춘 통화를 끝내 주는 것은 이것뿐이다.
   const connectTimerRef = useRef<number | null>(null);
+  // 다음 ICE restart를 내는 시계(거는 쪽만)와, 재연결을 포기하는 시계(양쪽).
+  // 포기 시계가 걸려 있는 동안이 곧 `재연결 중`이다 — 처음 끊긴 시점부터 잰다.
+  const restartTimerRef = useRef<number | null>(null);
+  const reconnectTimerRef = useRef<number | null>(null);
+  // restart offer를 만드는 중이다 — 겹쳐 내면 두 offer가 한 답을 두고 다툰다.
+  const restartingRef = useRef(false);
+  // 붙은 뒤 시그널링 소켓을 잃었다 — 다시 붙어 `rejoin`의 답을 받을 때까지 기다리는
+  // 시계. 걸려 있는 동안은 ICE의 소식을 듣지 않는다(길을 다시 찾는 일은 소켓이 먼저다).
+  const rejoinTimerRef = useRef<number | null>(null);
+  // 원격 기술을 붙이는 중이다 — 그동안 온 후보는 붙들어 둔다(아래 `setRemote`).
+  const applyingRemoteRef = useRef(false);
   // 보낸 `call`이 아직 답을 못 받았다 — 두 번째 누름을 막는 문.
   //
   // ⚠️ **취소한 뒤에도 답이 올 때까지 닫혀 있다.** `ringing`과 `callError`에는 어느
@@ -408,46 +440,25 @@ export function CallProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  /**
-   * 연결 상태를 배지로 옮긴다. **루프백과 릴레이가 같은 표를 쓴다** — 갈라 두면 한쪽만
-   * `재연결 중`을 그리게 되고, 세 플랫폼의 대칭도 거기서 깨진다.
-   */
-  const applyConnectionState = useCallback(
-    (pc: RTCPeerConnection) => {
-      switch (pc.connectionState) {
-        case 'connected':
-          disarmConnectTimeout();
-          patchCall({
-            status: 'connected',
-            connectedAtMs: callRef.current?.connectedAtMs ?? Date.now(),
-          });
-          return;
-        // 끊김은 **실패가 아니다** — ICE가 스스로 되찾는 경우가 흔하다.
-        case 'disconnected':
-          patchCall({ status: 'reconnecting' });
-          return;
-        case 'failed':
-          patchCall({ status: 'failed' });
-          return;
-        default:
-          return;
-      }
-    },
-    [disarmConnectTimeout, patchCall],
-  );
+  const clearRejoinWait = useCallback(() => {
+    if (rejoinTimerRef.current !== null) {
+      clearTimeout(rejoinTimerRef.current);
+      rejoinTimerRef.current = null;
+    }
+  }, []);
 
-  const teardownPeer = useCallback(() => {
-    disarmConnectTimeout();
-    offeringRef.current = false;
-    pcRef.current?.close();
-    pcRef.current = null;
-    for (const pc of loopbackRef.current) pc.close();
-    loopbackRef.current = [];
-    pendingRemoteRef.current = [];
-    samplerRef.current.reset();
-    setRemoteStream(null);
-    setStats(null);
-  }, [disarmConnectTimeout]);
+  /** 재연결을 접는다 — 붙었든, 포기했든, 연결을 새로 세우든 시계는 여기서 멈춘다. */
+  const stopReconnecting = useCallback(() => {
+    restartingRef.current = false;
+    if (restartTimerRef.current !== null) {
+      clearTimeout(restartTimerRef.current);
+      restartTimerRef.current = null;
+    }
+    if (reconnectTimerRef.current !== null) {
+      clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
+    }
+  }, []);
 
   /**
    * 협상이 더 갈 수 없다 — 배지가 `연결 실패`를 말하게 한다.
@@ -458,9 +469,165 @@ export function CallProvider({ children }: { children: ReactNode }) {
    */
   const failCall = useCallback(() => {
     disarmConnectTimeout();
+    stopReconnecting();
     offeringRef.current = false;
     patchCall({ status: 'failed' });
-  }, [disarmConnectTimeout, patchCall]);
+  }, [disarmConnectTimeout, patchCall, stopReconnecting]);
+
+  /**
+   * 재연결의 상한. **처음 끊긴 시점부터** 잰다 — restart를 몇 번 냈는지가 아니라
+   * 사람이 `재연결 중`을 얼마나 봤는지가 기다림의 크기다. 양쪽이 같은 값을 쓰므로
+   * 거는 쪽과 받는 쪽이 대체로 같은 때에 포기한다.
+   */
+  const armReconnectTimeout = useCallback(() => {
+    reconnectTimerRef.current = window.setTimeout(() => {
+      reconnectTimerRef.current = null;
+      if (callRef.current?.status === 'reconnecting') failCall();
+    }, RECONNECT_TIMEOUT_MS);
+  }, [failCall]);
+
+  /** 길이 끊겼다 — 배지를 `재연결 중`으로 옮기고 포기 시계를 건다. 이미 걸려 있으면 그대로다. */
+  const markReconnecting = useCallback(() => {
+    if (reconnectTimerRef.current !== null) return;
+    // connectedAtMs는 지우지 않는다 — 통화는 이어지는 중이고 시간도 계속 흐른다.
+    patchCall({ status: 'reconnecting' });
+    armReconnectTimeout();
+  }, [armReconnectTimeout, patchCall]);
+
+  // 다음 restart를 내는 시계. 몸통은 ref로 부른다 — 서로를 부르는 두 콜백을 의존성으로
+  // 묶으면 초기화 순서가 꼬인다(`handlerRef`와 같은 자리).
+  const restartRef = useRef<() => Promise<void>>(() => Promise.resolve());
+  const scheduleRestart = useCallback((delayMs: number) => {
+    if (restartTimerRef.current !== null) clearTimeout(restartTimerRef.current);
+    restartTimerRef.current = window.setTimeout(() => {
+      restartTimerRef.current = null;
+      void restartRef.current();
+    }, delayMs);
+  }, []);
+
+  /**
+   * ICE restart — **같은 연결에서** 새 후보로 길을 다시 찾는다(plan/webrtc.md §8).
+   *
+   * 통화 시작·정책 전환의 `offerNow`와 달리 연결을 새로 세우지 않는다. DTLS·트랜시버는
+   * 그대로 두고 ICE 자격증명만 바꾸는 것이라, 붙는 순간 미디어가 그 자리에서 이어진다.
+   * 받는 쪽은 지문이 같은 offer를 보고 같은 연결에 이어 붙인다(`sdp.ts`).
+   *
+   * **거는 쪽만 낸다.** 역할이 방향에서 나오는 §6의 규칙 그대로라 glare가 없다.
+   * 루프백은 같은 길을 타되 offer가 소켓 대신 페이지 안의 `b`로 간다.
+   */
+  const restartIce = useCallback(async () => {
+    const current = callRef.current;
+    const pc = pcRef.current;
+    if (!current || !pc || current.status !== 'reconnecting') return;
+    // 내가 낸 offer의 답이 아직 안 왔다 — 그 답이 ICE를 다시 돌린다. 다음 차례에 본다.
+    if (offeringRef.current || restartingRef.current) {
+      return scheduleRestart(RECONNECT_RETRY_MS);
+    }
+    restartingRef.current = true;
+    try {
+      const offer = await pc.createOffer({ iceRestart: true });
+      await pc.setLocalDescription(offer);
+      if (current.isLoopback) {
+        const b = loopbackRef.current[1];
+        if (!b) return;
+        await b.setRemoteDescription(offer);
+        const answer = await b.createAnswer();
+        await b.setLocalDescription(answer);
+        await pc.setRemoteDescription(answer);
+      } else if (current.callId) {
+        offeringRef.current = true;
+        sendSignal({ type: 'offer', callId: current.callId, sdp: offer.sdp ?? '' });
+      }
+    } catch (error) {
+      logger.error('call_ice_restart_failed', {
+        name: nameOf(error as object as DOMException),
+      });
+      failCall();
+      return;
+    } finally {
+      restartingRef.current = false;
+    }
+    scheduleRestart(RECONNECT_RETRY_MS);
+  }, [failCall, scheduleRestart, sendSignal]);
+
+  useEffect(() => {
+    restartRef.current = restartIce;
+  }, [restartIce]);
+
+  /**
+   * 연결 상태를 배지로 옮긴다. **루프백과 릴레이가 같은 표를 쓴다** — 갈라 두면 한쪽만
+   * `재연결 중`을 그리게 되고, 세 플랫폼의 대칭도 거기서 깨진다.
+   *
+   * 끊김은 **실패가 아니다.** 붙었던 통화의 `disconnected`·`failed`는 길을 잃은 것이고
+   * 같은 연결에서 다시 찾을 수 있다(ICE restart). `연결 실패`가 되는 것은 그 시도가
+   * 상한에 닿았을 때뿐이다. 붙기 **전**의 `failed`는 다르다 — 애초에 길이 없던 것이라
+   * restart로 살릴 것이 없고, 지금까지처럼 바로 `연결 실패`다.
+   */
+  const applyConnectionState = useCallback(
+    (pc: RTCPeerConnection) => {
+      // 버린 연결의 늦은 소식은 지금 통화의 것이 아니다.
+      if (pc !== pcRef.current) return;
+      // 소켓을 잃은 동안은 ICE의 소식을 듣지 않는다 — restart offer가 갈 길이 없고,
+      // 결말은 다시 붙은 소켓의 `rejoin`이 정한다(§8-12).
+      if (rejoinTimerRef.current !== null) return;
+      const current = callRef.current;
+      if (!current) return;
+      switch (pc.connectionState) {
+        case 'connected':
+          disarmConnectTimeout();
+          stopReconnecting();
+          patchCall({
+            status: 'connected',
+            connectedAtMs: current.connectedAtMs ?? Date.now(),
+          });
+          return;
+        case 'disconnected':
+        case 'failed': {
+          const wasUp =
+            current.status === 'connected' || current.status === 'reconnecting';
+          if (!wasUp) {
+            if (pc.connectionState === 'failed') failCall();
+            return;
+          }
+          markReconnecting();
+          // restart는 거는 쪽이 낸다. `disconnected`는 스스로 돌아오는 경우가 흔해
+          // 잠깐 두고 보고, `failed`는 지금 후보로는 길이 없다는 뜻이라 바로 낸다.
+          if (!current.isCaller) return;
+          if (pc.connectionState === 'failed') scheduleRestart(0);
+          else if (restartTimerRef.current === null) {
+            scheduleRestart(RECONNECT_GRACE_MS);
+          }
+          return;
+        }
+        default:
+          return;
+      }
+    },
+    [
+      disarmConnectTimeout,
+      failCall,
+      markReconnecting,
+      patchCall,
+      scheduleRestart,
+      stopReconnecting,
+    ],
+  );
+
+  const teardownPeer = useCallback(() => {
+    disarmConnectTimeout();
+    stopReconnecting();
+    clearRejoinWait();
+    applyingRemoteRef.current = false;
+    offeringRef.current = false;
+    pcRef.current?.close();
+    pcRef.current = null;
+    for (const pc of loopbackRef.current) pc.close();
+    loopbackRef.current = [];
+    pendingRemoteRef.current = [];
+    samplerRef.current.reset();
+    setRemoteStream(null);
+    setStats(null);
+  }, [clearRejoinWait, disarmConnectTimeout, stopReconnecting]);
 
   /**
    * `연결 중`에 상한을 둔다.
@@ -484,6 +651,8 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const buildPeer = useCallback(
     (callId: string): RTCPeerConnection => {
       pcRef.current?.close();
+      // 새 연결은 새 협상이다 — 옛 연결의 재연결 시계는 여기서 끝난다.
+      stopReconnecting();
       pendingRemoteRef.current = [];
       samplerRef.current.reset();
 
@@ -527,7 +696,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
       pcRef.current = pc;
       return pc;
     },
-    [applyConnectionState, sendSignal],
+    [applyConnectionState, sendSignal, stopReconnecting],
   );
 
   const drainRemoteCandidates = useCallback(async (pc: RTCPeerConnection) => {
@@ -542,6 +711,27 @@ export function CallProvider({ children }: { children: ReactNode }) {
       }
     }
   }, []);
+
+  /**
+   * 원격 기술을 붙이고, 그동안 온 후보를 넣는다.
+   *
+   * ⚠️ **붙이는 동안의 후보는 붙들어 둔다.** 같은 연결에 재-offer·answer를 붙일 때는
+   * remoteDescription이 이미 있어서, 새 세대의 후보가 먼저 닿으면 옛 자격증명에 대고
+   * 넣다가 버려진다(시그널링 핸들러는 메시지마다 따로 돌아 순서를 지켜 주지 않는다).
+   * 첫 offer 때 remoteDescription이 없어 큐에 두는 것과 **같은 길**로 보낸다.
+   */
+  const setRemote = useCallback(
+    async (pc: RTCPeerConnection, description: RTCSessionDescriptionInit) => {
+      applyingRemoteRef.current = true;
+      try {
+        await pc.setRemoteDescription(description);
+      } finally {
+        applyingRemoteRef.current = false;
+      }
+      await drainRemoteCandidates(pc);
+    },
+    [drainRemoteCandidates],
+  );
 
   /**
    * 연결을 새로 세우고 offer를 낸다 — 통화 시작과 재협상이 **같은 길**을 쓴다.
@@ -614,6 +804,10 @@ export function CallProvider({ children }: { children: ReactNode }) {
           if (!current || current.callId !== message.callId) return;
           iceServersRef.current = message.iceServers;
           putIncoming(null);
+          // `rejoin`의 답으로도 온다 — 창구를 되찾았으니 처음처럼 다시 협상한다. 소켓을
+          // 기다리던 시계도, 옛 연결의 재연결 시계도 여기서 끝난다(§8-12).
+          clearRejoinWait();
+          stopReconnecting();
           patchCall({ status: 'connecting' });
           armConnectTimeout();
           // **`accepted`를 받은 거는 쪽이 offer를 낸다** — 첫 협상의 방향은 여기서
@@ -638,11 +832,16 @@ export function CallProvider({ children }: { children: ReactNode }) {
             return;
           }
           offeringRef.current = false;
-          // offer가 올 때마다 연결을 새로 세운다 — 통화 시작과 ICE 정책 전환에
-          // 따른 재협상을 **한 규칙**으로 덮는다.
-          const pc = buildPeer(message.callId);
-          await pc.setRemoteDescription({ type: 'offer', sdp: message.sdp });
-          await drainRemoteCandidates(pc);
+          // **같은 연결의 재-offer는 그 연결에 이어 붙인다** — ICE restart다. 지문이
+          // 다르면 상대가 연결을 새로 세운 것(ICE 정책 전환)이라 이쪽도 새로 세운다.
+          // 통화 시작과 정책 전환은 그대로 한 규칙이고, restart만 그 위에 얹힌다.
+          const held = pcRef.current;
+          const resumes =
+            held !== null &&
+            held.remoteDescription !== null &&
+            sameConnection(held.remoteDescription.sdp, message.sdp);
+          const pc = resumes ? held : buildPeer(message.callId);
+          await setRemote(pc, { type: 'offer', sdp: message.sdp });
           const answer = await pc.createAnswer();
           await pc.setLocalDescription(answer);
           sendSignal({
@@ -650,6 +849,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
             callId: message.callId,
             sdp: answer.sdp ?? '',
           });
+          // 이어 붙인 쪽은 배지를 건드리지 않는다 — 이쪽 ICE가 실제로 길을 잃었는지는
+          // 이 연결의 상태 변화가 말하고, 그것이 `재연결 중`과 `연결됨`을 그린다.
+          if (resumes) return;
           patchCall({ status: 'connecting' });
           armConnectTimeout();
           return;
@@ -665,8 +867,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
             return;
           }
           offeringRef.current = false;
-          await pc.setRemoteDescription({ type: 'answer', sdp: message.sdp });
-          await drainRemoteCandidates(pc);
+          await setRemote(pc, { type: 'answer', sdp: message.sdp });
           return;
         }
 
@@ -678,8 +879,8 @@ export function CallProvider({ children }: { children: ReactNode }) {
             sdpMLineIndex: message.candidate.sdpMLineIndex,
           };
           const pc = pcRef.current;
-          // 원격 기술이 아직 없으면 넣을 수 없다 — 붙들고 있다가 넣는다.
-          if (!pc || !pc.remoteDescription) {
+          // 원격 기술이 아직 없거나 붙이는 중이면 넣을 수 없다 — 붙들고 있다가 넣는다.
+          if (!pc || !pc.remoteDescription || applyingRemoteRef.current) {
             pendingRemoteRef.current.push(init);
             return;
           }
@@ -717,7 +918,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
           // 늦은 답 하나가 지금 붙어 있는 통화를 끊는다.
           if (incomingRef.current?.callId === message.callId) putIncoming(null);
           if (current && current.callId !== message.callId) return;
-          finish({ kind: 'expired', from: message.from });
+          // 들고 있던 통화의 `rejoin`에 온 답이면 창이 지난 것이다 — "늦게 연 알림"이
+          // 아니라 **회선이 끊겨 끝난 통화**이고, 화면도 그렇게 말한다.
+          finish(current ? { kind: 'lost' } : { kind: 'expired', from: message.from });
           return;
 
         case 'callError':
@@ -741,14 +944,16 @@ export function CallProvider({ children }: { children: ReactNode }) {
     [
       armConnectTimeout,
       buildPeer,
-      drainRemoteCandidates,
+      clearRejoinWait,
       finish,
       offerNow,
       patchCall,
       putIncoming,
       record,
       sendSignal,
+      setRemote,
       settleAttempt,
+      stopReconnecting,
     ],
   );
 
@@ -1009,31 +1214,75 @@ export function CallProvider({ children }: { children: ReactNode }) {
   }, [call]);
 
   /**
-   * 시그널링 소켓이 끊겼다 — **서버는 이미 이 통화를 끝냈다.**
+   * 붙은 뒤 시그널링 소켓을 잃었다 — **통화를 접지 않고 소켓을 기다린다**(§8-12).
    *
-   * 창구의 소켓이 사라지면 서버가 `ended{peer-gone}`으로 접고 상대에게 알린다. 그
-   * 메시지는 없어진 소켓으로 가므로 이쪽은 영영 받지 못하고, 재연결해도 통화 상태를
-   * 되물을 길이 없다(`resume`은 벨 전용이다). 그대로 두면 카메라를 쥔 채 `연결됨`을
-   * 그리고 있는데 상대는 이미 로비로 돌아간 화면이 된다.
+   * 회선이 바뀌면(Wi-Fi↔LTE) 소켓이 먼저 죽는다. 서버는 창구만 비우고 유예 창을 걸어
+   * 두므로, 다시 붙어 `rejoin`을 보내면 창구를 되찾고 양쪽이 처음처럼 다시 협상한다.
+   * 그동안 ICE는 어차피 길을 잃고 restart offer는 갈 곳이 없으니 그 시계는 멈추고,
+   * 배지만 `재연결 중`을 그린다. 창(REJOIN_WINDOW_MS) 안에 소켓이 돌아오지 않으면
+   * 여기서 접는다 — 서버가 알려 줄 길이 없는 유일한 시간이라 클라이언트가 스스로 잰다.
    *
-   * 미디어 자체는 P2P라 잠깐 더 흐를 수 있지만, **양쪽이 같은 것을 보는 쪽**을 고른다.
-   * 루프백은 소켓을 쓰지 않으므로 건드리지 않는다.
+   * 미디어 자체는 P2P라 잠깐 더 흐를 수 있지만, 붙는 것도 접는 것도 **양쪽이 같은 것을
+   * 보는 쪽**으로 정한다. 루프백은 소켓을 쓰지 않으므로 건드리지 않는다.
+   */
+  /**
+   * 회선이 끊겨 접는다 — **접기 전에 상대에게 알린다**(§8-12).
+   *
+   * 여기 닿는 길은 둘이다: 소켓이 창 안에 돌아오지 않았거나(소켓이 죽어 있다), 보낸
+   * `rejoin`의 답이 오지 않았거나(소켓은 살아 있다). 뒤쪽에서 말없이 화면만 접으면
+   * 상대는 `통화 중` 안에 `연결 실패`로 남고, 되찾힌 창구 때문에 서버도 통화를 살아
+   * 있는 것으로 본다. 소켓이 죽어 있으면 이 `hangup`은 나가지 않고, 그때는 서버의 창이
+   * `peer-gone`으로 끝내므로 상대는 어느 쪽이든 소식을 듣는다.
+   */
+  const giveUpLost = useCallback(() => {
+    rejoinTimerRef.current = null;
+    const current = callRef.current;
+    if (current?.callId) sendSignal({ type: 'hangup', callId: current.callId });
+    finish({ kind: 'lost' });
+  }, [finish, sendSignal]);
+
+  const loseSocket = useCallback(() => {
+    disarmConnectTimeout();
+    stopReconnecting();
+    patchCall({ status: 'reconnecting' });
+    clearRejoinWait();
+    rejoinTimerRef.current = window.setTimeout(giveUpLost, REJOIN_WINDOW_MS);
+  }, [clearRejoinWait, disarmConnectTimeout, giveUpLost, patchCall, stopReconnecting]);
+
+  /**
+   * 소켓이 오갔다. 끊기면 통화를 붙들거나 접고, 다시 붙으면 `rejoin`을 보낸다.
+   *
+   * 붙들 수 있는 것은 **붙은 뒤의 통화**뿐이다(`callId`가 있고 벨 단계가 아니다) — 벨
+   * 단계는 서버가 거는 쪽의 단절을 바로 끝으로 보고(아직 미디어가 없다), 실패한 통화는
+   * 붙들 것이 없다. 그것들은 지금까지처럼 그 자리에서 접는다.
    */
   useEffect(() => {
-    if (ready) return;
+    if (ready) {
+      const current = callRef.current;
+      if (rejoinTimerRef.current !== null && current?.callId) {
+        sendSignal({ type: 'rejoin', callId: current.callId });
+        // **보낸 순간 창을 끈다.** 답을 기다리는 왕복까지 같은 창에서 빼면 창 끝에 보낸
+        // `rejoin`은 서버가 받아 줘도 진다(§8-12). 여기서부터 재는 것은 "소켓이
+        // 돌아오기까지"가 아니라 "답이 오기까지"다.
+        clearRejoinWait();
+        rejoinTimerRef.current = window.setTimeout(giveUpLost, REJOIN_ANSWER_MS);
+      }
+      return;
+    }
     // 기다리던 `call`의 답도 오지 않는다 — 소켓이 없으면 서버는 답할 길이 없다.
     // 문을 열어 두지 않으면 재연결(또는 재로그인) 뒤에도 걸 수 없다.
-    //
-    // 규칙을 끄는 이유: 바깥 시스템(소켓)이 사라진 것을 화면 상태에 반영하는 것이 이
-    // 효과의 목적이다. 아래 `finish`도 같은 일을 두 겹 아래에서 하고 있어 규칙이 보지
-    // 못할 뿐이다.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     settleAttempt();
     cancelPendingRef.current = false;
     const current = callRef.current;
     if (!current || current.isLoopback) return;
-    finish({ kind: 'ended', reason: 'peer-gone' });
-  }, [finish, ready, settleAttempt]);
+    const held =
+      current.callId !== null &&
+      (current.status === 'connecting' ||
+        current.status === 'connected' ||
+        current.status === 'reconnecting');
+    if (held) loseSocket();
+    else finish({ kind: 'ended', reason: 'peer-gone' });
+  }, [clearRejoinWait, finish, giveUpLost, loseSocket, ready, sendSignal, settleAttempt]);
 
   /**
    * WebRTC 화면을 벗어나면 **통화를 끝내고 장치를 놓는다.**

@@ -52,6 +52,13 @@ export function pathOf(
 /** 이전 표본과의 차이가 있어야 나오는 값(비트레이트)을 위해 표본을 하나 기억한다. */
 interface Sample {
   atMs: number;
+  /**
+   * 어느 쌍에서 온 값인가.
+   *
+   * **쌍이 바뀌면 누적 바이트를 이어 붙이면 안 된다** — 새 쌍의 누계는 0부터 다시
+   * 세므로 빼면 음수가 나오고, 반대로 옛 쌍으로 되돌아가면 없던 트래픽이 생긴다.
+   */
+  pairId: string;
   bytesSent: number;
   bytesReceived: number;
 }
@@ -76,19 +83,36 @@ export class StatsSampler {
     // 리포트는 id로 서로를 가리키는 평평한 맵이다 — 후보 쌍을 먼저 찾고 거기서 양쪽
     // 후보를 되짚는다.
     let pair: RTCIceCandidatePairStats | undefined;
+    let selectedPairId: string | undefined;
     const byId = new Map<string, RTCStats>();
 
     report.forEach((entry) => {
       byId.set(entry.id, entry);
+      // transport는 **지금 쓰는 쌍**을 id로 짚어 준다. 이것이 있으면 추측할 필요가 없다.
+      if (entry.type === 'transport') {
+        const transport = entry as RTCStats & { selectedCandidatePairId?: string };
+        if (transport.selectedCandidatePairId) {
+          selectedPairId = transport.selectedCandidatePairId;
+        }
+      }
       if (entry.type === 'candidate-pair') {
         const candidatePair = entry as RTCIceCandidatePairStats;
         // `nominated`가 지금 쓰이는 쌍이다. Firefox는 실패한 쌍도 `succeeded`로
-        // 남겨 두므로 둘 다 본다.
+        // 남겨 두므로 둘 다 본다. transport가 짚어 주지 않을 때의 차선이다.
         if (candidatePair.state === 'succeeded' && candidatePair.nominated) {
           pair = candidatePair;
         }
       }
     });
+
+    // ⚠️ **ICE restart를 하면 지명된 쌍이 여럿 남는다.** 실기기에서 잰 판에서는
+    // `succeeded && nominated`가 셋이었고 그중 바이트가 느는 것은 하나뿐이었다. 훑다가
+    // 마지막에 걸린 것을 쓰면 멈춘 쌍을 읽어 화면이 `0 kbps`를 그린다 — 비트레이트만이
+    // 아니라 RTT·경로까지 같은 쌍에서 나오므로 지표 줄 전체가 낡는다.
+    const selected = selectedPairId ? byId.get(selectedPairId) : undefined;
+    if (selected && selected.type === 'candidate-pair') {
+      pair = selected as RTCIceCandidatePairStats;
+    }
 
     if (pair) {
       if (typeof pair.currentRoundTripTime === 'number') {
@@ -101,11 +125,14 @@ export class StatsSampler {
       const now = nowMs(pair.timestamp);
       const sample: Sample = {
         atMs: now,
+        pairId: pair.id,
         bytesSent: pair.bytesSent ?? 0,
         bytesReceived: pair.bytesReceived ?? 0,
       };
       const previous = this.previous;
-      if (previous && sample.atMs > previous.atMs) {
+      // 쌍이 바뀐 표본은 **비워 둔다** — 첫 호출과 같은 자리다. 다음 표본부터 새 기준으로
+      // 다시 재고, 그동안 화면은 `—`를 그린다(없는 값을 0으로 그리지 않는다는 규칙).
+      if (previous && previous.pairId === sample.pairId && sample.atMs > previous.atMs) {
         const seconds = (sample.atMs - previous.atMs) / 1000;
         stats.sendingKbps = kbps(sample.bytesSent - previous.bytesSent, seconds);
         stats.receivingKbps = kbps(

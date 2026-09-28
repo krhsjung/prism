@@ -363,6 +363,19 @@ export type SessionClientMessage =
 // 경로를 이 창에 맞추려고 늘리지 않는다 — 늘리면 거는 쪽이 빈 화면을 더 오래 본다.
 export const RING_TIMEOUT_MS = 45_000;
 
+// 붙은 뒤 창구의 소켓이 사라졌을 때 통화를 붙들어 두는 창(plan/webrtc.md §8-12).
+//
+// 회선이 바뀌면(Wi-Fi↔LTE) 시그널링 소켓도 죽는다 — 그 순간 통화를 접으면 미디어 경로를
+// 다시 찾는 일(ICE restart)이 설 자리가 없다. 서버는 이 창 동안 창구만 비워 두고,
+// 다시 붙은 소켓이 `rejoin`으로 창구를 되찾으면 양쪽에 `accepted`를 다시 보낸다.
+// 지나면 `ended{'peer-gone'}`이다.
+//
+// **클라이언트도 같은 값으로 기다린다** — 벨의 상한과 달리 이쪽은 서버가 알려 줄 길이
+// 없는 시간이라(소켓이 없다) 클라이언트가 스스로 접어야 한다. 두 시계의 출발점은
+// 다르지만(서버는 죽음을 안 순간, 클라이언트는 끊긴 순간) 어느 쪽이 먼저 접든 결말은
+// 같다: 다시 붙은 소켓의 `rejoin`은 `expired`를 받고 화면은 그때 접는다.
+export const REJOIN_WINDOW_MS = 30_000;
+
 // 릴레이가 나르는 문자열의 상한(plan/webrtc.md §7). 서버는 SDP를 해석하지 않으므로
 // 길이와 형식이 여기서 볼 수 있는 전부이고, 상한이 없으면 소켓이 임의 크기 릴레이가 된다.
 // 실제 offer/answer는 코덱이 많아도 5~10 kB 대이고, 후보 한 줄은 200자 안쪽이다.
@@ -412,6 +425,7 @@ export const CALL_CLIENT_MESSAGE_TYPES = [
   'ice',
   'hangup',
   'resume',
+  'rejoin',
 ] as const;
 export type CallClientMessageType = (typeof CALL_CLIENT_MESSAGE_TYPES)[number];
 
@@ -428,7 +442,13 @@ export type CallClientMessage =
   | { type: 'ice'; callId: string; candidate: IceCandidate }
   | { type: 'hangup'; callId: string }
   // 알림으로 열었다 — 이 통화가 아직 살아 있나. 소켓이 붙자마자 묻는다.
-  | { type: 'resume'; callId: string };
+  | { type: 'resume'; callId: string }
+  // 붙은 뒤 소켓을 잃었다가 다시 붙었다 — 이 통화의 창구를 이 연결로 되찾는다.
+  //
+  // `resume`과 다르다: 그쪽은 통화를 **들고 있지 않은** 기기의 질문이고, 이것은 통화를
+  // **들고 있는** 쪽만 보낸다(그래서 같은 세션의 다른 탭이 남의 창구를 빼앗지 못한다).
+  // 답은 `accepted`(창구를 되찾았다 — 처음처럼 다시 협상한다) 또는 `expired`(창이 지났다).
+  | { type: 'rejoin'; callId: string };
 
 export const CALL_SERVER_MESSAGE_TYPES = [
   'incoming',

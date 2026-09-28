@@ -37,7 +37,10 @@ export type CallNotice =
   | { kind: 'error'; code: CallErrorCode }
   // 알림을 늦게 열었다. `from`은 없을 수 있다 — 서버가 그 통화를 더는 기억하지
   // 못하거나 애초에 내 통화가 아니었으면 기기 종류를 지어내지 않는다(§6).
-  | { kind: 'expired'; from?: SessionRef };
+  | { kind: 'expired'; from?: SessionRef }
+  // 내 소켓이 끊긴 채 창(REJOIN_WINDOW_MS)이 지났다 — 상대가 끊은 것이 아니라 회선이
+  // 끊긴 것이고, 화면도 그렇게 말한다(§8-12).
+  | { kind: 'lost' };
 
 /** 걸려 온 통화 하나. **앱 어디서든** 뜬다(§4). */
 export interface Incoming {

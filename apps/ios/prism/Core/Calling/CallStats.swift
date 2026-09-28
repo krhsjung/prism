@@ -76,6 +76,11 @@ final class StatsSampler {
     /// 이전 표본과의 차이가 있어야 나오는 값(비트레이트)을 위해 표본을 하나 기억한다.
     private struct Sample {
         let atMs: Double
+        /// 어느 쌍에서 온 값인가.
+        ///
+        /// **쌍이 바뀌면 누적 바이트를 이어 붙이면 안 된다** — 새 쌍의 누계는 0부터
+        /// 다시 세므로 빼면 음수가 나오고, 옛 쌍으로 되돌아가면 없던 트래픽이 생긴다.
+        let pairID: String
         let bytesSent: Double
         let bytesReceived: Double
     }
@@ -97,13 +102,24 @@ final class StatsSampler {
         let entries = report.statistics
         // 리포트는 id로 서로를 가리키는 평평한 맵이다 — 후보 쌍을 먼저 찾고 거기서
         // 양쪽 후보를 되짚는다.
-        let pair = entries.values.first { entry in
+        //
+        // ⚠️ **ICE restart를 하면 지명된 쌍이 여럿 남는다.** 그중 실제로 흐르는 것은
+        // 하나뿐이라, 조건만 보고 아무거나 집으면 멈춘 쌍을 읽어 화면이 `0 kbps`를
+        // 그린다. 게다가 여기 `entries`는 사전이라 **고르는 순서조차 정해져 있지 않다.**
+        // transport가 지금 쓰는 쌍을 id로 짚어 주므로 그것을 먼저 믿는다
+        // (working/call-followups.md 6번).
+        let selectedID = entries.values
+            .first { $0.type == "transport" && $0.values["selectedCandidatePairId"] != nil }?
+            .values["selectedCandidatePairId"] as? String
+        let nominated = entries.values.first { entry in
             entry.type == "candidate-pair"
                 && entry.values["state"] as? String == "succeeded"
                 // `nominated`가 지금 쓰이는 쌍이다. 실패한 쌍도 `succeeded`로 남을 수
-                // 있으므로 둘 다 본다.
+                // 있으므로 둘 다 본다. transport가 짚어 주지 않을 때의 차선이다.
                 && (entry.values["nominated"] as? NSNumber)?.boolValue == true
         }
+        let selected = selectedID.flatMap { entries[$0] }
+        let pair = (selected?.type == "candidate-pair" ? selected : nil) ?? nominated
 
         if let pair {
             if let rtt = pair.values["currentRoundTripTime"] as? NSNumber {
@@ -115,10 +131,13 @@ final class StatsSampler {
 
             let sample = Sample(
                 atMs: pair.timestamp_us / 1_000,
+                pairID: pair.id,
                 bytesSent: (pair.values["bytesSent"] as? NSNumber)?.doubleValue ?? 0,
                 bytesReceived: (pair.values["bytesReceived"] as? NSNumber)?.doubleValue ?? 0,
             )
-            if let previous, sample.atMs > previous.atMs {
+            // 쌍이 바뀐 표본은 **비워 둔다** — 첫 호출과 같은 자리다. 다음 표본부터 새
+            // 기준으로 다시 재고, 그동안 화면은 `—`를 그린다.
+            if let previous, previous.pairID == sample.pairID, sample.atMs > previous.atMs {
                 let seconds = (sample.atMs - previous.atMs) / 1_000
                 stats.sendingKbps = Self.kbps(sample.bytesSent - previous.bytesSent, seconds)
                 stats.receivingKbps = Self.kbps(

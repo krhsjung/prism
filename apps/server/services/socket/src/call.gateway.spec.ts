@@ -1,6 +1,7 @@
 import { FakeRedis } from '@app/redis/testing/fake-redis';
 import {
   PresenceRepository,
+  REJOIN_WINDOW_MS,
   RING_TIMEOUT_MS,
   SessionsRepository,
   type CallClientMessage,
@@ -649,13 +650,118 @@ describe('CallGateway', () => {
     expect(phone.sent).toEqual([]);
   });
 
-  // 세션 폐기(스윕이 소켓을 닫는다)와 회선 끊김이 **같은 문으로** 들어온다.
-  it('창구의 소켓이 사라지면 상대가 ended{peer-gone}을 받는다', async () => {
+  // 세션 폐기(스윕이 소켓을 닫는다)와 회선 끊김이 **같은 문으로** 들어온다 — 그리고
+  // 붙은 뒤의 단절은 끝이 아니라 유예 창이다(plan/webrtc.md §8-12). 회선이 바뀌면
+  // 소켓이 먼저 죽는데, 그 순간 접으면 미디어 경로를 다시 찾을 자리가 없다.
+  it('창구의 소켓이 사라지면 유예 창이 지난 뒤에야 상대가 ended{peer-gone}을 받는다', async () => {
     const callId = await connected();
     registry.remove(phone);
     gateway.close(phone);
 
+    expect(mac.types()).not.toContain('ended');
+
+    jest.advanceTimersByTime(REJOIN_WINDOW_MS - 1);
+    expect(mac.types()).not.toContain('ended');
+    jest.advanceTimersByTime(1);
     expect(mac.last()).toEqual({ type: 'ended', callId, reason: 'peer-gone' });
+  });
+
+  // 창구가 빈 동안 상대의 SDP는 갈 곳이 없다 — 되찾는 순간 다시 협상하므로 잃을 것이 없다.
+  it('창구가 빈 동안의 릴레이는 버려진다', async () => {
+    const callId = await connected();
+    registry.remove(phone);
+    gateway.close(phone);
+    phone.sent = [];
+
+    await send(mac, { type: 'offer', callId, sdp: 'v=0 into-the-void' });
+
+    expect(phone.sent).toEqual([]);
+  });
+
+  it('창 안의 rejoin은 창구를 새 연결로 되찾고 양쪽이 accepted를 다시 받는다', async () => {
+    const callId = await connected();
+    registry.remove(phone);
+    gateway.close(phone);
+    mac.sent = [];
+    const reopened = connect('c-phone-2', 's-phone');
+
+    await send(reopened, { type: 'rejoin', callId });
+
+    const accepted = { type: 'accepted', callId, iceServers: ICE_SERVERS };
+    expect(reopened.last()).toEqual(accepted);
+    expect(mac.last()).toEqual(accepted);
+
+    // 릴레이는 이제 새 창구로 간다 — 그리고 창이 지나도 통화는 끝나지 않는다.
+    await send(mac, { type: 'offer', callId, sdp: 'v=0 again' });
+    expect(reopened.last()).toEqual({
+      type: 'offer',
+      callId,
+      sdp: 'v=0 again',
+    });
+    jest.advanceTimersByTime(REJOIN_WINDOW_MS);
+    expect(mac.types()).not.toContain('ended');
+  });
+
+  // 반쯤 죽은 TCP는 pong 스윕이 잡을 때까지 서버가 모른다 — 그 전에 새 소켓이 붙는 것이
+  // 회선 전환의 보통 순서다. 같은 세션의 새 연결이 곧 새 창구이고, 옛 연결의 close는
+  // 그 뒤에 와도 아무것도 끝내지 않는다.
+  it('옛 소켓의 죽음을 알기 전에 rejoin이 와도 창구가 바뀌고, 늦은 close는 무시된다', async () => {
+    const callId = await connected();
+    const reopened = connect('c-phone-2', 's-phone');
+
+    await send(reopened, { type: 'rejoin', callId });
+    registry.remove(phone);
+    gateway.close(phone);
+
+    expect(mac.types()).not.toContain('ended');
+    jest.advanceTimersByTime(REJOIN_WINDOW_MS);
+    expect(mac.types()).not.toContain('ended');
+    await send(mac, { type: 'offer', callId, sdp: 'v=0 to-new' });
+    expect(reopened.last()).toEqual({
+      type: 'offer',
+      callId,
+      sdp: 'v=0 to-new',
+    });
+    expect(phone.types()).not.toContain('offer');
+  });
+
+  // 창이 지났는지·벨 단계인지·남의 통화인지를 구별해 주지 않고, 누가 걸었는지도 싣지
+  // 않는다 — 묻는 쪽이 들고 있던 통화라 이미 아는 사실이다.
+  it('창이 지난 뒤의 rejoin은 from 없는 expired다', async () => {
+    const callId = await connected();
+    registry.remove(phone);
+    gateway.close(phone);
+    jest.advanceTimersByTime(REJOIN_WINDOW_MS);
+    const reopened = connect('c-phone-2', 's-phone');
+
+    await send(reopened, { type: 'rejoin', callId });
+
+    expect(reopened.last()).toEqual({ type: 'expired', callId });
+  });
+
+  it('벨 단계와 남의 통화의 rejoin도 같은 expired다', async () => {
+    const callId = await ring();
+    const outsider = connect('c-idle', 's-idle');
+
+    await send(mac, { type: 'rejoin', callId });
+    const ringing = mac.last();
+    await send(outsider, { type: 'rejoin', callId });
+
+    expect(ringing).toEqual({ type: 'expired', callId });
+    expect(outsider.last()).toEqual({ type: 'expired', callId });
+  });
+
+  // 벨 단계의 거는 쪽은 예외다 — 아직 미디어가 없고 새로 거는 것이 더 싸다.
+  it('벨이 울리는 중 거는 쪽이 끊기면 바로 끝난다', async () => {
+    const callId = await ring();
+    registry.remove(mac);
+    gateway.close(mac);
+
+    expect(phone.last()).toEqual({
+      type: 'ended',
+      callId,
+      reason: 'peer-gone',
+    });
   });
 
   // ⚠️ 회귀 방지: 여기서 끊으면 `resume`이 존재할 이유가 없어진다. 벨이 울리는 동안의
@@ -707,6 +813,47 @@ describe('CallGateway', () => {
     expect(outsider.last()).toEqual({
       type: 'expired',
       callId: 'never-existed',
+    });
+  });
+
+  // 통화는 요청을 만들지 않아 세션의 유휴 창을 밀 길이 없었다 — presence 스윕이 이 집합을
+  // 보고 밀어 준다(plan/auth.md §6 "통화 중인 세션도 활동이다").
+  describe('통화 중인 세션 알려 주기', () => {
+    it('붙은 통화의 두 세션을 돌려준다', async () => {
+      await connected();
+
+      expect([...gateway.activeCallSessionIds()].sort()).toEqual([
+        's-mac',
+        's-phone',
+      ]);
+    });
+
+    // 벨은 45초가 상한이라 유휴 창에 견줄 길이가 아니고, 걸어 놓고 자리를 뜬 기기가
+    // 제 세션을 늘리는 길도 열지 않는다.
+    it('벨이 울리는 중인 통화는 세지 않는다', async () => {
+      await ring();
+
+      expect([...gateway.activeCallSessionIds()]).toEqual([]);
+    });
+
+    it('끝난 통화는 보존 창에 남아 있어도 세지 않는다', async () => {
+      const callId = await connected();
+      await send(mac, { type: 'hangup', callId });
+
+      expect([...gateway.activeCallSessionIds()]).toEqual([]);
+    });
+
+    // 창구가 비어 있어도 통화는 살아 있다(§8-12) — 회선이 바뀌는 동안 세션이 만료되면
+    // 되찾을 소켓 자체를 열 수 없다.
+    it('창구가 빈 유예 창 동안에도 센다', async () => {
+      await connected();
+      registry.remove(phone);
+      gateway.close(phone);
+
+      expect([...gateway.activeCallSessionIds()].sort()).toEqual([
+        's-mac',
+        's-phone',
+      ]);
     });
   });
 

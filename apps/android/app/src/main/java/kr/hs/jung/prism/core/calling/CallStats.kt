@@ -64,7 +64,17 @@ fun icePathOf(local: CandidateInfo?, remote: CandidateInfo?): IcePath? {
  * `sendingKbps`/`receivingKbps` 없이 돌아오고, 그때 화면은 `—`를 그린다.
  */
 class StatsSampler {
-    private data class Sample(val atMs: Double, val bytesSent: Double, val bytesReceived: Double)
+    /**
+     * [pairId]는 **어느 쌍에서 온 값인가**다. 쌍이 바뀌면 누적 바이트를 이어 붙이면
+     * 안 된다 — 새 쌍의 누계는 0부터 다시 세므로 빼면 음수가 나오고, 옛 쌍으로
+     * 되돌아가면 없던 트래픽이 생긴다.
+     */
+    private data class Sample(
+        val atMs: Double,
+        val pairId: String,
+        val bytesSent: Double,
+        val bytesReceived: Double,
+    )
 
     private var previous: Sample? = null
 
@@ -78,13 +88,21 @@ class StatsSampler {
 
         // 리포트는 id로 서로를 가리키는 평평한 맵이다 — 후보 쌍을 먼저 찾고 거기서
         // 양쪽 후보를 되짚는다.
-        val pair = entries.values.firstOrNull { entry ->
+        //
+        // ⚠️ **ICE restart를 하면 지명된 쌍이 여럿 남는다.** 그중 실제로 흐르는 것은
+        // 하나뿐이라, 조건만 보고 아무거나 집으면 멈춘 쌍을 읽어 화면이 `0 kbps`를
+        // 그린다. transport가 지금 쓰는 쌍을 id로 짚어 주므로 그것을 먼저 믿는다
+        // (working/call-followups.md 6번).
+        val selectedId = entries.values
+            .firstNotNullOfOrNull { it.members["selectedCandidatePairId"] as? String }
+        val nominated = entries.values.firstOrNull { entry ->
             entry.type == "candidate-pair" &&
                 entry.members["state"] == "succeeded" &&
                 // `nominated`가 지금 쓰이는 쌍이다. 실패한 쌍도 `succeeded`로 남을 수
-                // 있으므로 둘 다 본다.
+                // 있으므로 둘 다 본다. transport가 짚어 주지 않을 때의 차선이다.
                 entry.members["nominated"] == true
         }
+        val pair = entries[selectedId]?.takeIf { it.type == "candidate-pair" } ?: nominated
 
         if (pair != null) {
             val local = candidate(entries[pair.members["localCandidateId"] as? String])
@@ -99,11 +117,14 @@ class StatsSampler {
 
             val sample = Sample(
                 atMs = pair.timestampUs / 1_000.0,
+                pairId = pair.id,
                 bytesSent = (pair.members["bytesSent"] as? Number)?.toDouble() ?: 0.0,
                 bytesReceived = (pair.members["bytesReceived"] as? Number)?.toDouble() ?: 0.0,
             )
             val last = previous
-            if (last != null && sample.atMs > last.atMs) {
+            // 쌍이 바뀐 표본은 **비워 둔다** — 첫 호출과 같은 자리다. 다음 표본부터 새
+            // 기준으로 다시 재고, 그동안 화면은 `—`를 그린다.
+            if (last != null && last.pairId == sample.pairId && sample.atMs > last.atMs) {
                 val seconds = (sample.atMs - last.atMs) / 1_000
                 stats = stats.copy(
                     sendingKbps = kbps(sample.bytesSent - last.bytesSent, seconds),

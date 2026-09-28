@@ -6,6 +6,8 @@ import {
   type SocketServerMessage,
   type User,
 } from '@app/common';
+import { PrismConfigService } from '@app/config';
+import { CallGateway } from './call.gateway';
 import type { SocketConnection } from './connection';
 import { ConnectionRegistry } from './connection-registry';
 import { SessionPresenceGateway } from './session-presence.gateway';
@@ -51,7 +53,13 @@ describe('SessionPresenceGateway', () => {
   let redis: FakeRedis;
   let registry: ConnectionRegistry;
   let presence: PresenceRepository;
-  let sessions: { findValid: jest.Mock; listForUser: jest.Mock };
+  let sessions: {
+    findValid: jest.Mock;
+    findValidSession: jest.Mock;
+    touch: jest.Mock;
+    listForUser: jest.Mock;
+  };
+  let calls: { activeCallSessionIds: jest.Mock };
   let gateway: SessionPresenceGateway;
 
   beforeEach(() => {
@@ -60,14 +68,24 @@ describe('SessionPresenceGateway', () => {
     registry = new ConnectionRegistry();
     presence = new PresenceRepository(redis);
     sessions = {
+      // `resync`는 사용자만 필요하다.
       findValid: jest.fn(() => Promise.resolve(user)),
+      // 스윕은 상한까지 함께 읽는다 — 통화 중인 세션의 유휴 창을 밀 때 재조회하지 않으려고.
+      findValidSession: jest.fn(() =>
+        Promise.resolve({ user, absoluteExpiresAt: Date.now() + 7 * 86_400_000 }),
+      ),
+      touch: jest.fn(() => Promise.resolve()),
       // 만료 감지가 틱마다 읽는다 — 기본은 "변화 없음"이라 알림이 나가지 않는다.
       listForUser: jest.fn(() => Promise.resolve([{ id: 's-1' }])),
     };
+    // 기본은 "통화 없음" — 통화 중인 세션만 유휴 창이 밀린다(plan/auth.md §6).
+    calls = { activeCallSessionIds: jest.fn(() => new Set<string>()) };
     gateway = new SessionPresenceGateway(
       registry,
       presence,
       sessions as object as SessionsRepository,
+      calls as object as CallGateway,
+      { refreshTokenTtlMs: 12 * 60 * 60 * 1000 } as object as PrismConfigService,
       redis,
     );
   });
@@ -351,7 +369,7 @@ describe('SessionPresenceGateway', () => {
       const c = new FakeConnection('c-1', 'u-1', 's-1');
       await gateway.open(c);
       c.sent = [];
-      sessions.findValid.mockResolvedValue(null);
+      sessions.findValidSession.mockResolvedValue(null);
 
       await gateway.tick();
 
@@ -363,8 +381,50 @@ describe('SessionPresenceGateway', () => {
       expect((await connected()).size).toBe(0);
     });
 
+    // ⚠️ 회귀 방지: 통화는 요청을 만들지 않아 유휴 창을 밀 길이 없었다. 그대로 두면
+    // **통화 중인 사용자가 방치로 판정돼** 바로 위 갈래가 제 소켓을 닫는다
+    // (plan/auth.md §6 "통화 중인 세션도 활동이다").
+    it('통화 중인 세션은 스윕이 유휴 창을 밀어 준다', async () => {
+      const c = new FakeConnection('c-1', 'u-1', 's-1');
+      await gateway.open(c);
+      calls.activeCallSessionIds.mockReturnValue(new Set(['s-1']));
+
+      await gateway.tick();
+
+      expect(sessions.touch).toHaveBeenCalledWith(
+        's-1',
+        'u-1',
+        expect.any(Number),
+        12 * 60 * 60 * 1000,
+      );
+    });
+
+    // 통화가 없으면 예전 그대로다 — 붙어 있는 것만으로 세션이 영원히 살면 유휴 만료가
+    // 이름만 남는다(auth.md §6이 회전을 밀기에서 뗀 것과 같은 이유).
+    it('통화가 없으면 유휴 창을 밀지 않는다', async () => {
+      const c = new FakeConnection('c-1', 'u-1', 's-1');
+      await gateway.open(c);
+
+      await gateway.tick();
+
+      expect(sessions.touch).not.toHaveBeenCalled();
+    });
+
+    // 벨은 45초가 상한이라 유휴 창에 견줄 길이가 아니다. 걸어 놓고 자리를 뜬 기기가
+    // 제 세션을 늘리는 길도 열지 않는다 — `activeCallSessionIds`가 붙은 통화만 센다.
+    it('벨이 울리는 중인 세션은 밀지 않는다', async () => {
+      const c = new FakeConnection('c-1', 'u-1', 's-1');
+      await gateway.open(c);
+      // 통화 게이트웨이가 벨 단계를 빼고 돌려주므로 여기서는 빈 집합이다.
+      calls.activeCallSessionIds.mockReturnValue(new Set<string>());
+
+      await gateway.tick();
+
+      expect(sessions.touch).not.toHaveBeenCalled();
+    });
+
     // ⚠️ 회귀 방지: 세션이 아니라 토큰을 재검증하면 액세스 토큰이 15분이라
-    // 멀쩡한 소켓이 첫 틱에 죽는다. 스윕은 findValid만 본다.
+    // 멀쩡한 소켓이 첫 틱에 죽는다. 스윕은 findValidSession만 본다.
     it('세션이 살아 있으면 몇 틱이 지나도 끊지 않는다', async () => {
       const c = new FakeConnection('c-1', 'u-1', 's-1');
       await gateway.open(c);
@@ -374,16 +434,16 @@ describe('SessionPresenceGateway', () => {
       expect(c.closed).toBe(false);
     });
 
-    // findValid를 기다리는 사이에 소켓이 닫히는 경합. 확인하지 않고 touch하면
+    // findValidSession을 기다리는 사이에 소켓이 닫히는 경합. 확인하지 않고 touch하면
     // close가 방금 지운 presence를 되살려 끊긴 기기가 최대 1분간 Active로 남는다.
     it('검증 중에 닫힌 연결의 presence를 되살리지 않는다', async () => {
       const c = new FakeConnection('c-1', 'u-1', 's-1');
       await gateway.open(c);
 
-      // findValid가 떠 있는 동안 소켓이 닫히도록 만든다.
-      sessions.findValid.mockImplementation(async () => {
+      // findValidSession이 떠 있는 동안 소켓이 닫히도록 만든다.
+      sessions.findValidSession.mockImplementation(async () => {
         await gateway.close(c);
-        return user;
+        return { user, absoluteExpiresAt: Date.now() + 7 * 86_400_000 };
       });
 
       await gateway.tick();

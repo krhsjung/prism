@@ -18,6 +18,13 @@ package kr.hs.jung.prism.domain.model
 const val RING_TIMEOUT_MS = 45_000L
 
 /**
+ * 붙은 뒤 창구의 소켓이 사라졌을 때 통화를 붙들어 두는 창(서버 계약의 `REJOIN_WINDOW_MS`,
+ * plan/webrtc.md §8-12). **클라이언트도 같은 값으로 기다린다** — 소켓이 없는 시간이라
+ * 서버가 알려 줄 길이 없고, 창 안에 다시 붙지 못하면 스스로 접는다.
+ */
+const val REJOIN_WINDOW_MS = 30_000L
+
+/**
  * 릴레이가 나르는 문자열의 상한. 서버는 SDP를 해석하지 않으므로 길이와 형식이 경계에서
  * 볼 수 있는 전부다 — 상한이 없으면 소켓이 임의 크기 릴레이가 된다.
  */
@@ -167,4 +174,13 @@ sealed interface CallClientMessage {
 
     /** 알림으로 열었다 — 이 통화가 아직 살아 있나. 소켓이 붙자마자 묻는다. */
     data class Resume(val callId: String) : CallClientMessage
+
+    /**
+     * 붙은 뒤 소켓을 잃었다가 다시 붙었다 — 이 통화의 창구를 이 연결로 되찾는다.
+     *
+     * [Resume]과 다르다: 그쪽은 통화를 **들고 있지 않은** 기기의 질문이고, 이것은 통화를
+     * **들고 있는** 쪽만 보낸다. 답은 `accepted`(처음처럼 다시 협상한다) 또는
+     * `expired`(창이 지났다)다.
+     */
+    data class Rejoin(val callId: String) : CallClientMessage
 }

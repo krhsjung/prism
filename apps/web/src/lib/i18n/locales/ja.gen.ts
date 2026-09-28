@@ -170,6 +170,8 @@ export const messages: Messages = {
   'webrtc.preview_start': 'カメラをオンにする',
   // 상대가 끊으면 로비로 돌아간다 — 방이 없으므로 남아서 기다릴 자리도 없다(§4)
   'webrtc.peer_left': '相手の端末が通話を終了しました。',
+  // 내 소켓이 끊긴 채 창(REJOIN_WINDOW_MS)이 지났다 — 상대가 끊은 것이 아니라 회선이 끊긴 것이다
+  'webrtc.connection_lost': '接続が切れたため通話は終了しました。',
   // 진단 패널 — 기본은 접혀 있다. 라벨은 Manrope · 값은 모노(JetBrains Mono)로 그린다(§4)
   'webrtc.diagnostics': '診断',
   'webrtc.diag_show': '診断を開く',
@@ -204,6 +206,8 @@ export const messages: Messages = {
   'webrtc.ice_policy_all': 'STUN + TURN',
   'webrtc.ice_policy_relay': 'TURN のみ',
   'webrtc.ice_policy_note': '切り替えると通話が再接続されます。「TURN のみ」はメディアをリレー経由に強制するため、経路の変化を確認できます。',
+  // 로비에서는 되돌릴 통화가 없다 — 같은 컨트롤이라도 말할 것이 다르다
+  'webrtc.ice_policy_lobby_note': '次の通話でこの経路を使います。「TURN のみ」はメディアをリレー経由に強制します。',
   // 로그에 레벨(DEBUG/INFO/WARN/ERROR)을 두지 않는다 — 원소가 §6 계약의 메시지뿐이라
   // 네 레벨로 나누면 필터가 원소보다 커진다. 실제로 헷갈리는 축은 방향(누가 offer를 냈나)이다
   'webrtc.diag_signaling': 'シグナリング',

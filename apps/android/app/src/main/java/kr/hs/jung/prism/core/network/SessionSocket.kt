@@ -1,5 +1,7 @@
 package kr.hs.jung.prism.core.network
 
+import android.net.ConnectivityManager
+import android.net.Network
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -67,6 +69,10 @@ enum class SocketErrorAction {
 class SessionSocket(
     private val tokens: SessionTokens,
     private val authority: SessionAuthority,
+    /**
+     * 회선 복귀를 듣는 곳. **없어도 돈다** — 없으면 사다리만 남는다(단위 테스트가 그 경우다).
+     */
+    private val connectivity: ConnectivityManager? = null,
     private val url: String = BuildConfig.PRISM_SOCKET_URL,
     private val client: OkHttpClient = OkHttpClient.Builder()
         // 프로토콜 ping — 반쯤 죽은 TCP를 OkHttp가 잡는다. app-level 하트비트(아래
@@ -108,12 +114,12 @@ class SessionSocket(
     var onCallMessage: ((CallServerMessage) -> Unit)? = null
 
     /**
-     * 소켓이 끊겼다 — **서버는 이미 진행 중이던 통화를 끝냈다.**
+     * 소켓이 끊겼다.
      *
-     * 창구의 소켓이 사라지면 서버가 `Ended(PEER_GONE)`으로 접고 상대에게만 알린다.
-     * 그 메시지는 없어진 소켓으로 오므로 이쪽은 영영 받지 못하고, 재연결해도 통화
-     * 상태를 되물을 길이 없다(`resume`은 벨 전용이다). 듣는 쪽이 스스로 접으라고
-     * 알려 주는 자리다.
+     * 붙은 뒤의 통화는 여기서 끝나지 않는다 — 서버가 창구만 비우고 유예 창을 걸어 두므로
+     * (plan/webrtc.md §8-12), 듣는 쪽은 통화를 붙든 채 [isReady]가 돌아오기를 기다렸다가
+     * `Rejoin`으로 창구를 되찾는다. 벨 단계의 통화는 서버가 바로 끝으로 보므로 듣는 쪽이
+     * 스스로 접는다.
      */
     @Volatile
     var onDisconnected: (() -> Unit)? = null
@@ -139,11 +145,41 @@ class SessionSocket(
         data object Closed : Event
     }
 
+    /**
+     * 회선이 돌아왔다는 신호. [waitBeforeRetry]가 사다리와 **같이** 듣는다.
+     *
+     * CONFLATED라 여러 번 와도 하나로 접힌다 — 알고 싶은 것은 "몇 번 바뀌었나"가 아니라
+     * "지금 붙어 볼 만한가"뿐이다.
+     */
+    private val wakeups = Channel<Unit>(Channel.CONFLATED)
+
+    private val networkCallback = object : ConnectivityManager.NetworkCallback() {
+        override fun onAvailable(network: Network) {
+            wake()
+        }
+    }
+    private var watchingNetwork = false
+
+    /**
+     * 회선이 돌아왔다 — **예약된 기다림을 버리고 곧바로 다시 붙는다**(plan/webrtc.md §8-12).
+     *
+     * 사다리(1·2·4·8·15초)는 회선이 언제 돌아오는지 모른다. 복귀 **직전에** 한 번 헛돌면
+     * 다음 시도가 15초 뒤이고, 통화 중이라면 그것만으로 `rejoin` 유예 창의 절반이
+     * 사라진다. 웹 `socket.ts`의 `wake()`와 같은 규칙이다.
+     *
+     * 여기서 `attempt`를 건드리지 않는 것은 의도다 — 되감는 것은 루프가 한다.
+     * 이 함수는 다른 스레드(시스템 콜백)에서 불리므로 신호만 남긴다.
+     */
+    fun wake() {
+        wakeups.trySend(Unit)
+    }
+
     fun start(scope: CoroutineScope) {
         if (job?.isActive == true) return
         // 다시 붙일 때는 곧바로 시도한다 — 포그라운드로 돌아온 사용자를 백오프만큼
         // 기다리게 하면 화면을 보고 있는데도 낡은 목록이 남는다.
         attempt = 0
+        watchNetwork()
         job = scope.launch { runLoop() }
     }
 
@@ -151,10 +187,27 @@ class SessionSocket(
         job?.cancel()
         job = null
         current = null
+        unwatchNetwork()
         if (_isReady.value) {
             _isReady.value = false
             onDisconnected?.invoke()
         }
+    }
+
+    /** 기본 회선이 바뀌는 것(Wi-Fi↔LTE)도 `onAvailable`로 온다. */
+    private fun watchNetwork() {
+        val manager = connectivity ?: return
+        if (watchingNetwork) return
+        // 등록은 기기 사정으로 실패할 수 있다(콜백 한도·권한). 실패해도 던지지 않는다 —
+        // 사다리만 남을 뿐 틀리지는 않는다.
+        runCatching { manager.registerDefaultNetworkCallback(networkCallback) }
+            .onSuccess { watchingNetwork = true }
+    }
+
+    private fun unwatchNetwork() {
+        if (!watchingNetwork) return
+        runCatching { connectivity?.unregisterNetworkCallback(networkCallback) }
+        watchingNetwork = false
     }
 
     /**
@@ -198,7 +251,7 @@ class SessionSocket(
             if (token == null) {
                 // 자격증명이 없으면 붙을 수 없다. 인증 상태를 바꾸지는 않는다 —
                 // 로그인 여부의 판단은 AuthManager의 몫이다.
-                delay(backoff(attempt++))
+                waitBeforeRetry()
                 continue
             }
 
@@ -223,7 +276,7 @@ class SessionSocket(
                 Outcome.RECONNECT_NOW -> attempt = 0
                 Outcome.RECONNECT_LATER -> Unit
             }
-            delay(backoff(attempt++))
+            waitBeforeRetry()
         }
     }
 
@@ -356,6 +409,16 @@ class SessionSocket(
      * 지터를 섞는다 — 서버가 재시작하면 모든 클라이언트가 같은 순간에 끊긴다.
      * 정확히 같은 간격으로 재시도하면 그 무리가 유지돼 복구 직후를 다시 두드린다.
      */
+    /**
+     * 다음 시도까지 기다린다 — **사다리와 회선 복귀 신호를 같이 듣는다.**
+     *
+     * 신호로 깨면 사다리를 처음으로 되감는다. 시간이 다 차서 깨면 그대로 오른다.
+     */
+    private suspend fun waitBeforeRetry() {
+        val woken = withTimeoutOrNull(backoff(attempt++)) { wakeups.receive() }
+        if (woken != null) attempt = 0
+    }
+
     private fun backoff(attempt: Int): Long {
         val base = BACKOFF_MS[attempt.coerceIn(0, BACKOFF_MS.lastIndex)]
         return (base * Random.nextDouble(0.8, 1.2)).toLong()

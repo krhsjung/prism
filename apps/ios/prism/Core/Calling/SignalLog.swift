@@ -111,6 +111,7 @@ extension CallClientMessage {
         case .ice: "ice"
         case .hangup: "hangup"
         case .resume: "resume"
+        case .rejoin: "rejoin"
         }
     }
 

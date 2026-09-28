@@ -162,4 +162,66 @@ describe('지표 읽기', () => {
 
     expect(stats.dtlsState).toBe('connected');
   });
+
+  // ICE restart를 하면 **지명된 쌍이 여럿 남는다** — 그중 흐르는 것은 하나뿐이다.
+  // 훑다가 마지막에 걸린 것을 쓰면 멈춘 쌍을 읽는다(working/call-followups.md 6번).
+  const transport = (selectedCandidatePairId: string) => ({
+    id: 't',
+    type: 'transport',
+    selectedCandidatePairId,
+  });
+
+  it('지명된 쌍이 여럿이면 transport가 짚어 준 것을 쓴다', async () => {
+    const stats = await new StatsSampler().read(
+      peerWith(
+        report({
+          live: pair({ id: 'live', currentRoundTripTime: 0.009 }),
+          // 나중에 걸리는 쪽이 멈춘 쌍이다 — 짚어 주지 않으면 이쪽을 읽는다.
+          stale: pair({ id: 'stale', currentRoundTripTime: 0.635 }),
+          t: transport('live'),
+        }),
+      ),
+    );
+
+    expect(stats.rttMs).toBe(9);
+  });
+
+  it('멈춘 쌍이 남아 있어도 흐르는 쌍의 비트레이트를 낸다', async () => {
+    const sampler = new StatsSampler();
+    const pc = peerWith(
+      report({
+        live: pair({ id: 'live', timestamp: 1_000, bytesSent: 0 }),
+        stale: pair({ id: 'stale', timestamp: 1_000, bytesSent: 40_404 }),
+        t: transport('live'),
+      }),
+      report({
+        live: pair({ id: 'live', timestamp: 2_000, bytesSent: 125_000 }),
+        stale: pair({ id: 'stale', timestamp: 2_000, bytesSent: 40_404 }),
+        t: transport('live'),
+      }),
+    );
+
+    await sampler.read(pc);
+    const stats = await sampler.read(pc);
+
+    expect(stats.sendingKbps).toBe(1_000);
+  });
+
+  // 새 쌍의 누계는 0부터 다시 센다 — 옛 쌍의 누계와 빼면 엉뚱한 숫자가 나온다.
+  it('쌍이 바뀐 표본은 비트레이트를 내지 않는다', async () => {
+    const sampler = new StatsSampler();
+    const pc = peerWith(
+      report({ a: pair({ id: 'a', timestamp: 1_000, bytesSent: 1_000_000 }), t: transport('a') }),
+      report({ b: pair({ id: 'b', timestamp: 2_000, bytesSent: 10_000 }), t: transport('b') }),
+      report({ b: pair({ id: 'b', timestamp: 3_000, bytesSent: 135_000 }), t: transport('b') }),
+    );
+
+    await sampler.read(pc);
+    const switched = await sampler.read(pc);
+    const after = await sampler.read(pc);
+
+    expect(switched.sendingKbps).toBeUndefined();
+    // 다음 표본부터는 **새 쌍을 기준으로** 다시 잰다.
+    expect(after.sendingKbps).toBe(1_000);
+  });
 });

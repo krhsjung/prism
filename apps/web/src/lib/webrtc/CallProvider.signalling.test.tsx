@@ -1,171 +1,22 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { CallProvider } from './CallProvider';
-import { useCall } from './call-context';
-import { SessionSocketContext } from '../session-socket-context';
-import type { CallClientMessage, CallServerMessage } from '../contracts.gen';
+import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import {
+  FakePeer,
+  calleeConnecting,
+  callerConnecting,
+  deliver,
+  renderApp,
+  sent,
+  status,
+  stubCallEnvironment,
+} from './CallProvider.harness';
 
 // 협상은 **실패하는 자리**다 — 코덱이 겹치지 않거나, 늦게 온 답이 `stable`인 연결에
 // 들어오거나, 양쪽이 동시에 재협상을 낸다. 그 갈래들이 화면을 `연결 중`에 가두거나
 // 남의 통화를 끊지 않는지가 이 스펙의 질문이다(plan/webrtc.md §6).
 
-class FakePeer {
-  static made: FakePeer[] = [];
-  static failOn: 'none' | 'answer' = 'none';
-
-  localDescription: RTCSessionDescriptionInit | null = null;
-  remoteDescription: RTCSessionDescriptionInit | null = null;
-  connectionState = 'new';
-  closed = false;
-  // CallProvider가 실제로 읽는 모양만 흉내 낸다.
-  onicecandidate: ((event: { candidate: RTCIceCandidate | null }) => void) | null = null;
-  ontrack: ((event: { streams: MediaStream[] }) => void) | null = null;
-  onconnectionstatechange: (() => void) | null = null;
-
-  readonly config: RTCConfiguration;
-
-  constructor(config: RTCConfiguration) {
-    this.config = config;
-    FakePeer.made.push(this);
-  }
-
-  addTrack() {}
-  getSenders() {
-    return [];
-  }
-  createOffer() {
-    return Promise.resolve({ type: 'offer', sdp: 'v=0 mine' });
-  }
-  createAnswer() {
-    if (FakePeer.failOn === 'answer') {
-      return Promise.reject(new DOMException('no codec', 'InvalidStateError'));
-    }
-    return Promise.resolve({ type: 'answer', sdp: 'v=0 mine-answer' });
-  }
-  setLocalDescription(description: RTCSessionDescriptionInit) {
-    this.localDescription = description;
-    return Promise.resolve();
-  }
-  setRemoteDescription(description: RTCSessionDescriptionInit) {
-    this.remoteDescription = description;
-    return Promise.resolve();
-  }
-  addIceCandidate() {
-    return Promise.resolve();
-  }
-  getStats() {
-    return Promise.resolve(new Map());
-  }
-  close() {
-    this.closed = true;
-  }
-}
-
-let sent: CallClientMessage[];
-let deliver: (message: CallServerMessage) => void;
-
-function Probe() {
-  const {
-    startCall, acceptIncoming, cancelCall, hangUp, setIcePolicy, resumeCall,
-    call, incoming, notice,
-  } = useCall();
-  return (
-    <>
-      <button onClick={() => startCall({ id: 'peer-1', device: 'mac' })}>call</button>
-      <button onClick={acceptIncoming}>accept</button>
-      <button onClick={cancelCall}>cancel</button>
-      <button onClick={hangUp}>hangup</button>
-      <button onClick={() => setIcePolicy('relay')}>relay</button>
-      <button onClick={() => resumeCall('c-1')}>resume</button>
-      <span data-testid="status">{call ? call.status : 'none'}</span>
-      <span data-testid="incoming">{incoming ? 'ringing' : 'none'}</span>
-      <span data-testid="notice">{notice?.kind ?? 'none'}</span>
-    </>
-  );
-}
-
-function renderApp(ready = true) {
-  const socket = {
-    ready,
-    changed: 0,
-    send: (message: CallClientMessage) => {
-      sent.push(message);
-      return true;
-    },
-    subscribeCall: (handler: (m: CallServerMessage) => void) => {
-      deliver = handler;
-      return () => {};
-    },
-  };
-  const view = render(
-    <MemoryRouter initialEntries={['/webrtc']}>
-      <SessionSocketContext.Provider value={socket}>
-        <CallProvider>
-          <Probe />
-        </CallProvider>
-      </SessionSocketContext.Provider>
-    </MemoryRouter>,
-  );
-  return {
-    ...view,
-    // 같은 트리를 다시 그리되 소켓의 ready만 바꾼다 — 회선이 끊긴 순간을 흉내 낸다.
-    setReady(next: boolean) {
-      view.rerender(
-        <MemoryRouter initialEntries={['/webrtc']}>
-          <SessionSocketContext.Provider value={{ ...socket, ready: next }}>
-            <CallProvider>
-              <Probe />
-            </CallProvider>
-          </SessionSocketContext.Provider>
-        </MemoryRouter>,
-      );
-    },
-  };
-}
-
-const status = () => screen.getByTestId('status').textContent;
-
-// 거는 쪽으로 `연결 중`까지 간다.
-async function callerConnecting() {
-  fireEvent.click(screen.getByText('call'));
-  await waitFor(() => expect(sent).toContainEqual({ type: 'call', to: 'peer-1' }));
-  deliver({ type: 'ringing', callId: 'c-1' });
-  deliver({ type: 'accepted', callId: 'c-1', iceServers: [] });
-  await waitFor(() => expect(status()).toBe('connecting'));
-}
-
-// 받는 쪽으로 `연결 중`까지 간다.
-async function calleeConnecting() {
-  deliver({ type: 'incoming', callId: 'c-1', from: { id: 'peer-1', device: 'mac' } });
-  await waitFor(() => expect(screen.getByTestId('incoming').textContent).toBe('ringing'));
-  fireEvent.click(screen.getByText('accept'));
-  await waitFor(() => expect(sent).toContainEqual({ type: 'accept', callId: 'c-1' }));
-  deliver({ type: 'accepted', callId: 'c-1', iceServers: [] });
-  await waitFor(() => expect(status()).toBe('connecting'));
-}
-
 describe('CallProvider — 시그널링', () => {
-  beforeEach(() => {
-    sent = [];
-    FakePeer.made = [];
-    FakePeer.failOn = 'none';
-    const track = (kind: string) => ({ kind, enabled: true, stop: vi.fn() });
-    const tracks = [track('audio'), track('video')];
-    const stream = {
-      getTracks: () => tracks,
-      getAudioTracks: () => [tracks[0]],
-      getVideoTracks: () => [tracks[1]],
-    } as object as MediaStream;
-    vi.stubGlobal('navigator', {
-      ...navigator,
-      mediaDevices: {
-        getUserMedia: vi.fn(() => Promise.resolve(stream)),
-        enumerateDevices: () => Promise.resolve([]),
-      },
-    });
-    vi.stubGlobal('RTCPeerConnection', FakePeer);
-  });
+  beforeEach(stubCallEnvironment);
 
   afterEach(cleanup);
 
@@ -372,15 +223,19 @@ describe('CallProvider — 시그널링', () => {
     expect(status()).toBe('connecting');
   });
 
-  // 창구의 소켓이 사라지면 서버가 통화를 끝내고 상대에게 알린다 — 그 메시지는 없어진
-  // 소켓으로 가므로, 이쪽은 스스로 접지 않으면 카메라를 쥔 채 유령 통화를 그린다.
-  it('소켓이 끊기면 통화를 접는다', async () => {
+  // 벨 단계의 단절은 서버가 바로 끝으로 본다(아직 미디어가 없다) — 이쪽도 스스로 접지
+  // 않으면 카메라를 쥔 채 유령 통화를 그린다. 붙은 뒤의 단절은 재연결 스펙에 있다(§8-12).
+  it('벨이 울리는 중 소켓이 끊기면 통화를 접는다', async () => {
     const view = renderApp();
-    await callerConnecting();
+    fireEvent.click(screen.getByText('call'));
+    await waitFor(() => expect(sent).toContainEqual({ type: 'call', to: 'peer-1' }));
+    deliver({ type: 'ringing', callId: 'c-1' });
+    await waitFor(() => expect(status()).toBe('ringing'));
 
     view.setReady(false);
 
     await waitFor(() => expect(status()).toBe('none'));
+    expect(screen.getByTestId('notice').textContent).toBe('ended');
   });
   // ── 푸시로 깨우기 (plan/webrtc.md §8-9) ──
   //

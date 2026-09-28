@@ -20,6 +20,7 @@ import kr.hs.jung.prism.core.calling.CallMedia
 import kr.hs.jung.prism.core.calling.CallStats
 import kr.hs.jung.prism.core.calling.MediaDeviceOption
 import kr.hs.jung.prism.core.calling.MediaErrorKind
+import kr.hs.jung.prism.core.calling.SdpFingerprint
 import kr.hs.jung.prism.core.calling.SignalDirection
 import kr.hs.jung.prism.core.calling.SignalLog
 import kr.hs.jung.prism.core.calling.SignalLogEntry
@@ -34,6 +35,7 @@ import kr.hs.jung.prism.domain.model.CallEndReason
 import kr.hs.jung.prism.domain.model.CallErrorCode
 import kr.hs.jung.prism.domain.model.CallServerMessage
 import kr.hs.jung.prism.domain.model.IceServer
+import kr.hs.jung.prism.domain.model.REJOIN_WINDOW_MS
 import kr.hs.jung.prism.domain.model.SessionRef
 import org.webrtc.EglBase
 import org.webrtc.IceCandidate
@@ -81,6 +83,12 @@ sealed interface CallNotice {
      * 못하거나 애초에 내 통화가 아니었으면 기기 종류를 지어내지 않는다(§6).
      */
     data class Expired(val from: SessionRef?) : CallNotice
+
+    /**
+     * 내 소켓이 끊긴 채 창([REJOIN_WINDOW_MS])이 지났다 — 상대가 끊은 것이 아니라 회선이
+     * 끊긴 것이고, 화면도 그렇게 말한다(§8-12).
+     */
+    data object Lost : CallNotice
 }
 
 data class ActiveCall(
@@ -164,6 +172,32 @@ class CallController(
          * 풀어 주는 시계가 없으면 화면이 걸린 채로 남는다.
          */
         const val ANSWER_TIMEOUT_MS = 10_000L
+
+        /**
+         * 붙었던 통화의 길이 끊긴 뒤, **같은 연결에서** 길을 다시 찾는 시계들(plan/webrtc.md §8).
+         *
+         * `DISCONNECTED`는 스스로 돌아오는 경우가 흔해서 잠깐 두고 본 뒤 첫 ICE restart를
+         * 낸다. 그래도 안 붙으면 일정 간격으로 다시 내고, **처음 끊긴 시점부터** 상한이
+         * 지나면 `연결 실패`로 접는다 — 그 뒤에 남는 것이 타일의 `Try again`(같은 상대에게
+         * 새로 걸기)이다. 상한을 첫 연결([CONNECT_TIMEOUT_MS])보다 짧게 두는 이유: 사람이
+         * 대화 중에 기다리는 시간이다.
+         */
+        const val RECONNECT_GRACE_MS = 2_000L
+        const val RECONNECT_RETRY_MS = 5_000L
+        const val RECONNECT_TIMEOUT_MS = 15_000L
+
+        /**
+         * `Rejoin`을 보낸 뒤 답을 기다리는 시간(§8-12).
+         *
+         * 창([REJOIN_WINDOW_MS])은 **소켓이 돌아오기까지**를 재고 이 시계는 **답이
+         * 오기까지**를 잰다. 둘을 한 시계로 묶으면 창 끝에 보낸 `Rejoin`은 서버가 받아
+         * 줘도 답이 닿기 전에 시계가 울어 진다. 결말은 서버가 정하므로(`Accepted`·
+         * `Expired`) 이 시계는 답이 아예 오지 않는 경우의 안전망일 뿐이다.
+         */
+        const val REJOIN_ANSWER_MS = 10_000L
+
+        /** 소켓을 잃어도 붙들 수 있는 통화의 상태 — 붙은 뒤의 통화뿐이다(§8-12). */
+        val HELD_STATUSES = setOf(CallStatus.CONNECTING, CallStatus.CONNECTED, CallStatus.RECONNECTING)
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -201,6 +235,21 @@ class CallController(
     private var offering = false
     /** `연결 중`에 상한을 두는 시계. */
     private var connectTimer: Job? = null
+    /**
+     * 다음 ICE restart를 내는 시계(거는 쪽만)와, 재연결을 포기하는 시계(양쪽).
+     * 포기 시계가 걸려 있는 동안이 곧 `재연결 중`이다 — 처음 끊긴 시점부터 잰다.
+     */
+    private var restartTimer: Job? = null
+    private var reconnectTimer: Job? = null
+    /** restart offer를 만드는 중이다 — 겹쳐 내면 두 offer가 한 답을 두고 다툰다. */
+    private var restarting = false
+    /** 원격 기술을 붙이는 중이다 — 그동안 온 후보는 붙들어 둔다([setRemoteHoldingCandidates]). */
+    private var applyingRemote = false
+    /**
+     * 붙은 뒤 시그널링 소켓을 잃었다 — 다시 붙어 `Rejoin`의 답을 받을 때까지 기다리는 시계.
+     * 걸려 있는 동안은 ICE의 소식을 듣지 않는다(길을 다시 찾는 일은 소켓이 먼저다).
+     */
+    private var rejoinTimer: Job? = null
     /** `ringing`을 기다리는 사이에 취소했다. id를 알게 되는 순간 서버에도 알려야 한다. */
     private var cancelPending = false
     /**
@@ -234,17 +283,87 @@ class CallController(
 
     init {
         socket.onCallMessage = { message -> scope.launch { handle(message) } }
-        // 소켓이 끊기면 서버는 이미 통화를 끝냈다 — 그 `ended`는 없어진 소켓으로 가므로
-        // 이쪽은 영영 받지 못한다. 스스로 접지 않으면 카메라를 쥔 채 `연결됨`을 그리고
-        // 있는데 상대는 로비로 돌아간 화면이 된다. 루프백은 소켓을 쓰지 않는다.
+        // 소켓이 끊겼다. **붙은 뒤의 통화는 접지 않고 소켓을 기다린다** — 서버가 창구만
+        // 비우고 유예 창을 걸어 두므로(§8-12), 다시 붙어 `Rejoin`을 보내면 되찾는다. 벨
+        // 단계·실패한 통화는 붙들 것이 없어 지금까지처럼 접는다(서버도 벨 단계의 단절은
+        // 바로 끝으로 본다). 루프백은 소켓을 쓰지 않는다.
+        //
+        // 소켓 루프의 스레드에서 불린다 — 시계를 만지는 일이라 Main으로 옮긴다.
         socket.onDisconnected = {
-            // 기다리던 `call`의 답도 오지 않는다 — 소켓이 없으면 서버는 답할 길이 없다.
-            // 문을 열어 두지 않으면 재연결(또는 재로그인) 뒤에도 걸 수 없다.
-            settleAttempt()
-            cancelPending = false
-            val call = _state.value.call
-            if (call != null && !call.isLoopback) finish(CallNotice.Ended(CallEndReason.PEER_GONE))
+            scope.launch {
+                // 기다리던 `call`의 답도 오지 않는다 — 소켓이 없으면 서버는 답할 길이 없다.
+                // 문을 열어 두지 않으면 재연결(또는 재로그인) 뒤에도 걸 수 없다.
+                settleAttempt()
+                cancelPending = false
+                val call = _state.value.call
+                if (call == null || call.isLoopback) return@launch
+                val held = call.callId != null && call.status in HELD_STATUSES
+                if (held) loseSocket() else finish(CallNotice.Ended(CallEndReason.PEER_GONE))
+            }
         }
+        // 소켓이 (다시) 붙었다 — 잃었던 통화의 창구를 되찾는다.
+        scope.launch {
+            socket.isReady.collect { ready ->
+                val callId = _state.value.call?.callId
+                if (ready && rejoinTimer != null && callId != null) {
+                    send(CallClientMessage.Rejoin(callId))
+                    // **보낸 순간 창을 끈다.** 답을 기다리는 왕복까지 같은 창에서 빼면
+                    // 창 끝에 보낸 `Rejoin`은 서버가 받아 줘도 진다(§8-12). 여기서부터
+                    // 재는 것은 "소켓이 돌아오기까지"가 아니라 "답이 오기까지"다.
+                    awaitRejoinAnswer()
+                }
+            }
+        }
+    }
+
+    /**
+     * 붙은 뒤 시그널링 소켓을 잃었다 — **통화를 접지 않고 소켓을 기다린다**(§8-12).
+     *
+     * 회선이 바뀌면(Wi-Fi↔LTE) 소켓이 먼저 죽는다. 서버는 창구만 비우고 유예 창을 걸어
+     * 두므로, 다시 붙어 `Rejoin`을 보내면 창구를 되찾고 양쪽이 처음처럼 다시 협상한다.
+     * 그동안 ICE는 어차피 길을 잃고 restart offer는 갈 곳이 없으니 그 시계는 멈추고,
+     * 배지만 `재연결 중`을 그린다. 창([REJOIN_WINDOW_MS]) 안에 소켓이 돌아오지 않으면
+     * 여기서 접는다 — 서버가 알려 줄 길이 없는 유일한 시간이라 클라이언트가 스스로 잰다.
+     */
+    private fun loseSocket() {
+        connectTimer?.cancel()
+        connectTimer = null
+        stopReconnecting()
+        _state.update { it.copy(call = it.call?.copy(status = CallStatus.RECONNECTING)) }
+        rejoinTimer?.cancel()
+        rejoinTimer = scope.launch {
+            delay(REJOIN_WINDOW_MS)
+            giveUpLost()
+        }
+    }
+
+    /** `Rejoin`을 보냈다 — 이제부터는 **답이 오지 않는 경우**만 잰다(§8-12). */
+    private fun awaitRejoinAnswer() {
+        rejoinTimer?.cancel()
+        rejoinTimer = scope.launch {
+            delay(REJOIN_ANSWER_MS)
+            giveUpLost()
+        }
+    }
+
+    /**
+     * 회선이 끊겨 접는다 — **접기 전에 상대에게 알린다**(§8-12).
+     *
+     * 여기 닿는 길은 둘이다: 소켓이 창 안에 돌아오지 않았거나(소켓이 죽어 있다), 보낸
+     * `Rejoin`의 답이 오지 않았거나(소켓은 살아 있다). 뒤쪽에서 말없이 화면만 접으면
+     * 상대는 `통화 중` 안에 `연결 실패`로 남고, 되찾힌 창구 때문에 서버도 통화를 살아
+     * 있는 것으로 본다. 소켓이 죽어 있으면 이 `Hangup`은 나가지 않고, 그때는 서버의
+     * 창이 `peer-gone`으로 끝내므로 상대는 어느 쪽이든 소식을 듣는다.
+     */
+    private fun giveUpLost() {
+        rejoinTimer = null
+        _state.value.call?.callId?.let { send(CallClientMessage.Hangup(it)) }
+        finish(CallNotice.Lost)
+    }
+
+    private fun clearRejoinWait() {
+        rejoinTimer?.cancel()
+        rejoinTimer = null
     }
 
     // ── 미디어 ────────────────────────────────────────────────────────────────
@@ -380,6 +499,9 @@ class CallController(
     private fun teardownPeer() {
         connectTimer?.cancel()
         connectTimer = null
+        stopReconnecting()
+        clearRejoinWait()
+        applyingRemote = false
         offering = false
         // ⚠️ 루프백에서는 `peer`가 `loopback[0]`과 **같은 객체**다(지표를 거는 쪽에서
         // 읽으려고 caller를 peer에 넣는다). 그대로 둘을 각각 dispose하면 같은 네이티브
@@ -402,6 +524,8 @@ class CallController(
      */
     private fun buildPeer(callId: String): PeerConnection? {
         peer?.dispose()
+        // 새 연결은 새 협상이다 — 옛 연결의 재연결 시계는 여기서 끝난다.
+        stopReconnecting()
         pendingRemote.clear()
         sampler.reset()
 
@@ -425,6 +549,9 @@ class CallController(
             }
         }
 
+        // 상태 콜백은 네이티브 스레드에서 온다 — 시계를 만지는 일이라 Main으로 옮기고,
+        // 그때 어느 연결의 소식인지 함께 넘긴다(버린 연결의 늦은 소식을 거르려고).
+        var built: PeerConnection? = null
         val created = media.factory.createPeerConnection(
             config,
             observer(
@@ -437,12 +564,15 @@ class CallController(
                     )
                 },
                 onRemoteTrack = { track -> _remoteTrack.value = track },
-                onConnectionState = ::applyConnectionState,
+                onConnectionState = { state ->
+                    scope.launch { built?.let { applyConnectionState(state, it) } }
+                },
             ),
         ) ?: run {
             AppLog.e("peer_connection_failed")
             return null
         }
+        built = created
         attachLocalTracks(created)
         peer = created
         return created
@@ -453,29 +583,169 @@ class CallController(
         media.localAudioTrack?.let { connection.addTrack(it, listOf("prism")) }
     }
 
-    private fun applyConnectionState(newState: PeerConnection.PeerConnectionState) {
-        _state.update { current ->
-            val call = current.call ?: return@update current
-            val next = when (newState) {
-                PeerConnection.PeerConnectionState.CONNECTED -> call.copy(
-                    status = CallStatus.CONNECTED,
-                    connectedAtMs = call.connectedAtMs ?: System.currentTimeMillis(),
-                )
-                // 끊김은 **실패가 아니다** — ICE가 스스로 되찾는 경우가 흔하다.
-                PeerConnection.PeerConnectionState.DISCONNECTED ->
-                    call.copy(status = CallStatus.RECONNECTING)
-                PeerConnection.PeerConnectionState.FAILED ->
-                    call.copy(status = CallStatus.FAILED)
-                else -> return@update current
+    /**
+     * 연결 상태를 배지로 옮긴다. **루프백과 릴레이가 같은 표를 쓴다** — 갈라 두면 한쪽만
+     * `재연결 중`을 그리게 되고, 세 플랫폼의 대칭도 거기서 깨진다.
+     *
+     * 끊김은 **실패가 아니다.** 붙었던 통화의 `DISCONNECTED`·`FAILED`는 길을 잃은 것이고
+     * 같은 연결에서 다시 찾을 수 있다(ICE restart). `연결 실패`가 되는 것은 그 시도가
+     * 상한에 닿았을 때뿐이다. 붙기 **전**의 `FAILED`는 다르다 — 애초에 길이 없던 것이라
+     * restart로 살릴 것이 없고, 지금까지처럼 바로 `연결 실패`다.
+     */
+    private fun applyConnectionState(
+        newState: PeerConnection.PeerConnectionState,
+        connection: PeerConnection,
+    ) {
+        // 버린 연결의 늦은 소식은 지금 통화의 것이 아니다.
+        if (connection !== peer) return
+        // 소켓을 잃은 동안은 ICE의 소식을 듣지 않는다 — restart offer가 갈 길이 없고,
+        // 결말은 다시 붙은 소켓의 `Rejoin`이 정한다(§8-12).
+        if (rejoinTimer != null) return
+        val call = _state.value.call ?: return
+        when (newState) {
+            PeerConnection.PeerConnectionState.CONNECTED -> {
+                connectTimer?.cancel()
+                connectTimer = null
+                stopReconnecting()
+                _state.update { current ->
+                    val live = current.call ?: return@update current
+                    current.copy(
+                        call = live.copy(
+                            status = CallStatus.CONNECTED,
+                            connectedAtMs = live.connectedAtMs ?: System.currentTimeMillis(),
+                        ),
+                    )
+                }
             }
-            current.copy(call = next)
+
+            PeerConnection.PeerConnectionState.DISCONNECTED,
+            PeerConnection.PeerConnectionState.FAILED,
+            -> {
+                val failed = newState == PeerConnection.PeerConnectionState.FAILED
+                val wasUp = call.status == CallStatus.CONNECTED ||
+                    call.status == CallStatus.RECONNECTING
+                if (!wasUp) {
+                    if (failed) failCall()
+                    return
+                }
+                markReconnecting()
+                // restart는 거는 쪽이 낸다. `DISCONNECTED`는 스스로 돌아오는 경우가 흔해
+                // 잠깐 두고 보고, `FAILED`는 지금 후보로는 길이 없다는 뜻이라 바로 낸다.
+                if (!call.isCaller) return
+                if (failed) {
+                    scheduleRestart(0L)
+                } else if (restartTimer == null) {
+                    scheduleRestart(RECONNECT_GRACE_MS)
+                }
+            }
+
+            else -> return
         }
+    }
+
+    /** 재연결을 접는다 — 붙었든, 포기했든, 연결을 새로 세우든 시계는 여기서 멈춘다. */
+    private fun stopReconnecting() {
+        restarting = false
+        restartTimer?.cancel()
+        restartTimer = null
+        reconnectTimer?.cancel()
+        reconnectTimer = null
+    }
+
+    /**
+     * 길이 끊겼다 — 배지를 `재연결 중`으로 옮기고 포기 시계를 건다. 이미 걸려 있으면 그대로다.
+     *
+     * 상한은 **처음 끊긴 시점부터** 잰다 — restart를 몇 번 냈는지가 아니라 사람이
+     * `재연결 중`을 얼마나 봤는지가 기다림의 크기다. 양쪽이 같은 값을 쓰므로 거는 쪽과
+     * 받는 쪽이 대체로 같은 때에 포기한다.
+     */
+    private fun markReconnecting() {
+        if (reconnectTimer != null) return
+        // connectedAtMs는 지우지 않는다 — 통화는 이어지는 중이고 시간도 계속 흐른다.
+        _state.update { it.copy(call = it.call?.copy(status = CallStatus.RECONNECTING)) }
+        reconnectTimer = scope.launch {
+            delay(RECONNECT_TIMEOUT_MS)
+            reconnectTimer = null
+            if (_state.value.call?.status == CallStatus.RECONNECTING) failCall()
+        }
+    }
+
+    /** 다음 restart를 내는 시계. */
+    private fun scheduleRestart(delayMs: Long) {
+        restartTimer?.cancel()
+        restartTimer = scope.launch {
+            delay(delayMs)
+            // 자기 자신을 취소하지 않게 먼저 놓는다 — [restartIce]가 다음 시계를 걸며 이것을 끈다.
+            restartTimer = null
+            restartIce()
+        }
+    }
+
+    /**
+     * ICE restart — **같은 연결에서** 새 후보로 길을 다시 찾는다(plan/webrtc.md §8).
+     *
+     * 통화 시작·정책 전환의 [offerNow]와 달리 연결을 새로 세우지 않는다. DTLS·트랜시버는
+     * 그대로 두고 ICE 자격증명만 바꾸는 것이라, 붙는 순간 미디어가 그 자리에서 이어진다.
+     * 받는 쪽은 지문이 같은 offer를 보고 같은 연결에 이어 붙인다([SdpFingerprint]).
+     *
+     * **거는 쪽만 낸다.** 역할이 방향에서 나오는 §6의 규칙 그대로라 glare가 없다.
+     * 루프백은 같은 길을 타되 offer가 소켓 대신 화면 안의 받는 연결로 간다.
+     */
+    private suspend fun restartIce() {
+        val call = _state.value.call ?: return
+        val connection = peer ?: return
+        if (call.status != CallStatus.RECONNECTING) return
+        // 내가 낸 offer의 답이 아직 안 왔다 — 그 답이 ICE를 다시 돌린다. 다음 차례에 본다.
+        if (offering || restarting) return scheduleRestart(RECONNECT_RETRY_MS)
+        restarting = true
+        try {
+            // 정지 지점마다 이 연결이 아직 그 통화의 것인지 본다 — 해제된 네이티브
+            // 객체를 만지면 예외가 아니라 프로세스가 죽는다.
+            val offer = connection.createOfferOrNull(iceRestart = true) ?: return failCall()
+            if (!alive(connection)) return
+            connection.setLocalOrNull(offer) ?: return failCall()
+            if (!alive(connection)) return
+            if (call.isLoopback) {
+                val callee = loopback.getOrNull(1) ?: return
+                callee.setRemoteOrNull(offer) ?: return failCall()
+                if (!aliveLoopback(connection, callee)) return
+                val answer = callee.createAnswerOrNull() ?: return failCall()
+                if (!aliveLoopback(connection, callee)) return
+                callee.setLocalOrNull(answer) ?: return failCall()
+                if (!aliveLoopback(connection, callee)) return
+                connection.setRemoteOrNull(answer) ?: return failCall()
+            } else {
+                val callId = call.callId ?: return
+                offering = true
+                send(CallClientMessage.Offer(callId, offer.description))
+            }
+        } finally {
+            restarting = false
+        }
+        scheduleRestart(RECONNECT_RETRY_MS)
     }
 
     private fun drainRemoteCandidates(connection: PeerConnection) {
         // 한 후보가 못 들어가도 통화는 다른 후보로 붙는다.
         pendingRemote.forEach { connection.addIceCandidate(it) }
         pendingRemote.clear()
+    }
+
+    /**
+     * 원격 기술을 붙이되, **붙이는 동안의 후보는 붙들어 둔다.**
+     *
+     * 같은 연결에 재-offer·answer를 붙일 때는 remoteDescription이 이미 있어서, 새 세대의
+     * 후보가 먼저 닿으면 옛 자격증명에 대고 넣다가 버려진다(시그널링 핸들러는 메시지마다
+     * 따로 돌아 순서를 지켜 주지 않는다). 첫 offer 때 remoteDescription이 없어 큐에 두는
+     * 것과 **같은 길**로 보내고, 부르는 쪽이 붙인 뒤 [drainRemoteCandidates]로 넣는다.
+     */
+    private suspend fun PeerConnection.setRemoteHoldingCandidates(sdp: SessionDescription): Unit? {
+        applyingRemote = true
+        try {
+            return setRemoteOrNull(sdp)
+        } finally {
+            applyingRemote = false
+        }
     }
 
     /**
@@ -487,6 +757,7 @@ class CallController(
     private fun failCall() {
         connectTimer?.cancel()
         connectTimer = null
+        stopReconnecting()
         offering = false
         _state.update { it.copy(call = it.call?.copy(status = CallStatus.FAILED)) }
     }
@@ -630,6 +901,10 @@ class CallController(
                 val call = _state.value.call ?: return
                 if (call.callId != message.callId) return
                 iceServers = message.iceServers
+                // `Rejoin`의 답으로도 온다 — 창구를 되찾았으니 처음처럼 다시 협상한다. 소켓을
+                // 기다리던 시계도, 옛 연결의 재연결 시계도 여기서 끝난다(§8-12).
+                clearRejoinWait()
+                stopReconnecting()
                 _state.update {
                     it.copy(
                         incoming = null,
@@ -663,10 +938,16 @@ class CallController(
                     return
                 }
                 offering = false
-                // offer가 올 때마다 연결을 새로 세운다 — 통화 시작과 ICE 정책 전환에
-                // 따른 재협상을 **한 규칙**으로 덮는다.
-                val connection = buildPeer(message.callId) ?: return failCall()
-                connection.setRemoteOrNull(
+                // **같은 연결의 재-offer는 그 연결에 이어 붙인다** — ICE restart다. 지문이
+                // 다르면 상대가 연결을 새로 세운 것(ICE 정책 전환)이라 이쪽도 새로 세운다.
+                // 통화 시작과 정책 전환은 그대로 한 규칙이고, restart만 그 위에 얹힌다.
+                val held = peer
+                val resumes = held != null &&
+                    held.remoteDescription?.description
+                        ?.let { SdpFingerprint.sameConnection(it, message.sdp) } == true
+                val connection = (if (resumes) held else buildPeer(message.callId))
+                    ?: return failCall()
+                connection.setRemoteHoldingCandidates(
                     SessionDescription(SessionDescription.Type.OFFER, message.sdp),
                 ) ?: return failCall()
                 // 정지 지점을 지날 때마다 이 연결이 아직 그 통화의 것인지 본다 —
@@ -678,6 +959,9 @@ class CallController(
                 connection.setLocalOrNull(answer) ?: return failCall()
                 if (!alive(connection)) return
                 send(CallClientMessage.Answer(message.callId, answer.description))
+                // 이어 붙인 쪽은 배지를 건드리지 않는다 — 이쪽 ICE가 실제로 길을 잃었는지는
+                // 이 연결의 상태 변화가 말하고, 그것이 `재연결 중`과 `연결됨`을 그린다.
+                if (resumes) return
                 _state.update { it.copy(call = it.call?.copy(status = CallStatus.CONNECTING)) }
                 armConnectTimeout()
                 startStatsLoop()
@@ -693,7 +977,7 @@ class CallController(
                     return
                 }
                 offering = false
-                connection.setRemoteOrNull(
+                connection.setRemoteHoldingCandidates(
                     SessionDescription(SessionDescription.Type.ANSWER, message.sdp),
                 ) ?: return failCall()
                 if (!alive(connection)) return
@@ -708,8 +992,8 @@ class CallController(
                     message.candidate.candidate,
                 )
                 val connection = peer
-                // 원격 기술이 아직 없으면 넣을 수 없다 — 붙들고 있다가 넣는다.
-                if (connection?.remoteDescription == null) {
+                // 원격 기술이 아직 없거나 붙이는 중이면 넣을 수 없다 — 붙들고 있다가 넣는다.
+                if (connection == null || connection.remoteDescription == null || applyingRemote) {
                     pendingRemote.add(candidate)
                 } else {
                     connection.addIceCandidate(candidate)
@@ -750,7 +1034,9 @@ class CallController(
                 }
                 val call = _state.value.call
                 if (call != null && call.callId != message.callId) return
-                finish(CallNotice.Expired(message.from))
+                // 들고 있던 통화의 `Rejoin`에 온 답이면 창이 지난 것이다 — "늦게 연 알림"이
+                // 아니라 **회선이 끊겨 끝난 통화**이고, 화면도 그렇게 말한다.
+                finish(if (call == null) CallNotice.Expired(message.from) else CallNotice.Lost)
             }
 
             // 화면 전환 없이 알림 한 줄로 받는다 — 아직 통화가 아니었다(§3.2).
@@ -945,15 +1231,21 @@ class CallController(
                 scope.launch { loopback.getOrNull(to)?.addIceCandidate(candidate) }
                 Unit
             }
+            // 상태 콜백도 네이티브 스레드에서 온다 — 릴레이 경로의 `buildPeer`와 같은 이유로
+            // Main으로 옮기고, 어느 연결의 소식인지 함께 넘긴다.
+            var builtCaller: PeerConnection? = null
             val caller = media.factory.createPeerConnection(
                 config,
                 observer(
                     // 거는 쪽의 후보는 받는 쪽으로 — 목록의 1번이다.
                     onCandidate = { candidate -> relay(1, candidate) },
                     onRemoteTrack = {},
-                    onConnectionState = ::applyConnectionState,
+                    onConnectionState = { state ->
+                        scope.launch { builtCaller?.let { applyConnectionState(state, it) } }
+                    },
                 ),
             )
+            builtCaller = caller
             val callee = media.factory.createPeerConnection(
                 config,
                 observer(
@@ -1080,8 +1372,14 @@ class CallController(
 
     // ── SDP 콜백을 코루틴으로 접는다 ──────────────────────────────────────────
 
-    private suspend fun PeerConnection.createOfferOrNull(): SessionDescription? =
+    private suspend fun PeerConnection.createOfferOrNull(
+        iceRestart: Boolean = false,
+    ): SessionDescription? =
         suspendCancellableCoroutine { continuation ->
+            // ICE restart는 같은 연결에 새 자격증명을 요구하는 것이다 — 제약 하나가 그 요청이다.
+            val constraints = MediaConstraints().apply {
+                if (iceRestart) mandatory.add(MediaConstraints.KeyValuePair("IceRestart", "true"))
+            }
             createOffer(
                 sdpObserver(
                     onCreated = { continuation.resume(it) },
@@ -1090,7 +1388,7 @@ class CallController(
                         continuation.resume(null)
                     },
                 ),
-                MediaConstraints(),
+                constraints,
             )
         }
 
