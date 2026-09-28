@@ -69,10 +69,27 @@ cp "$BASE_CONF" "$CONF"
   fi
 
   # TLS는 인증서가 있을 때만 켠다. 없으면 5349는 열려도 turns:는 성립하지 않는다.
-  if [ -f "$CERT_DIR/cert.pem" ] && [ -f "$CERT_DIR/privkey.pem" ]; then
-    echo "cert=${CERT_DIR}/cert.pem"
-    echo "pkey=${CERT_DIR}/privkey.pem"
-    echo 'tls-min-version=1.2'
+  #
+  # 파일 이름은 발급 방식마다 다르다 — certbot은 `fullchain.pem`·`privkey.pem`을,
+  # 손으로 만든 것은 `cert.pem`·`key.pem`을 쓴다. 호스트의 디렉터리를 그대로 마운트해
+  # 쓰려면(갱신이 바로 반영되게) 이름을 하나로 강요할 수 없으므로 둘 다 받는다.
+  # 체인이 담긴 쪽을 먼저 본다 — 중간 인증서가 빠지면 일부 클라이언트가 거절한다.
+  CERT_FILE=''
+  for n in fullchain.pem cert.pem; do
+    if [ -f "$CERT_DIR/$n" ]; then CERT_FILE="$CERT_DIR/$n"; break; fi
+  done
+  KEY_FILE=''
+  for n in privkey.pem key.pem; do
+    if [ -f "$CERT_DIR/$n" ]; then KEY_FILE="$CERT_DIR/$n"; break; fi
+  done
+  if [ -n "$CERT_FILE" ] && [ -n "$KEY_FILE" ]; then
+    echo "cert=${CERT_FILE}"
+    echo "pkey=${KEY_FILE}"
+    # TLS 하한은 turnserver.conf의 `no-tlsv1`·`no-tlsv1_1`이 정한다.
+    # coturn에는 `tls-min-version`이라는 옵션이 없어 적으면 기동 로그가
+    # "Bad configuration format"으로 덮인다 — 켜지지도 않는 줄이었다.
+  else
+    echo "# turns:(5349) 꺼짐 — ${CERT_DIR}에 인증서·키가 없다." >&2
   fi
 
   # 사설·예약 대역으로의 릴레이 차단(SSRF 방어). TURN은 "아무 데나 패킷을 보내 주는

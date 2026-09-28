@@ -31,6 +31,8 @@ services:
     volumes:
       - ./turnserver.conf:/etc/coturn/turnserver.conf:ro
       - ./entrypoint.sh:/usr/local/bin/coturn-entrypoint.sh:ro
-      # cert.pem/privkey.pem을 넣으면 entrypoint가 turns:(5349)를 켠다. 비어 있으면 끈다.
-      - ./certs:/etc/coturn/certs:ro
+      # 인증서는 **호스트의 것을 그대로** 본다(기본값은 이 폴더의 ./certs).
+      # 복사본을 두면 갱신된 날 coturn만 옛 인증서를 쥐고 조용히 만료되므로,
+      # nginx 등이 쓰는 디렉터리를 COTURN_CERT_DIR로 가리키는 쪽을 권한다.
+      - ${COTURN_CERT_DIR}:/etc/coturn/certs:ro
     entrypoint: ["/usr/local/bin/coturn-entrypoint.sh"]

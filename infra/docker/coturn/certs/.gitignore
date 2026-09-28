@@ -1,0 +1,6 @@
+# 인증서와 개인키는 저장소에 두지 않는다.
+# 호스트(nginx)가 쓰는 것을 여기로 복사해 넣으면 entrypoint.sh가 turns:(5349)를 켠다.
+# 이름은 cert.pem · privkey.pem 두 개로 고정이다(entrypoint.sh가 그 이름만 본다).
+*
+!.gitignore
+!.gitkeep

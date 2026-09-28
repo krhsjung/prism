@@ -57,8 +57,13 @@ web(정적)·auth·api 빌드/배포(이미지·Helm·nginx) 방법은
 - **`COTURN_EXTERNAL_IP`는 도메인이 아니라 공인 IP다.** coturn은 이 값을 조회 없이 그대로
   후보에 싣는다. 비워 두면 컨테이너가 DNS로 스스로 찾는다 — DDNS IP가 자주 바뀌면
   재기동만으로 따라간다.
-- **`turns:`(5349)는 인증서가 있어야 열린다.** `docker/coturn/certs/`에 `cert.pem`·
-  `privkey.pem`을 넣으면 entrypoint가 켠다. 없으면 `turn:`/`stun:`만 동작한다.
+- **`turns:`(5349)는 인증서가 있어야 열린다.** `COTURN_CERT_DIR`이 가리키는 디렉터리에서
+  `fullchain.pem`(또는 `cert.pem`)과 `privkey.pem`(또는 `key.pem`)을 찾으면 entrypoint가
+  켠다. 없으면 `turn:`/`stun:`만 동작한다.
+  **복사본을 두지 말고 호스트에서 갱신되는 디렉터리를 그대로 가리킨다** — 복사해 두면
+  갱신된 날 coturn만 옛 인증서를 쥔 채 조용히 만료된다(nginx는 멀쩡한데 릴레이만 죽는다).
+  변수를 비워 두면 `docker/coturn/certs/`를 보므로, 거기 넣어 쓰는 길도 그대로 남아 있다
+  (그 폴더는 `.gitignore`로 통째로 막혀 있다 — 개인키가 레포에 들어가면 안 된다).
 
 ```bash
 cd docker/coturn && docker compose up -d
