@@ -179,7 +179,8 @@ prism/
 모든 명령은 **저장소 루트**에서 시작합니다. 자격증명은 파일이 아니라 셸 env로 넘깁니다 —
 저장소 기동에 `PRISM_POSTGRES_USER` · `_PASSWORD` · `_DB`와 `PRISM_REDIS_USER` · `_PASSWORD`가,
 서버에 `PRISM_DATABASE_URL` · `PRISM_REDIS_URL` · `PRISM_JWT_SECRET_KEY`가 필요합니다
-(서버는 `.env`를 읽지 않습니다 — [infra/](infra/README.md) 참고).
+(서버는 `.env`를 읽지 않습니다 — [infra/](infra/README.md) 참고). 전체 목록과 각 변수의
+기본값·미설정 시 동작은 [plan/environment.md](plan/environment.md)에 있습니다.
 
 ```bash
 # 1) 저장소(PostgreSQL · Redis) 기동 — 서브셸이라 루트를 잃지 않습니다
