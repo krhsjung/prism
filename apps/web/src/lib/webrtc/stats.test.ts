@@ -164,7 +164,8 @@ describe('지표 읽기', () => {
   });
 
   // ICE restart를 하면 **지명된 쌍이 여럿 남는다** — 그중 흐르는 것은 하나뿐이다.
-  // 훑다가 마지막에 걸린 것을 쓰면 멈춘 쌍을 읽는다(working/call-followups.md 6번).
+  // 훑다가 마지막에 걸린 것을 쓰면 멈춘 쌍을 읽는다 — 실기기 통화에서 실제로 567 kbps가
+  // 흐르는데 화면이 `0 kbps`를 그렸다.
   const transport = (selectedCandidatePairId: string) => ({
     id: 't',
     type: 'transport',

@@ -106,8 +106,8 @@ final class StatsSampler {
         // ⚠️ **ICE restart를 하면 지명된 쌍이 여럿 남는다.** 그중 실제로 흐르는 것은
         // 하나뿐이라, 조건만 보고 아무거나 집으면 멈춘 쌍을 읽어 화면이 `0 kbps`를
         // 그린다. 게다가 여기 `entries`는 사전이라 **고르는 순서조차 정해져 있지 않다.**
-        // transport가 지금 쓰는 쌍을 id로 짚어 주므로 그것을 먼저 믿는다
-        // (working/call-followups.md 6번).
+        // transport가 지금 쓰는 쌍을 id로 짚어 주므로 그것을 먼저 믿는다 — 실기기
+        // 통화에서 멈춘 쌍을 읽어 화면이 40초 넘게 `0 kbps`를 그린 적이 있다.
         let selectedID = entries.values
             .first { $0.type == "transport" && $0.values["selectedCandidatePairId"] != nil }?
             .values["selectedCandidatePairId"] as? String
