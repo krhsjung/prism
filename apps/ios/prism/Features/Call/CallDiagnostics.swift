@@ -223,11 +223,9 @@ struct CallDiagnostics: View {
                 rowLabel(t(.webrtcIcePolicy))
                 // `TURN only`는 TURN을 v1부터 넣기로 한 결정이 값을 하는지 **화면에서
                 // 증명하는 유일한 스위치**다 — 누르면 `Path`가 즉시 Relayed로 바뀐다.
-                radio(t(.webrtcIcePolicyAll), isOn: icePolicy == .all) { onIcePolicy(.all) }
-                radio(t(.webrtcIcePolicyRelay), isOn: icePolicy == .relay) { onIcePolicy(.relay) }
+                // 로비에도 같은 컨트롤이 선다(§4) — 거기서는 "다음 통화를 어느 경로로".
+                IcePolicyChoice(value: icePolicy, onChange: onIcePolicy)
             }
-            .accessibilityElement(children: .contain)
-            .accessibilityLabel(t(.webrtcIcePolicy))
 
             // 진단에서는 셀렉트 둘 위에 **합친 라벨 하나**를 얹는다 — 컨트롤이 제 라벨을
             // 그리던 시절에는 `카메라 · 마이크` 밑에 다시 `카메라`가 나왔다(시안 `Devices`).
@@ -257,32 +255,6 @@ struct CallDiagnostics: View {
                 .foregroundStyle(AppColor.muted)
                 .fixedSize(horizontal: false, vertical: true)
         }
-    }
-
-    /// 시안 `Atom/Radio` — 18 원. 줄 전체가 표적이다.
-    private func radio(_ label: String, isOn: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            HStack(spacing: AppDimension.Spacing.sm) {
-                ZStack {
-                    Circle()
-                        .strokeBorder(isOn ? AppColor.primary : AppColor.border, lineWidth: 1)
-                        .background(Circle().fill(AppColor.card))
-                    if isOn {
-                        Circle()
-                            .fill(AppColor.primary)
-                            .padding(AppDimension.Spacing.xs + 1)
-                    }
-                }
-                .frame(width: AppDimension.Call.radioSize, height: AppDimension.Call.radioSize)
-                Text(label)
-                    .font(.system(size: AppDimension.FontSize.body))
-                    .foregroundStyle(AppColor.text)
-                Spacer(minLength: 0)
-            }
-            .contentShape(.rect)
-        }
-        .buttonStyle(.plain)
-        .accessibilityAddTraits(isOn ? [.isSelected] : [])
     }
 
     // MARK: - Signaling

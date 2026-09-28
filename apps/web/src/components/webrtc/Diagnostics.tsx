@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { ChevronIcon } from './CallIcons';
 import { DeviceSelect } from './DeviceSelect';
+import { IcePolicyChoice } from './IcePolicyChoice';
 import { useI18n } from '../../lib/i18n/i18n-context';
 import { useMediaQuery } from '../../lib/useMediaQuery';
 import { formatSignalLog, type SignalLogEntry } from '../../lib/webrtc/signal-log';
@@ -178,26 +179,10 @@ export function Diagnostics({
           <section className="diag__col">
             <h3 className="diag__section">{t('webrtc.diag_settings')}</h3>
             <div className="diag__setting">
-              <span className="diag__setting-label" id="ice-policy-label">
-                {t('webrtc.ice_policy')}
-              </span>
-              <div
-                className="diag__radios"
-                role="radiogroup"
-                aria-labelledby="ice-policy-label"
-              >
-                {(['all', 'relay'] as const).map((policy) => (
-                  <label key={policy} className="diag__radio">
-                    <input
-                      type="radio"
-                      name="ice-policy"
-                      checked={icePolicy === policy}
-                      onChange={() => onIcePolicy(policy)}
-                    />
-                    {t(policy === 'all' ? 'webrtc.ice_policy_all' : 'webrtc.ice_policy_relay')}
-                  </label>
-                ))}
-              </div>
+              {/* 보이는 라벨은 여기 있고 그룹의 접근성 이름은 컴포넌트가 제 것으로
+                  갖는다 — 로비에도 같은 컨트롤이 서므로 id로 잇지 않는다(중복된다). */}
+              <span className="diag__setting-label">{t('webrtc.ice_policy')}</span>
+              <IcePolicyChoice value={icePolicy} onChange={onIcePolicy} />
             </div>
             <div className="diag__setting">
               <span className="diag__setting-label">

@@ -6,6 +6,7 @@ import { CallControls } from '../components/webrtc/CallControls';
 import { CallTargetList } from '../components/webrtc/CallTargetList';
 import { DeviceSelect } from '../components/webrtc/DeviceSelect';
 import { Diagnostics } from '../components/webrtc/Diagnostics';
+import { IcePolicyChoice } from '../components/webrtc/IcePolicyChoice';
 import { VideoTile, type TileState } from '../components/webrtc/VideoTile';
 import { DEVICE_LABELS } from '../lib/devices';
 import { useI18n } from '../lib/i18n/i18n-context';
@@ -321,6 +322,21 @@ export function WebRtcPage() {
                 </div>
               )}
 
+              {/* **거는 경로를 여기서 고른다**(§4). 진단 패널의 같은 컨트롤과 값을
+                  나눠 쓰지만, 그쪽은 통화 중에만 서므로 여기가 없으면 벨이 울린
+                  **뒤에야** 경로를 고를 수 있다. 문구는 갈린다 — 로비에는 되돌릴
+                  통화가 없다. */}
+              <div className="setup__field">
+                <p className="setup__label">{t('webrtc.ice_policy')}</p>
+                <IcePolicyChoice
+                  value={icePolicy}
+                  onChange={setIcePolicy}
+                  // 카메라를 얻는 중에는 잠근다 — 곧 설 연결이 어느 값을 쓸지 모호해진다.
+                  disabled={starting}
+                />
+                <p className="setup__hint">{t('webrtc.ice_policy_lobby_note')}</p>
+              </div>
+
               {sessions === null && !loadFailed && (
                 <p className="setup__hint">{t('common.loading')}</p>
               )}
@@ -411,6 +427,9 @@ function describe(
           ? t('webrtc.expired_body', { device: t(DEVICE_LABELS[notice.from.device]) })
           : t('webrtc.expired_title'),
       };
+    // 회선이 끊긴 것은 사용자가 만든 실패가 아니다 — 소켓이 사라진 것과 같은 Info다.
+    case 'lost':
+      return { variant: 'info', text: t('webrtc.connection_lost') };
     case 'error':
       return { variant: 'error', text: t(CALL_ERRORS[notice.code]) };
   }

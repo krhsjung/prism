@@ -320,12 +320,8 @@ private fun Settings(
             RowLabel(stringResource(R.string.webrtc_ice_policy))
             // `TURN only`는 TURN을 v1부터 넣기로 한 결정이 값을 하는지 **화면에서
             // 증명하는 유일한 스위치**다 — 누르면 `Path`가 즉시 Relayed로 바뀐다.
-            Radio(stringResource(R.string.webrtc_ice_policy_all), icePolicy == IcePolicy.ALL) {
-                onIcePolicy(IcePolicy.ALL)
-            }
-            Radio(stringResource(R.string.webrtc_ice_policy_relay), icePolicy == IcePolicy.RELAY) {
-                onIcePolicy(IcePolicy.RELAY)
-            }
+            // 로비에도 같은 컨트롤이 선다(§4) — 거기서는 "다음 통화를 어느 경로로".
+            IcePolicyChoice(value = icePolicy, onChange = onIcePolicy)
         }
 
         Column(verticalArrangement = Arrangement.spacedBy(PrismDimensions.spacingSm)) {
@@ -359,37 +355,6 @@ private fun Settings(
     }
 }
 
-/** 시안 `Atom/Radio` — 18 원. 줄 전체가 표적이다. */
-@Composable
-private fun Radio(label: String, selected: Boolean, onClick: () -> Unit) {
-    val colors = PrismTheme.colors
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(PrismDimensions.spacingSm),
-        modifier = Modifier
-            .fillMaxWidth()
-            .selectable(selected = selected, onClick = onClick),
-    ) {
-        Box(
-            contentAlignment = Alignment.Center,
-            modifier = Modifier
-                .size(PrismDimensions.callRadioSize)
-                .clip(CircleShape)
-                .background(colors.card)
-                .border(1.dp, if (selected) colors.primary else colors.border, CircleShape),
-        ) {
-            if (selected) {
-                Box(
-                    modifier = Modifier
-                        .size(PrismDimensions.spacingSm)
-                        .clip(CircleShape)
-                        .background(colors.primary),
-                )
-            }
-        }
-        Text(text = label, color = colors.text, fontSize = PrismDimensions.fontBody)
-    }
-}
 
 /**
  * 로그는 유일하게 계속 자라는 영역이라 맨 아래에 두고 **내부 스크롤**을 갖는다
