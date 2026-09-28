@@ -5,6 +5,12 @@
 #   ./infra/deploy/testflight-distribute.sh --build 3             # 빌드 번호 지정
 #   ./infra/deploy/testflight-distribute.sh --group "Public" --group "Internal"
 #   ./infra/deploy/testflight-distribute.sh --list                # 앱의 베타 그룹만 보여준다
+#   ./infra/deploy/testflight-distribute.sh --latest-id           # 지금 최신 빌드의 id만 찍는다
+#   ./infra/deploy/testflight-distribute.sh --after <id>          # 그 id와 **다른** 빌드가 나타날 때까지 기다린다
+#
+# ⚠️ **업로드 직후에 그냥 부르면 직전 빌드를 배포한다.** 업로드가 끝나도 App Store Connect에
+# 빌드 레코드가 생기기까지 1분쯤 걸려, 그동안 "가장 최근"은 그 앞의 빌드다. 그래서 업로드
+# 전에 `--latest-id`로 기준점을 잡아 두고 `--after`로 되돌려 준다(ios-testflight.sh가 그렇게 한다).
 #
 # **외부(External) 그룹에는 새 빌드가 저절로 들어가지 않는다** — 자동 배포 설정은 내부
 # 그룹에만 있고, 외부 그룹의 "Automatically notify testers"는 심사 통과 후 알림만 정한다.
@@ -94,7 +100,8 @@ asc() {
 }
 
 # ── 인자 ─────────────────────────────────────────────────────────────────────
-BUILD_NUMBER=""; LIST_ONLY=0; # 이름이 BETA_GROUPS인 이유: bash의 `GROUPS`는 **읽기 전용 특수 변수**(사용자가 속한 group id
+BUILD_NUMBER=""; LIST_ONLY=0; LATEST_ID_ONLY=0; AFTER_ID=""
+# 이름이 BETA_GROUPS인 이유: bash의 `GROUPS`는 **읽기 전용 특수 변수**(사용자가 속한 group id
 # 배열)라 대입이 조용히 무시된다 — 그 이름을 쓰면 그룹 이름 대신 "20" 같은 gid를 그룹으로 찾는다.
 BETA_GROUPS=(); found=()
 while (( $# )); do
@@ -102,7 +109,11 @@ while (( $# )); do
     --build) BUILD_NUMBER="${2:?--build needs a build number}"; shift 2 ;;
     --group) BETA_GROUPS+=("${2:?--group needs a name}"); shift 2 ;;
     --list) LIST_ONLY=1; shift ;;
-    *) echo "unknown option: $1 (--build N | --group NAME | --list)" >&2; exit 2 ;;
+    # 업로드 **전에** 기준점을 잡아 두기 위한 것 — 이 id를 --after로 되돌려 주면
+    # 그와 다른 빌드가 나타날 때까지 기다린다. 출력은 id 한 줄뿐이다.
+    --latest-id) LATEST_ID_ONLY=1; shift ;;
+    --after) AFTER_ID="${2:?--after needs a build id}"; shift 2 ;;
+    *) echo "unknown option: $1 (--build N | --group NAME | --list | --latest-id | --after ID)" >&2; exit 2 ;;
   esac
 done
 # 기본 그룹은 env로 정한다(콤마 구분). 비어 있으면 앱의 **모든** 그룹에 배정한다 —
@@ -115,6 +126,13 @@ fi
 APP_JSON=$(asc GET "/apps?filter%5BbundleId%5D=$BUNDLE_ID&fields%5Bapps%5D=name,bundleId")
 APP_ID=$(jq -r '.data[0].id // empty' <<< "$APP_JSON")
 [[ -n "$APP_ID" ]] || { echo "error: no app with bundle id $BUNDLE_ID on App Store Connect" >&2; exit 1; }
+
+if (( LATEST_ID_ONLY )); then
+  asc GET "/builds?filter%5Bapp%5D=$APP_ID&sort=-uploadedDate&limit=1&fields%5Bbuilds%5D=version" \
+    | jq -r '.data[0].id // empty'
+  exit 0
+fi
+
 echo "==> app $(jq -r '.data[0].attributes.name' <<< "$APP_JSON") ($BUNDLE_ID)"
 
 GROUPS_JSON=$(asc GET "/apps/$APP_ID/betaGroups?limit=200&fields%5BbetaGroups%5D=name,isInternalGroup,publicLinkEnabled,publicLink")
@@ -134,7 +152,20 @@ fi
 if [[ -n "$BUILD_NUMBER" ]]; then
   BUILD_JSON=$(asc GET "/builds?filter%5Bapp%5D=$APP_ID&filter%5Bversion%5D=$BUILD_NUMBER&limit=1&fields%5Bbuilds%5D=version,processingState,expired")
 else
-  BUILD_JSON=$(asc GET "/builds?filter%5Bapp%5D=$APP_ID&sort=-uploadedDate&limit=1&fields%5Bbuilds%5D=version,processingState,expired")
+  # ⚠️ **업로드가 끝나도 빌드는 한동안 목록에 없다.** 레코드가 생기는 데 1분쯤 걸리고,
+  # 그 사이 "가장 최근"은 **직전 빌드**다 — 기다리지 않으면 방금 올린 것이 아니라
+  # 그 앞의 것을 배포한다(실제로 그렇게 나갔다). `--after`로 업로드 전의 id를 받으면
+  # 그와 다른 빌드가 나타날 때까지 기다리고, 끝내 안 나타나면 **배포하지 않고 멈춘다**.
+  for appear in $(seq 1 40); do
+    BUILD_JSON=$(asc GET "/builds?filter%5Bapp%5D=$APP_ID&sort=-uploadedDate&limit=1&fields%5Bbuilds%5D=version,processingState,expired")
+    [[ -n "$AFTER_ID" && "$(jq -r '.data[0].id // empty' <<< "$BUILD_JSON")" == "$AFTER_ID" ]] || break
+    echo "    the uploaded build has not appeared yet — waiting (attempt $appear/40)"
+    sleep 15
+  done
+  if [[ -n "$AFTER_ID" && "$(jq -r '.data[0].id // empty' <<< "$BUILD_JSON")" == "$AFTER_ID" ]]; then
+    echo "error: no build newer than $AFTER_ID appeared within 10 minutes — not distributing" >&2
+    exit 1
+  fi
 fi
 BUILD_ID=$(jq -r '.data[0].id // empty' <<< "$BUILD_JSON")
 [[ -n "$BUILD_ID" ]] || { echo "error: no build found${BUILD_NUMBER:+ with number $BUILD_NUMBER}" >&2; exit 1; }

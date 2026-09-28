@@ -99,6 +99,12 @@ printf '    version  %s (%s)\n' \
 printf '    api      %s\n' "$(plutil -extract PRISM_API_URL raw -o - "$APP_PLIST")"
 printf '    socket   %s\n' "$(plutil -extract PRISM_SOCKET_URL raw -o - "$APP_PLIST")"
 
+# 업로드 전에 **지금 가장 최근인 빌드**를 기억해 둔다. 업로드가 끝나도 새 빌드는 한동안
+# App Store Connect 목록에 나타나지 않아, 곧바로 배포하면 직전 빌드를 집는다(실제로 그렇게
+# 나갔다). 이 id를 아래에서 `--after`로 넘겨 "그와 다른 빌드"가 나타날 때까지 기다리게 한다.
+DISTRIBUTE="$ROOT/infra/deploy/testflight-distribute.sh"
+BASELINE_BUILD_ID="$("$DISTRIBUTE" --latest-id 2>/dev/null || true)"
+
 echo "==> export & upload"
 rm -rf "$EXPORT_DIR"
 xcodebuild -exportArchive \
@@ -112,10 +118,9 @@ echo "==> uploaded"
 # 올라간 것만으로는 테스터에게 가지 않는다 — **외부 그룹에는 빌드가 자동으로 들어가지 않기
 # 때문이다**(자동 배포 설정은 내부 그룹에만 있다). API 키가 설정돼 있으면 배정까지 여기서
 # 이어서 한다(처리가 끝날 때까지 기다린다). 키가 없으면 사이트에서 손으로 추가하면 된다.
-DISTRIBUTE="$ROOT/infra/deploy/testflight-distribute.sh"
 if "$DISTRIBUTE" --list >/dev/null 2>&1; then
   echo "==> distributing to beta groups"
-  "$DISTRIBUTE"
+  "$DISTRIBUTE" ${BASELINE_BUILD_ID:+--after "$BASELINE_BUILD_ID"}
 else
   echo "==> not distributed — no App Store Connect API key configured."
   echo "    App Store Connect ▸ TestFlight 에서 빌드를 그룹에 추가하거나,"
