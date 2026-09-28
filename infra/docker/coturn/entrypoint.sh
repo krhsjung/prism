@@ -77,6 +77,12 @@ cp "$BASE_CONF" "$CONF"
 
   # 사설·예약 대역으로의 릴레이 차단(SSRF 방어). TURN은 "아무 데나 패킷을 보내 주는
   # 서버"라 이걸 안 막으면 우리 내부망 스캐너가 된다. 로컬 시험에서만 열어 준다.
+  #
+  # ⚠️ **하한이 `::`인 범위를 두지 않는다.** coturn은 범위의 하한이 any 주소(`::`·`0.0.0.0`)
+  # 면 "하한 없음"으로 읽고, 주소족이 다른 주소는 족 번호로 대소를 정한다(IPv4 < IPv6).
+  # 그래서 `::-::ffff:…` 한 줄이 **모든 IPv4 피어**를 거부한다 — 공인 IP까지 막혀 릴레이가
+  # 통째로 죽고, 클라이언트에는 "TURN 정책이면 영영 연결 중"으로 보인다. IPv6 쪽은
+  # 루프백·IPv4 매핑·ULA·링크로컬을 각각 하한이 any가 아닌 범위로 적는다.
   if [ "${COTURN_ALLOW_PRIVATE_PEERS:-false}" != 'true' ]; then
     for range in \
       0.0.0.0-0.255.255.255 \
@@ -90,12 +96,22 @@ cp "$BASE_CONF" "$CONF"
       192.168.0.0-192.168.255.255 \
       198.18.0.0-198.19.255.255 \
       240.0.0.0-255.255.255.255 \
-      ::-::ffff:ffff:ffff:ffff:ffff:ffff:ffff \
+      ::1 \
+      ::ffff:0.0.0.0-::ffff:255.255.255.255 \
+      64:ff9b::-64:ff9b::ffff:ffff \
       fc00::-fdff:ffff:ffff:ffff:ffff:ffff:ffff:ffff \
       fe80::-febf:ffff:ffff:ffff:ffff:ffff:ffff:ffff
     do
       echo "denied-peer-ip=${range}"
     done
+
+    # **릴레이 주소 자신은 연다.** 양쪽이 다 TURN을 지나면(relay 정책, 대칭 NAT 둘) 상대의
+    # 후보가 이 서버의 릴레이 주소이고, coturn은 자기 external-ip를 relay-ip로 되돌려 비교하므로
+    # 그 피어는 위의 사설 대역(172.16/12)에 걸린다. allowed가 denied보다 우선한다 — 이 한 줄이
+    # 없으면 relay↔relay 쌍이 서지 않고, 이 서버 자신에게 보내는 것뿐이라 열어도 잃을 것이 없다.
+    if [ -n "$RELAY_IP" ]; then
+      echo "allowed-peer-ip=${RELAY_IP}"
+    fi
   fi
 
   if [ "${COTURN_VERBOSE:-false}" = 'true' ]; then
