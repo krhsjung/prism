@@ -33,6 +33,12 @@ env:
   # 값이어야 한다 — 갈리면 웹 소켓이 쿠키를 못 찾아 전부 UNAUTHORIZED로 닫힌다.
   cookieNamespace: "${PRISM_COOKIE_NAMESPACE:-}"
 
+  # 세션 저장소 연결 옵션(선택). **빈 값이면 코드 기본값**이다 — 기본값을 차트에
+  # 복제하지 않는다. 두 곳에 적어 두면 언젠가 갈린다.
+  redisRequired: "${PRISM_REDIS_REQUIRED:-}"
+  redisConnectTimeoutMs: "${PRISM_REDIS_CONNECT_TIMEOUT_MS:-}"
+  redisCommandTimeoutMs: "${PRISM_REDIS_COMMAND_TIMEOUT_MS:-}"
+
 # WebRTC ICE 서버 — 통화 수락(`accepted`)과 함께 소켓이 내려준다.
 #
 # **값은 전부 env에서 온다**(plan/webrtc.md §7): 레포에 호스트도 자격증명도 없고,
@@ -45,6 +51,10 @@ env:
 ice:
   stunUrls: "${PRISM_STUN_URLS:-}"
   turnUrls: "${PRISM_TURN_URLS:-}"
+  # 발급하는 자격증명의 수명(빈 값이면 코드 기본값 12시간). 통화 하나를 넉넉히 덮어야
+  # 한다 — 자격증명은 통화 수락 때 **한 번만** 발급되고 재협상·릴레이 갱신이 같은 값을
+  # 다시 쓰므로, 통화보다 짧으면 멀쩡히 통화하던 사람의 릴레이가 도중에 끊긴다.
+  turnTtl: "${PRISM_TURN_TTL:-}"
 
 # 시크릿: env → k8s Secret.
 #

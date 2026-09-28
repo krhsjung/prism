@@ -63,6 +63,18 @@ spec:
                 secretKeyRef:
                   name: {{ include "prism-api.fullname" . }}-secret
                   key: database-replica-urls
+            # 저장소 연결 옵션 — 빈 값이면 코드 기본값(app-config.ts):
+            # redisRequired true · redis connect 5s / command 3s · db connect 5s / query 10s.
+            - name: PRISM_REDIS_REQUIRED
+              value: {{ .Values.env.redisRequired | quote }}
+            - name: PRISM_REDIS_CONNECT_TIMEOUT_MS
+              value: {{ .Values.env.redisConnectTimeoutMs | quote }}
+            - name: PRISM_REDIS_COMMAND_TIMEOUT_MS
+              value: {{ .Values.env.redisCommandTimeoutMs | quote }}
+            - name: PRISM_DB_CONNECT_TIMEOUT_MS
+              value: {{ .Values.env.dbConnectTimeoutMs | quote }}
+            - name: PRISM_DB_QUERY_TIMEOUT_MS
+              value: {{ .Values.env.dbQueryTimeoutMs | quote }}
           livenessProbe:
             httpGet:
               path: /healthz

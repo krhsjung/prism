@@ -32,6 +32,8 @@ env:
   # 네이티브 웹-redirect(flow=native) 로그인이 일회용 코드를 돌려보낼 앱 커스텀 스킴.
   # 앱이 등록한 스킴과 같아야 한다(기본 prism://auth/callback).
   nativeAuthCallback: "${PRISM_NATIVE_AUTH_CALLBACK:-prism://auth/callback}"
+  # 원클릭 데모 로그인 스위치. `false`일 때만 꺼진다(`/auth/demo*`가 503).
+  demoEnabled: "${PRISM_AUTH_DEMO_ENABLED:-}"
   # 소셜 OAuth — 비시크릿 설정(미설정 시 빈 값 → 해당 provider 비활성).
   # redirect URI는 nginx가 /auth를 auth 서비스로 보내므로 도메인 기준으로 구성한다.
   googleClientId: "${PRISM_GOOGLE_CLIENT_ID:-}"
@@ -49,6 +51,15 @@ env:
   googleNativeAudiences: "${PRISM_GOOGLE_NATIVE_AUDIENCES:-}"
   # 운영 기본 true: DB 장애 시 부팅 실패 + readyz로 트래픽 차단. 데모(DB 없는) 배포만 false.
   dbRequired: "${PRISM_DB_REQUIRED:-true}"
+
+  # 저장소 연결 옵션(선택). **빈 값이면 코드 기본값**이다 — 기본값을 차트에 복제하지
+  # 않는다. 두 곳에 적어 두면 언젠가 갈리고, 그때 어느 쪽이 사는지 배포를 봐야만 안다.
+  # (dbRequired는 예외다 — 운영 정책이 코드 기본값과 다르기 때문에 여기서 뒤집는다)
+  redisRequired: "${PRISM_REDIS_REQUIRED:-}"
+  redisConnectTimeoutMs: "${PRISM_REDIS_CONNECT_TIMEOUT_MS:-}"
+  redisCommandTimeoutMs: "${PRISM_REDIS_COMMAND_TIMEOUT_MS:-}"
+  dbConnectTimeoutMs: "${PRISM_DB_CONNECT_TIMEOUT_MS:-}"
+  dbQueryTimeoutMs: "${PRISM_DB_QUERY_TIMEOUT_MS:-}"
 
 # 시크릿: env → k8s Secret. JWT는 필수, OAuth/DB는 미설정 시 빈 값.
 jwt:

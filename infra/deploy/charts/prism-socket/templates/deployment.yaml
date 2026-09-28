@@ -51,6 +51,14 @@ spec:
                 secretKeyRef:
                   name: {{ include "prism-socket.fullname" . }}-secret
                   key: redis-url
+            # 세션 저장소 연결 옵션 — 빈 값이면 코드 기본값(app-config.ts):
+            # redisRequired true · connect 5s / command 3s. (Postgres는 쓰지 않는다)
+            - name: PRISM_REDIS_REQUIRED
+              value: {{ .Values.env.redisRequired | quote }}
+            - name: PRISM_REDIS_CONNECT_TIMEOUT_MS
+              value: {{ .Values.env.redisConnectTimeoutMs | quote }}
+            - name: PRISM_REDIS_COMMAND_TIMEOUT_MS
+              value: {{ .Values.env.redisCommandTimeoutMs | quote }}
             # ICE 서버 — 통화가 성립할 때 클라이언트에게 그대로 내려간다.
             # 비어 있으면 서버가 공개 STUN 하나로 떨어진다(TURN 없음).
             - name: PRISM_STUN_URLS
@@ -64,6 +72,9 @@ spec:
                 secretKeyRef:
                   name: {{ include "prism-socket.fullname" . }}-secret
                   key: turn-secret
+            # 그 자격증명의 수명(빈 값이면 코드 기본값 12시간).
+            - name: PRISM_TURN_TTL
+              value: {{ .Values.ice.turnTtl | quote }}
             # 푸시. 셋이 함께 있거나 함께 없어야 한다 — 비공개 키만 Secret에서 온다.
             - name: PRISM_FCM_PROJECT_ID
               value: {{ .Values.fcm.projectId | quote }}

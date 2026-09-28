@@ -4,6 +4,7 @@ import {
   loadFcmConfig,
   loadIceConfig,
   loadPostgresConfig,
+  loadRedisConfig,
 } from './app-config';
 
 // env 파싱 계약을 고정한다 — 순수 함수라 process.env 조작 없이 인자로 테스트한다.
@@ -335,5 +336,48 @@ describe('loadFcmConfig', () => {
     expect(() =>
       loadFcmConfig({ ...full, PRISM_FCM_PRIVATE_KEY: 'not-a-key' }),
     ).toThrow(/PEM/);
+  });
+});
+
+// Helm 차트는 값이 비어 있어도 **키를 항상 내보낸다**(`value: ""`). 그래서 "미설정"과
+// "빈 문자열"이 같은 뜻이어야 한다 — 갈리면 배포된 파드만 코드 기본값을 잃고, 그 사실은
+// 타임아웃이 짧아지거나 푸시가 조용히 꺼지는 식으로 뒤늦게 드러난다.
+// (차트가 기본값을 복제하지 않는 근거다 — infra/deploy/charts/*/templates/deployment.yaml)
+describe('빈 문자열 env는 미설정과 같다', () => {
+  it('데모 로그인은 켜진 채다', () => {
+    expect(loadAuthConfig({ PRISM_AUTH_DEMO_ENABLED: '' }).demoEnabled).toBe(
+      true,
+    );
+  });
+
+  it('DB 타임아웃은 기본값 5s/10s로 떨어진다', () => {
+    const cfg = loadPostgresConfig({
+      PRISM_DB_CONNECT_TIMEOUT_MS: '',
+      PRISM_DB_QUERY_TIMEOUT_MS: '',
+    });
+    expect(cfg.connectTimeoutMs).toBe(5_000);
+    expect(cfg.queryTimeoutMs).toBe(10_000);
+  });
+
+  it('Redis는 필수인 채로 기본 타임아웃 5s/3s를 쓴다', () => {
+    const cfg = loadRedisConfig({
+      PRISM_REDIS_URL: 'redis://localhost:6379',
+      PRISM_REDIS_REQUIRED: '',
+      PRISM_REDIS_CONNECT_TIMEOUT_MS: '',
+      PRISM_REDIS_COMMAND_TIMEOUT_MS: '',
+    });
+    expect(cfg.required).toBe(true);
+    expect(cfg.connectTimeoutMs).toBe(5_000);
+    expect(cfg.commandTimeoutMs).toBe(3_000);
+  });
+
+  it('TURN 자격증명 수명은 12시간으로 떨어진다', () => {
+    expect(
+      loadIceConfig({
+        PRISM_TURN_URLS: 'turn:turn.example:3478',
+        PRISM_TURN_SECRET: 'shared-secret',
+        PRISM_TURN_TTL: '',
+      }).turn?.ttlMs,
+    ).toBe(12 * 60 * 60 * 1000);
   });
 });

@@ -29,6 +29,14 @@ env:
   # 운영 기본 true: DB 장애 시 부팅 실패 + 프로브로 트래픽 차단.
   dbRequired: "${PRISM_DB_REQUIRED:-true}"
 
+  # 저장소 연결 옵션(선택). **빈 값이면 코드 기본값**이다 — 기본값을 차트에 복제하지
+  # 않는다. 두 곳에 적어 두면 언젠가 갈리고, 그때 어느 쪽이 사는지 배포를 봐야만 안다.
+  redisRequired: "${PRISM_REDIS_REQUIRED:-}"
+  redisConnectTimeoutMs: "${PRISM_REDIS_CONNECT_TIMEOUT_MS:-}"
+  redisCommandTimeoutMs: "${PRISM_REDIS_COMMAND_TIMEOUT_MS:-}"
+  dbConnectTimeoutMs: "${PRISM_DB_CONNECT_TIMEOUT_MS:-}"
+  dbQueryTimeoutMs: "${PRISM_DB_QUERY_TIMEOUT_MS:-}"
+
 # 시크릿: env → k8s Secret.
 #
 # api는 세션을 발급하지 않고 **검증만** 하지만, 검증에는 auth와 **같은** 서명 키와
