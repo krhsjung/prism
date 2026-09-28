@@ -127,7 +127,7 @@ android {
         applicationId = "kr.hs.jung.prism"
         minSdk = 24
         targetSdk = 37
-        versionCode = 2
+        versionCode = 5
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
